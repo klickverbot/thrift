@@ -22,6 +22,7 @@ import std.algorithm : find, max;
 import std.array : empty, front;
 import std.conv : to;
 import std.exception : enforce;
+import std.traits : isSomeFunction, ParameterTypeTuple, ReturnType;
 import thrift.base;
 import thrift.protocol.base;
 
@@ -30,14 +31,21 @@ import thrift.protocol.base;
  */
 enum TReq {
   OPTIONAL,
-  REQUIRED
+  REQUIRED,
+  IGNORE /// Ignore the struct field when serializing/deserializing.
+}
+
+enum TMethodType {
+  REGULAR,
+  ONEWAY
 }
 
 /**
  * Compile-time metadata for a struct field.
  */
 struct TFieldMeta {
-  /// The name of the field.
+  /// The name of the field. Used for matching TFieldMeta with the actual
+  /// D struct member.
   string name;
 
   /// The (Thrift) id of the field.
@@ -48,6 +56,28 @@ struct TFieldMeta {
 
   /// A code string containing a D expression for the default value, if there
   /// is one.
+  string defaultValue;
+}
+
+/**
+ * Compile-time metadata for a service method.
+ */
+struct TMethodMeta {
+  string name;
+  TParamMeta[] params;
+  TMethodType type;
+}
+
+/**
+ * Compile-time metadata for a service method parameter.
+ */
+struct TParamMeta {
+  /// The name of the parameter. Contrary to TFieldMeta, it only serves
+  /// decorative purposes here.
+  string name;
+
+  short id;
+
   string defaultValue;
 }
 
@@ -119,7 +149,8 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   void write(TProtocol proto) const {
-    writeStruct!(This, fieldMetaData)(this, proto);
+    // DMD @@BUG@@: Why is false required here?
+    writeStruct!(This, fieldMetaData, false)(this, proto);
   }
 }
 
@@ -158,9 +189,8 @@ template TIsSetFlags(T, alias fieldMetaData) {
  * This is defined outside ThriftStructAdditions to make it possible to read
  * exisiting structs from the wire without altering the types.
  */
-void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
-  (ref T s, TProtocol p)
-{
+void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
+  bool pointerStruct = false)(ref T s, TProtocol p) {
   mixin({
     string code;
 
@@ -170,8 +200,14 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
-    string readFieldCode(F)(string name, short id, TReq req) {
-      immutable v = "s." ~ name;
+    string readFieldCode(FieldType)(string name, short id, TReq req) {
+      static if (pointerStruct) {
+        immutable v = "*s." ~ name;
+        alias typeof(*FieldType.init) F;
+      } else {
+        immutable v = "s." ~ name;
+        alias FieldType F;
+      }
 
       static if (is(F == bool)) {
         immutable pCall = v ~ " = p.readBool();";
@@ -204,6 +240,8 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
       code ~= pCall ~ "\n";
       if (req == TReq.REQUIRED) {
         code ~= "isSet" ~ name ~ " = true;\n";
+      } else if (!isNullable!F){
+        code ~= "s.isSetFlags." ~ name ~ " = true;\n";
       }
       code ~= "} else skip(p, f.type);\n";
       code ~= "break;\n";
@@ -216,38 +254,42 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
     short lastId;
 
     foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name))) {
-        auto meta = find!`a.name == b`(fieldMetaData, name);
-        if (meta.empty) continue;
-
-        if (meta.front.req == TReq.REQUIRED) {
-          // For required fields, generate bool flags to keep track whether
-          // the field has been encountered.
-          immutable n = "isSet" ~ name;
-          isSetFlagCode ~= "bool " ~ n ~ ";\n";
-          isSetCheckCode ~= "enforce(" ~ n ~ ", new TProtocolException(" ~
-            "`TRequired field '" ~ name ~ "' not found in serialized data`, " ~
-            "TProtocolException.Type.INVALID_DATA));\n";
+      static if (is(MemberType!(T, name)) &&
+        !isSomeFunction!(MemberType!(T, name)))
+      {
+        enum meta = find!`a.name == b`(fieldMetaData, name);
+        static if (!meta.empty && meta.front.req != TReq.IGNORE) {
+          if (meta.front.req == TReq.REQUIRED) {
+            // For required fields, generate bool flags to keep track whether
+            // the field has been encountered.
+            immutable n = "isSet_" ~ name;
+            isSetFlagCode ~= "bool " ~ n ~ ";\n";
+            isSetCheckCode ~= "enforce(" ~ n ~ ", new TProtocolException(" ~
+              "`TRequired field '" ~ name ~ "' not found in serialized data`, " ~
+              "TProtocolException.Type.INVALID_DATA));\n";
+          }
+          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
+            name, meta.front.id, meta.front.req);
+          lastId = max(lastId, meta.front.id);
         }
-        readMembersCode ~= readFieldCode!(MemberType!(T, name))(
-          name, meta.front.id, meta.front.req);
-        lastId = max(lastId, meta.front.id);
       }
     }
 
     foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name))) {
-        auto meta = find!`a.name == b`(fieldMetaData, name);
-        if (!meta.empty) continue;
-
-        ++lastId;
-        version (ThriftVerbose) {
-          code ~= "pragma(msg, `Warning: No meta information for field '" ~
-            name ~ "' in struct '" ~ T.stringof ~ "'. Assigned id: " ~
-            to!string(lastId) ~ ".`);\n";
+      static if (is(MemberType!(T, name)) &&
+        !isSomeFunction!(MemberType!(T, name)))
+      {
+        enum meta = find!`a.name == b`(fieldMetaData, name);
+        static if (meta.empty) {
+          ++lastId;
+          version (ThriftVerbose) {
+            code ~= "pragma(msg, `Warning: No meta information for field '" ~
+              name ~ "' in struct '" ~ T.stringof ~ "'. Assigned id: " ~
+              to!string(lastId) ~ ".`);\n";
+          }
+          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
+            name, lastId, TReq.OPTIONAL);
         }
-        readMembersCode ~= readFieldCode!(MemberType!(T, name))(
-          name, lastId, TReq.OPTIONAL);
       }
     }
 
@@ -272,9 +314,8 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
  * This is defined outside ThriftStructAdditions to make it possible to write
  * exisiting structs without extending them.
  */
-void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
-  (const T s, TProtocol p)
-{
+void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
+  bool pointerStruct = false) (const T s, TProtocol p) {
   // Check that all fields for which there is meta info are actually in the
   // passed struct type.
   mixin({
@@ -287,10 +328,9 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
 
   // Check that required nullable members are non-null.
   foreach (name; __traits(derivedMembers, T)) {
-    static if (!is(MemberType!(T, name))) {
-      // We hit something strange like the ThriftStructAdditions template,
-      // just ignore.
-    } else {
+    static if (is(MemberType!(T, name)) &&
+      !isSomeFunction!(MemberType!(T, name)))
+    {
       // If the field is nullable, we don't need an isSet flag as we can map
       // unset to null.
       static if (isNullable!(MemberType!(T, name))) {
@@ -305,8 +345,15 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
 
   p.writeStruct(TStruct(T.stringof), {
     mixin({
-      string writeFieldCode(F)(string name, short id, TReq req) {
-        immutable v = "s." ~ name;
+      string writeFieldCode(FieldType)(string name, short id, TReq req) {
+        static if (pointerStruct) {
+          immutable v = "*s." ~ name;
+          alias typeof(*FieldType.init) F;
+        } else {
+          immutable v = "s." ~ name;
+          alias FieldType F;
+        }
+
         static if (is(F == bool)) {
           immutable pCall = "p.writeBool(" ~ v ~ ");";
         } else static if (is(F == byte)) {
@@ -334,14 +381,14 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
         }
 
         string code;
-        if (req == TReq.OPTIONAL) {
+        if (!pointerStruct && req == TReq.OPTIONAL) {
           code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
         }
 
         code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
           ", " ~ to!string(id) ~ "), { " ~ pCall ~ " });\n";
 
-        if (req == TReq.OPTIONAL) {
+        if (!pointerStruct && req == TReq.OPTIONAL) {
           code ~= "}\n";
         }
         return code;
@@ -352,11 +399,13 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
       string code = "";
       short lastId;
       foreach (name; __traits(derivedMembers, T)) {
-        static if (is(MemberType!(T, name))) {
+        static if (is(MemberType!(T, name)) &&
+          !isSomeFunction!(MemberType!(T, name)))
+        {
           alias MemberType!(T, name) F;
 
           auto meta = find!`a.name == b`(fieldMetaData, name);
-          if (meta.empty) {
+          if (meta.empty || meta.front.req == TReq.IGNORE) {
             continue;
           }
 
@@ -366,7 +415,9 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
       }
 
       foreach (name; __traits(derivedMembers, T)) {
-        static if (is(MemberType!(T, name))) {
+        static if (is(MemberType!(T, name)) &&
+          !isSomeFunction!(MemberType!(T, name)))
+        {
           alias MemberType!(T, name) F;
 
           auto meta = find!`a.name == b`(fieldMetaData, name);
@@ -387,6 +438,76 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null)
       return code;
     }());
   });
+}
+
+template TPargsStruct(Interface, string methodName) {
+  static assert(is(typeof(mixin("Interface." ~ methodName))),
+    "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
+  mixin({
+    bool methodMetaFound;
+    TMethodMeta methodMeta;
+    static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+      auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
+      if (!meta.empty) {
+        methodMetaFound = true;
+        methodMeta = meta.front;
+      }
+    }
+
+    string memberCode;
+    string[] fieldMetaCodes;
+    foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+      // If we have no meta information, just use param0, param1, etc. as
+      // field names, it shouldn't really matter anyway.
+      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
+        "param" ~ to!string(i);
+
+      memberCode ~= "const(ParameterTypeTuple!(Interface." ~ methodName ~
+        ")[" ~ to!string(i) ~ "])* " ~ memberName ~ ";\n";
+
+      fieldMetaCodes ~= "TFieldMeta(`" ~memberName ~ "`, " ~
+        to!string(methodMetaFound ? methodMeta.params[i].id : i) ~ ")";
+    }
+
+    string code = "struct TPargsStruct {\n";
+    code ~= memberCode;
+    version (ThriftVerbose) {
+      if (!methodMetaFound) {
+        code ~= "pragma(msg, `Warning: No meta information for method '" ~
+          methodName ~ "' in service '" ~ Interface.stringof ~ "' found.`);\n";
+      }
+    }
+    code ~= "void write(TProtocol proto) const {\n";
+    code ~= "writeStruct!(TPargsStruct, [" ~ ctfeJoin(fieldMetaCodes, ", ") ~
+      "], true)(this, proto);\n";
+    code ~= "}\n";
+    code ~= "};\n";
+    return code;
+  }());
+}
+
+struct TPresultStruct(Interface, string methodName) {
+  static assert(is(typeof(mixin("Interface." ~ methodName))),
+    "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
+
+  ReturnType!(mixin("Interface." ~ methodName))* success;
+
+  struct IsSetFlags {
+    bool success;
+  }
+  IsSetFlags isSetFlags;
+
+  bool isSet(string fieldName : "success")() const {
+    return isSetFlags.success;
+  }
+
+  void read(TProtocol proto) {
+    readStruct!(
+      TPresultStruct,
+      [TFieldMeta("success", 0), TFieldMeta("isSetFlags", 0, TReq.IGNORE)],
+      true
+    )(this, proto);
+  }
 }
 
 private {
@@ -431,5 +552,19 @@ private {
 
   template MemberType(T, string name) {
     alias typeof(__traits(getMember, T.init, name)) MemberType;
+  }
+
+  /**
+   * Simple eager join() for strings, std.algorithm.join isn't CTFEable yet.
+   */
+  string ctfeJoin(string[] strings, string separator) {
+    string result;
+    if (strings.length > 0) {
+      result ~= strings[0];
+      foreach (s; strings[1..$]) {
+        result ~= separator ~ s;
+      }
+    }
+    return result;
   }
 }
