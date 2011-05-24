@@ -58,7 +58,7 @@ enum TMessageType : byte {
 /**
  * Descriptions of Thrift entities.
  *
- * TODO: Why do we have names? Where are they used?
+ * TODO: Why do we have struct names? Where are they used?
  */
 struct TField {
   string name;
@@ -303,4 +303,98 @@ void skip(TProtocol prot, TType type) {
     default:
       break;
   }
+}
+
+/**
+ * Application level exception.
+ *
+ * TODO: Replace hand-written read()/write() with thrift.codegen templates.
+ */
+class TApplicationException : TException {
+  enum Type {
+    UNKNOWN = 0,
+    UNKNOWN_METHOD = 1,
+    INVALID_MESSAGE_TYPE = 2,
+    WRONG_METHOD_NAME = 3,
+    BAD_SEQUENCE_ID = 4,
+    MISSING_RESULT = 5,
+    INTERNAL_ERROR = 6,
+    PROTOCOL_ERROR = 7
+  }
+
+  this(string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
+    this(Type.UNKNOWN, file, line, next);
+  }
+
+  this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
+    string msgForType(Type type) {
+      switch (type) {
+        case Type.UNKNOWN: return "TApplicationException: Unknown application exception";
+        case Type.UNKNOWN_METHOD: return "TApplicationException: Unknown method";
+        case Type.INVALID_MESSAGE_TYPE: return "TApplicationException: Invalid message type";
+        case Type.WRONG_METHOD_NAME: return "TApplicationException: Wrong method name";
+        case Type.BAD_SEQUENCE_ID: return "TApplicationException: Bad sequence identifier";
+        case Type.MISSING_RESULT: return "TApplicationException: Missing result";
+        default: return "TApplicationException: (Invalid exception type)";
+      };
+    }
+    this(msgForType(type), type, file, line, next);
+  }
+
+  this(string msg, string file = __FILE__, size_t line = __LINE__,
+    Throwable next = null)
+  {
+    this(msg, Type.UNKNOWN, file, line, next);
+  }
+
+  this(string msg, Type type, string file = __FILE__, size_t line = __LINE__,
+    Throwable next = null)
+  {
+    super(msg, file, line, next);
+    type_ = type;
+  }
+
+  Type type() @property {
+    return type_;
+  }
+
+  void read(TProtocol iprot) {
+    iprot.readStruct((TField f) {
+      switch (f.id) {
+        case 1:
+          if (f.type == TType.STRING) {
+            msg = iprot.readString();
+          } else {
+            skip(iprot, f.type);
+          }
+          break;
+        case 2:
+          if (f.type == TType.I32) {
+            type_ = cast(Type)iprot.readI32();
+          } else {
+            skip(iprot, f.type);
+          }
+          break;
+        default:
+          skip(iprot, f.type);
+          break;
+      }
+    });
+  }
+
+  void write(TProtocol oprot) const {
+    oprot.writeStruct(TStruct("TApplicationException"), {
+      if (msg != null) {
+        oprot.writeField(TField("message", TType.STRING, 1), {
+          oprot.writeString(msg);
+        });
+      }
+      oprot.writeField(TField("type", TType.I32, 2), {
+        oprot.writeI32(type_);
+      });
+    });
+  }
+
+private:
+  Type type_;
 }

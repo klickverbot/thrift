@@ -457,16 +457,17 @@ template TPargsStruct(Interface, string methodName) {
     string memberCode;
     string[] fieldMetaCodes;
     foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-      // If we have no meta information, just use param0, param1, etc. as
-      // field names, it shouldn't really matter anyway.
+      // If we have no meta information, just use param1, param2, etc. as
+      // field names, it shouldn't really matter anyway. 1-based »indexing«
+      // is used to match the common scheme in the Thrift world.
       immutable memberName = methodMetaFound ? methodMeta.params[i].name :
-        "param" ~ to!string(i);
+        "param" ~ to!string(i + 1);
 
       memberCode ~= "const(ParameterTypeTuple!(Interface." ~ methodName ~
         ")[" ~ to!string(i) ~ "])* " ~ memberName ~ ";\n";
 
       fieldMetaCodes ~= "TFieldMeta(`" ~memberName ~ "`, " ~
-        to!string(methodMetaFound ? methodMeta.params[i].id : i) ~ ")";
+        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
     }
 
     string code = "struct TPargsStruct {\n";
@@ -508,6 +509,120 @@ struct TPresultStruct(Interface, string methodName) {
       true
     )(this, proto);
   }
+}
+
+template TClient(Interface) if (is(Interface _ == interface)) {
+  mixin({
+    string code = "class TClient : Interface {";
+    static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
+      static assert(false, "Service inheritance not implemented yet.");
+    } else {
+      code ~= q{
+        this(TProtocol iprot, TProtocol oprot) {
+          iprot_ = iprot;
+          oprot_ = oprot;
+        }
+
+        this(TProtocol prot) {
+          this(prot, prot);
+        }
+
+        TProtocol getInputProtocol() {
+          return iprot_;
+        }
+
+        TProtocol getOutputProtocol() {
+          return oprot_;
+        }
+
+        protected TProtocol iprot_;
+        protected TProtocol oprot_;
+        protected int seqid_;
+      };
+    }
+
+    foreach (methodName; __traits(derivedMembers, Interface)) {
+      static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
+        bool methodMetaFound;
+        TMethodMeta methodMeta;
+        static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+          enum meta = find!`a.name == b`(Interface.methodMeta, methodName);
+          if (!meta.empty) {
+            methodMetaFound = true;
+            methodMeta = meta.front;
+          }
+        }
+
+        // Generate the code for sending.
+        string[] paramList;
+        string paramAssignCode;
+        foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+          // Just cosmetics in this case.
+          immutable paramName = methodMetaFound ? methodMeta.params[i].name :
+            "param" ~ to!string(i);
+
+          paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+            to!string(i) ~ "] " ~ paramName;
+          paramAssignCode ~= "args." ~ paramName ~ "= &" ~ paramName ~ ";\n";
+        }
+        code ~= "ReturnType!(Interface." ~ methodName ~ ") " ~ methodName ~
+          "(" ~ ctfeJoin(paramList, ", ") ~ ") {\n";
+
+        code ~= "immutable methodName = `" ~ methodName ~ "`;\n";
+
+        immutable paramStructType =
+          "TPargsStruct!(Interface, `" ~ methodName ~ "`)";
+        code ~= paramStructType ~ " args = " ~ paramStructType ~ "();\n";
+        code ~= paramAssignCode;
+        code ~= "oprot_.writeMessage(TMessage(`" ~ methodName ~
+          "`, TMessageType.CALL, ++seqid_), {\n";
+        code ~= "args.write(oprot_);\n";
+        code ~= "});\n";
+        code ~= "oprot_.getTransport().flush();\n";
+
+        // If this is not a oneway method, generate the recieving code.
+        if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
+          code ~= "ReturnType!(Interface." ~ methodName ~ ") _return;\n";
+          code ~= "TPresultStruct!(Interface, `" ~ methodName ~ "`) result;\n";
+          code ~= "result.success = &_return;\n";
+
+          // TODO: The C++ implementation checks for matching name here,
+          // should we do as well?
+          code ~= q{
+            iprot_.readMessage((TMessage msg) {
+              if (msg.type == TMessageType.EXCEPTION) {
+                auto x = new TApplicationException();
+                x.read(iprot_);
+                iprot_.getTransport().readEnd();
+                throw x;
+              }
+              if (msg.type != TMessageType.REPLY) {
+                skip(iprot_, TType.STRUCT);
+                iprot_.getTransport().readEnd();
+              }
+              if (msg.seqid != seqid_) {
+                throw new TApplicationException(
+                  methodName ~ " failed: Out of sequence response.",
+                  TApplicationException.Type.BAD_SEQUENCE_ID
+                );
+              }
+              result.read(iprot_);
+            });
+
+            if (result.isSet!`success`) return _return;
+            throw new TApplicationException(
+              methodName ~ " failed: Unknown result.",
+              TApplicationException.Type.MISSING_RESULT
+            );
+          };
+        }
+        code ~= "}\n";
+      }
+    }
+
+    code ~= "}\n";
+    return code;
+  }());
 }
 
 private {
