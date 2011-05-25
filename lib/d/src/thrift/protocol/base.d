@@ -40,8 +40,7 @@ enum TType : byte {
   STRUCT = 12,
   MAP    = 13,
   SET    = 14,
-  LIST   = 15,
-  ENUM   = 16
+  LIST   = 15
 }
 
 /**

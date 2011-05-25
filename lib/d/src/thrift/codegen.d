@@ -22,7 +22,7 @@ import std.algorithm : find, max;
 import std.array : empty, front;
 import std.conv : to;
 import std.exception : enforce;
-import std.traits : isSomeFunction, ParameterTypeTuple, ReturnType;
+import std.traits;
 import thrift.base;
 import thrift.protocol.base;
 
@@ -65,6 +65,7 @@ struct TFieldMeta {
 struct TMethodMeta {
   string name;
   TParamMeta[] params;
+  TExceptionMeta[] exceptions;
   TMethodType type;
 }
 
@@ -81,10 +82,24 @@ struct TParamMeta {
   string defaultValue;
 }
 
+/**
+ * Compile-time metadata for a service method exception annotation.
+ */
+struct TExceptionMeta {
+  /// The name of the exception »return value«. Contrary to TFieldMeta, it
+  /// only serves decorative purposes here.
+  string name;
+
+  short id;
+
+  string type;
+}
+
 mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   is(typeof(fieldMetaData) : TFieldMeta[])
 ) {
   import std.algorithm : canFind;
+  import thrift.protocol.base : TProtocol;
 
   alias typeof(this) This;
 
@@ -163,7 +178,7 @@ template TIsSetFlags(T, alias fieldMetaData) {
     string boolDefinitions;
     foreach (name; __traits(derivedMembers, T)) {
       static if (!is(MemberType!(T, name))) {
-        // We hit something strange like the ThriftStructAdditions template,
+        // We hit something strange like the TStructHelpers template itself,
         // just ignore.
       } else {
         // If the field is nullable, we don't need an isSet flag as we can map
@@ -186,7 +201,7 @@ template TIsSetFlags(T, alias fieldMetaData) {
 /**
  * Reads a Thrift struct to a target protocol.
  *
- * This is defined outside ThriftStructAdditions to make it possible to read
+ * This is defined outside TStructHelpers to make it possible to read
  * exisiting structs from the wire without altering the types.
  */
 void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
@@ -196,17 +211,19 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    foreach (field; fieldMetaData) {
+    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
+    // static if clause should not be necessary.
+    static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
     string readFieldCode(FieldType)(string name, short id, TReq req) {
-      static if (pointerStruct) {
+      static if (pointerStruct && isPointer!FieldType) {
         immutable v = "*s." ~ name;
-        alias typeof(*FieldType.init) F;
+        alias Unqual!(pointerTarget!FieldType) F;
       } else {
         immutable v = "s." ~ name;
-        alias FieldType F;
+        alias Unqual!FieldType F;
       }
 
       static if (is(F == bool)) {
@@ -229,8 +246,11 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         immutable pCall = "assert(false); // Not implemented yet.";
       } else static if (is(F _ : V[K], K, V)) {
         immutable pCall = "assert(false); // Not implemented yet.";
-      } else /+ TODO: sets+/ static if (is(F == struct)) {
+      } else static if (is(F == struct)) {
         immutable pCall = "assert(false); // Not implemented yet.";
+      } else static if (is(F : TException)) {
+        immutable pCall = v ~ " = new typeof(" ~ v ~ ")();\n" ~
+          v ~ ".read(p);";
       } else {
         static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
       }
@@ -311,7 +331,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 /**
  * Writes a Thrift struct to a target protocol.
  *
- * This is defined outside ThriftStructAdditions to make it possible to write
+ * This is defined outside TStructHelpers to make it possible to write
  * exisiting structs without extending them.
  */
 void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
@@ -320,7 +340,9 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
   // passed struct type.
   mixin({
     string code = "";
-    foreach (field; fieldMetaData) {
+    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
+    // static if clause should not be necessary.
+    static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
     return code;
@@ -346,12 +368,12 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
   p.writeStruct(TStruct(T.stringof), {
     mixin({
       string writeFieldCode(FieldType)(string name, short id, TReq req) {
-        static if (pointerStruct) {
-          immutable v = "*s." ~ name;
-          alias typeof(*FieldType.init) F;
+        static if (pointerStruct && isPointer!FieldType) {
+          immutable v = "(*s." ~ name ~ ")";
+          alias Unqual!(pointerTarget!FieldType) F;
         } else {
           immutable v = "s." ~ name;
-          alias FieldType F;
+          alias Unqual!FieldType F;
         }
 
         static if (is(F == bool)) {
@@ -371,11 +393,11 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         } else static if (is(F == enum)) {
           immutable pCall = "p.writeI32(cast(int)" ~ v ~ ");";
         } else static if (is(F _ : U[], U)) {
-          immutable pCall = "assert(false); // Not implemented yet.";
+          immutable pCall = "assert(false); /+ Not implemented yet.+/";
         } else static if (is(F _ : V[K], K, V)) {
-          immutable pCall = "assert(false); // Not implemented yet.";
-        } else /+ TODO: sets+/ static if (is(F == struct)) {
-          immutable pCall = "assert(false); // Not implemented yet.";
+          immutable pCall = "assert(false); /+ Not implemented yet.+/";
+        } else static if (is(F == struct)) {
+          immutable pCall = v ~ ".write(p);";
         } else {
           static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
         }
@@ -387,6 +409,7 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
         code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
           ", " ~ to!string(id) ~ "), { " ~ pCall ~ " });\n";
+        // code ~= "writefln(`" ~ name ~ ": %s`, " ~ v ~ ");\n";
 
         if (!pointerStruct && req == TReq.OPTIONAL) {
           code ~= "}\n";
@@ -463,10 +486,13 @@ template TPargsStruct(Interface, string methodName) {
       immutable memberName = methodMetaFound ? methodMeta.params[i].name :
         "param" ~ to!string(i + 1);
 
-      memberCode ~= "const(ParameterTypeTuple!(Interface." ~ methodName ~
-        ")[" ~ to!string(i) ~ "])* " ~ memberName ~ ";\n";
+      // Workaround for DMD @@BUG@@ 6056: make an intermediary alias for the
+      // parameter type, and declare the member using const(memberNameType)*.
+      memberCode ~= "alias ParameterTypeTuple!(Interface." ~ methodName ~
+        ")[" ~ to!string(i) ~ "] " ~ memberName ~ "Type;\n";
+      memberCode ~= "const(" ~ memberName ~ "Type)* " ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~memberName ~ "`, " ~
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
         to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
     }
 
@@ -482,33 +508,70 @@ template TPargsStruct(Interface, string methodName) {
     code ~= "writeStruct!(TPargsStruct, [" ~ ctfeJoin(fieldMetaCodes, ", ") ~
       "], true)(this, proto);\n";
     code ~= "}\n";
-    code ~= "};\n";
+    code ~= "}\n";
     return code;
   }());
 }
 
-struct TPresultStruct(Interface, string methodName) {
+template TPresultStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
 
-  ReturnType!(mixin("Interface." ~ methodName))* success;
+  mixin({
+    string code = "struct TPresultStruct {\n";
 
-  struct IsSetFlags {
-    bool success;
-  }
-  IsSetFlags isSetFlags;
+    string[] fieldMetaCodes;
 
-  bool isSet(string fieldName : "success")() const {
-    return isSetFlags.success;
-  }
+    static if (!is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+      code ~= q{
+        ReturnType!(mixin("Interface." ~ methodName))* success;
+        struct IsSetFlags {
+          bool success;
+        }
+        IsSetFlags isSetFlags;
+      };
+      fieldMetaCodes ~= [
+        "TFieldMeta(`success`, 0)",
+        "TFieldMeta(`isSetFlags`, 0, TReq.IGNORE)"
+      ];
+    }
 
-  void read(TProtocol proto) {
-    readStruct!(
-      TPresultStruct,
-      [TFieldMeta("success", 0), TFieldMeta("isSetFlags", 0, TReq.IGNORE)],
-      true
-    )(this, proto);
-  }
+    static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+      auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
+      if (!meta.empty) {
+        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
+        // on empty exception arrays.
+        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+          code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
+          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~ ")";
+        }
+      } else {
+        version (ThriftVerbose) {
+          code ~= "pragma(msg, `Warning: No meta information for method '" ~
+            methodName ~ "' in service '" ~ Interface.stringof ~ "' found.`);\n";
+        }
+      }
+    }
+
+    code ~= q{
+      bool isSet(string fieldName)() const if (is(MemberType!(typeof(this), fieldName))) {
+        static if (fieldName == "success") {
+          return isSetFlags.success;
+        } else {
+          // We are dealing with an exception member, which, being a nullable
+          // type (exceptions are always classes), has no isSet flag.
+          return __traits(getMember, this, fieldName) !is null;
+        }
+      }
+    };
+
+    code ~= "void read(TProtocol proto) {\n";
+    code ~= "readStruct!(TPresultStruct, [" ~ ctfeJoin(fieldMetaCodes, ", ") ~
+      "], true)(this, proto);\n";
+    code ~= "}\n";
+    code ~= "}\n";
+    return code;
+  }());
 }
 
 template TClient(Interface) if (is(Interface _ == interface)) {
@@ -563,7 +626,7 @@ template TClient(Interface) if (is(Interface _ == interface)) {
 
           paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
-          paramAssignCode ~= "args." ~ paramName ~ "= &" ~ paramName ~ ";\n";
+          paramAssignCode ~= "args." ~ paramName ~ " = &" ~ paramName ~ ";\n";
         }
         code ~= "ReturnType!(Interface." ~ methodName ~ ") " ~ methodName ~
           "(" ~ ctfeJoin(paramList, ", ") ~ ") {\n";
@@ -582,9 +645,12 @@ template TClient(Interface) if (is(Interface _ == interface)) {
 
         // If this is not a oneway method, generate the recieving code.
         if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
-          code ~= "ReturnType!(Interface." ~ methodName ~ ") _return;\n";
           code ~= "TPresultStruct!(Interface, `" ~ methodName ~ "`) result;\n";
-          code ~= "result.success = &_return;\n";
+
+          if (!is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+            code ~= "ReturnType!(Interface." ~ methodName ~ ") _return;\n";
+            code ~= "result.success = &_return;\n";
+          }
 
           // TODO: The C++ implementation checks for matching name here,
           // should we do as well?
@@ -608,13 +674,26 @@ template TClient(Interface) if (is(Interface _ == interface)) {
               }
               result.read(iprot_);
             });
-
-            if (result.isSet!`success`) return _return;
-            throw new TApplicationException(
-              methodName ~ " failed: Unknown result.",
-              TApplicationException.Type.MISSING_RESULT
-            );
           };
+
+          if (methodMetaFound) {
+            // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
+            // on empty exception arrays.
+            if (!methodMeta.exceptions.empty) foreach (e; methodMeta.exceptions) {
+              code ~= "if (result.isSet!`" ~ e.name ~ "`) throw result." ~
+                e.name ~ ";\n";
+            }
+          }
+
+          if (!is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+            code ~= q{
+              if (result.isSet!`success`) return _return;
+              throw new TApplicationException(
+                methodName ~ " failed: Unknown result.",
+                TApplicationException.Type.MISSING_RESULT
+              );
+            };
+          }
         }
         code ~= "}\n";
       }
@@ -646,12 +725,14 @@ private {
     } else static if (is(T : string)) {
       enum dToTTypeString = "TType.STRING";
     } else static if (is(T == enum)) {
-      enum dToTTypeString = "TType.ENUM";
+      enum dToTTypeString = "TType.I32";
     } else static if (is(T _ : U[], U)) {
       enum dToTTypeString = "TType.LIST";
     } else static if (is(T _ : V[K], K, V)) {
       enum dToTTypeString = "TType.MAP";
-    } else /+ TODO: sets+/ static if (is(T == struct)) {
+    } else static if (is(T == struct)) {
+      enum dToTTypeString = "TType.STRUCT";
+    } else static if (is(T : TException)) {
       enum dToTTypeString = "TType.STRUCT";
     } else {
       static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
