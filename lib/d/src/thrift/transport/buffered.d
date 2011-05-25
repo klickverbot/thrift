@@ -82,9 +82,9 @@ class TBufferBase : TTransport {
   /**
    * Fast-path borrow.  A lot like the fast-path read.
    */
-  const (ubyte)* borrow(ubyte* buf, uint* len) {
-    if (cast(ptrdiff_t)*len <= rBound_ - rBase_) {
-      *len = cast(uint)(rBound_ - rBase_);
+  override const(ubyte)* borrow(ubyte* buf, ref uint len) {
+    if (cast(ptrdiff_t)len <= rBound_ - rBase_) {
+      len = cast(uint)(rBound_ - rBase_);
       return rBase_;
     }
     return borrowSlow(buf, len);
@@ -93,7 +93,7 @@ class TBufferBase : TTransport {
   /**
    * Consume doesn't require a slow path.
    */
-  void consume(uint len) {
+  override void consume(uint len) {
     enforce(cast(ptrdiff_t)len <= rBound_ - rBase_, new TTransportException(
       TTransportException.Type.BAD_ARGS, "consume did not follow a borrow."));
     rBase_ += len;
@@ -112,7 +112,7 @@ protected:
    *
    * POSTCONDITION: return == NULL || rBound_ - rBase_ >= *len
    */
-  abstract const(ubyte)* borrowSlow(ubyte* buf, uint* len);
+  abstract const(ubyte)* borrowSlow(ubyte* buf, ref uint len);
 
   /**
    * Trivial constructor.
@@ -148,10 +148,7 @@ protected:
   ubyte* wBound_;
 }
 
-class TBufferedTransport : TBufferBase
-{
- public:
-
+class TBufferedTransport : TBufferBase {
   enum int DEFAULT_BUFFER_SIZE = 512;
 
   /// Use default buffer sizes.
@@ -306,7 +303,7 @@ class TBufferedTransport : TBufferBase
    *    will ever have to be copied again.  For optimial performance,
    *    stay under this limit.
    */
-  override const (ubyte)* borrowSlow(ubyte* buf, uint* len) {
+  override const(ubyte)* borrowSlow(ubyte* buf, ref uint len) {
     return null;
   }
 
