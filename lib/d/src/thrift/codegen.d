@@ -303,9 +303,9 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         static if (meta.empty) {
           ++lastId;
           version (ThriftVerbose) {
-            code ~= "pragma(msg, `Warning: No meta information for field '" ~
-              name ~ "' in struct '" ~ T.stringof ~ "'. Assigned id: " ~
-              to!string(lastId) ~ ".`);\n";
+            code ~= "pragma(msg, `[thrift.codegen.readStruct] Warning: No " ~
+              "meta information for field '" ~name ~ "' in struct '" ~
+              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
           }
           readMembersCode ~= readFieldCode!(MemberType!(T, name))(
             name, lastId, TReq.OPTIONAL);
@@ -450,9 +450,9 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
           ++lastId;
           version (ThriftVerbose) {
-            code ~= "pragma(msg, `Warning: No meta information for field '" ~
-              name ~ "' in struct '" ~ T.stringof ~ "'. Assigned id: " ~
-              to!string(lastId) ~ ".`);\n";
+            code ~= "pragma(msg, `[thrift.codegen.writeStruct] Warning: No " ~
+              "meta information for field '" ~name ~ "' in struct '" ~
+              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
           }
           code ~= writeFieldCode!F(name, lastId, TReq.OPTIONAL);
         }
@@ -499,9 +499,12 @@ template TPargsStruct(Interface, string methodName) {
     string code = "struct TPargsStruct {\n";
     code ~= memberCode;
     version (ThriftVerbose) {
-      if (!methodMetaFound) {
-        code ~= "pragma(msg, `Warning: No meta information for method '" ~
-          methodName ~ "' in service '" ~ Interface.stringof ~ "' found.`);\n";
+      if (!methodMetaFound &&
+        ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
+      {
+        code ~= "pragma(msg, `[thrift.codegen.TPargsStruct] Warning: No " ~
+          "meta information for method '" ~ methodName ~ "' in service '" ~
+          Interface.stringof ~ "' found.`);\n";
       }
     }
     code ~= "void write(TProtocol proto) const {\n";
@@ -536,6 +539,7 @@ template TPresultStruct(Interface, string methodName) {
       ];
     }
 
+    bool methodMetaFound;
     static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
       auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
       if (!meta.empty) {
@@ -545,11 +549,17 @@ template TPresultStruct(Interface, string methodName) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
           fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~ ")";
         }
-      } else {
-        version (ThriftVerbose) {
-          code ~= "pragma(msg, `Warning: No meta information for method '" ~
-            methodName ~ "' in service '" ~ Interface.stringof ~ "' found.`);\n";
-        }
+        methodMetaFound = true;
+      }
+    }
+
+    version (ThriftVerbose) {
+      if (!methodMetaFound &&
+        ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
+      {
+        code ~= "pragma(msg, `[thrift.codegen.TPresultStruct] Warning: No " ~
+          "meta information for method '" ~ methodName ~ "' in service '" ~
+          Interface.stringof ~ "' found.`);\n";
       }
     }
 
