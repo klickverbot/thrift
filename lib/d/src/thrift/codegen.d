@@ -219,7 +219,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
     string readFieldCode(FieldType)(string name, short id, TReq req) {
       static if (pointerStruct && isPointer!FieldType) {
-        immutable v = "*s." ~ name;
+        immutable v = "(*s." ~ name ~ ")";
         alias Unqual!(pointerTarget!FieldType) F;
       } else {
         immutable v = "s." ~ name;
@@ -243,11 +243,12 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
       } else static if (is(F == enum)) {
         immutable pCall = v ~ " = cast(typeof(" ~ v ~ "))p.readI32();";
       } else static if (is(F _ : U[], U)) {
-        immutable pCall = "assert(false); // Not implemented yet.";
+        static assert(false, "list<> not implemented yet.");
       } else static if (is(F _ : V[K], K, V)) {
-        immutable pCall = "assert(false); // Not implemented yet.";
+        static assert(false, "map<> not implemented yet.");
       } else static if (is(F == struct)) {
-        immutable pCall = "assert(false); // Not implemented yet.";
+        immutable pCall = v ~ " = typeof(" ~ v ~ ")();\n" ~
+          v ~ ".read(p);";
       } else static if (is(F : TException)) {
         immutable pCall = v ~ " = new typeof(" ~ v ~ ")();\n" ~
           v ~ ".read(p);";
@@ -393,9 +394,9 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         } else static if (is(F == enum)) {
           immutable pCall = "p.writeI32(cast(int)" ~ v ~ ");";
         } else static if (is(F _ : U[], U)) {
-          immutable pCall = "assert(false); /+ Not implemented yet.+/";
+          static assert(false, "list<> not implemented yet.");
         } else static if (is(F _ : V[K], K, V)) {
-          immutable pCall = "assert(false); /+ Not implemented yet.+/";
+          static assert(false, "map<> not implemented yet.");
         } else static if (is(F == struct)) {
           immutable pCall = v ~ ".write(p);";
         } else {
