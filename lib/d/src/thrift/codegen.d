@@ -622,7 +622,7 @@ template TClient(Interface) if (is(Interface _ == interface)) {
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
           // Just cosmetics in this case.
           immutable paramName = methodMetaFound ? methodMeta.params[i].name :
-            "param" ~ to!string(i);
+            "param" ~ to!string(i + 1);
 
           paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
