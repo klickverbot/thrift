@@ -587,10 +587,23 @@ template TPresultStruct(Interface, string methodName) {
 
 template TClient(Interface) if (is(Interface _ == interface)) {
   mixin({
-    string code = "class TClient : Interface {";
     static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
-      static assert(false, "Service inheritance not implemented yet.");
+      static assert(BaseInterfaces.length == 1,
+        "Services cannot be derived from more than one parent.");
+
+      string code =
+        "class TClient : TClient!(BaseTypeTuple!(Interface)[0]), Interface {\n";
+      code ~= q{
+        this(TProtocol iprot, TProtocol oprot) {
+          super(iprot, oprot);
+        }
+
+        this(TProtocol prot) {
+          super(prot);
+        }
+      };
     } else {
+      string code = "class TClient : Interface {";
       code ~= q{
         this(TProtocol iprot, TProtocol oprot) {
           iprot_ = iprot;
