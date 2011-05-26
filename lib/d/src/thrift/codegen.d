@@ -25,6 +25,7 @@ import std.exception : enforce;
 import std.traits;
 import thrift.base;
 import thrift.protocol.base;
+import thrift.protocol.processor;
 
 /**
  * Struct field requirement levels.
@@ -410,6 +411,8 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
           static assert(false, "map<> not implemented yet.");
         } else static if (is(F == struct)) {
           immutable pCall = v ~ ".write(p);";
+        } else static if (is(F : TException)) {
+          immutable pCall = v ~ ".write(p);";
         } else {
           static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
         }
@@ -474,6 +477,55 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
   });
 }
 
+template TArgsStruct(Interface, string methodName) {
+  static assert(is(typeof(mixin("Interface." ~ methodName))),
+    "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
+  mixin({
+    bool methodMetaFound;
+    TMethodMeta methodMeta;
+    static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+      auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
+      if (!meta.empty) {
+        methodMetaFound = true;
+        methodMeta = meta.front;
+      }
+    }
+
+    string memberCode;
+    string[] fieldMetaCodes;
+    foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+      // If we have no meta information, just use param1, param2, etc. as
+      // field names, it shouldn't really matter anyway. 1-based »indexing«
+      // is used to match the common scheme in the Thrift world.
+      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
+        "param" ~ to!string(i + 1);
+
+      memberCode ~= "ParameterTypeTuple!(Interface." ~ methodName ~
+        ")[" ~ to!string(i) ~ "]" ~ memberName ~ ";\n";
+
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
+        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
+    }
+
+    string code = "struct TArgsStruct {\n";
+    code ~= memberCode;
+    version (ThriftVerbose) {
+      if (!methodMetaFound &&
+        ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
+      {
+        code ~= "pragma(msg, `[thrift.codegen.TPargsStruct] Warning: No " ~
+          "meta information for method '" ~ methodName ~ "' in service '" ~
+          Interface.stringof ~ "' found.`);\n";
+      }
+    }
+    immutable fieldMetaCode =
+      fieldMetaCodes.empty ? "" : "[" ~ ctfeJoin(fieldMetaCodes) ~ "]";
+    code ~= "mixin TStructHelpers!(" ~ fieldMetaCode  ~ ");\n";
+    code ~= "}\n";
+    return code;
+  }());
+}
+
 template TPargsStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
@@ -513,15 +565,62 @@ template TPargsStruct(Interface, string methodName) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
-        code ~= "pragma(msg, `[thrift.codegen.TPargsStruct] Warning: No " ~
+        code ~= "pragma(msg, `[thrift.codegen.TArgsStruct] Warning: No " ~
           "meta information for method '" ~ methodName ~ "' in service '" ~
           Interface.stringof ~ "' found.`);\n";
       }
     }
     code ~= "void write(TProtocol proto) const {\n";
-    code ~= "writeStruct!(TPargsStruct, [" ~ ctfeJoin(fieldMetaCodes, ", ") ~
+    code ~= "writeStruct!(TPargsStruct, [" ~ ctfeJoin(fieldMetaCodes) ~
       "], true)(this, proto);\n";
     code ~= "}\n";
+    code ~= "}\n";
+    return code;
+  }());
+}
+
+template TResultStruct(Interface, string methodName) {
+  static assert(is(typeof(mixin("Interface." ~ methodName))),
+    "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
+
+  mixin({
+    string code = "struct TResultStruct {\n";
+
+    string[] fieldMetaCodes;
+
+    static if (!is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+      code ~= "ReturnType!(Interface." ~ methodName ~ ") success;\n";
+      fieldMetaCodes ~= "TFieldMeta(`success`, 0, TReq.OPTIONAL)";
+    }
+
+    bool methodMetaFound;
+    static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+      auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
+      if (!meta.empty) {
+        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
+        // on empty exception arrays.
+        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+          code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
+          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id)
+            ~ ", TReq.OPTIONAL)";
+        }
+        methodMetaFound = true;
+      }
+    }
+
+    version (ThriftVerbose) {
+      if (!methodMetaFound &&
+        ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
+      {
+        code ~= "pragma(msg, `[thrift.codegen.TResultStruct] Warning: No " ~
+          "meta information for method '" ~ methodName ~ "' in service '" ~
+          Interface.stringof ~ "' found.`);\n";
+      }
+    }
+
+    immutable fieldMetaCode =
+      fieldMetaCodes.empty ? "" : "[" ~ ctfeJoin(fieldMetaCodes) ~ "]";
+    code ~= "mixin TStructHelpers!(" ~ fieldMetaCode  ~ ");\n";
     code ~= "}\n";
     return code;
   }());
@@ -545,7 +644,7 @@ template TPresultStruct(Interface, string methodName) {
         IsSetFlags isSetFlags;
       };
       fieldMetaCodes ~= [
-        "TFieldMeta(`success`, 0)",
+        "TFieldMeta(`success`, 0, TReq.OPTIONAL)",
         "TFieldMeta(`isSetFlags`, 0, TReq.IGNORE)"
       ];
     }
@@ -558,7 +657,8 @@ template TPresultStruct(Interface, string methodName) {
         // on empty exception arrays.
         if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
-          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~ ")";
+          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
+            ", TReq.OPTIONAL)";
         }
         methodMetaFound = true;
       }
@@ -587,7 +687,7 @@ template TPresultStruct(Interface, string methodName) {
     };
 
     code ~= "void read(TProtocol proto) {\n";
-    code ~= "readStruct!(TPresultStruct, [" ~ ctfeJoin(fieldMetaCodes, ", ") ~
+    code ~= "readStruct!(TPresultStruct, [" ~ ctfeJoin(fieldMetaCodes) ~
       "], true)(this, proto);\n";
     code ~= "}\n";
     code ~= "}\n";
@@ -663,7 +763,7 @@ template TClient(Interface) if (is(Interface _ == interface)) {
           paramAssignCode ~= "args." ~ paramName ~ " = &" ~ paramName ~ ";\n";
         }
         code ~= "ReturnType!(Interface." ~ methodName ~ ") " ~ methodName ~
-          "(" ~ ctfeJoin(paramList, ", ") ~ ") {\n";
+          "(" ~ ctfeJoin(paramList) ~ ") {\n";
 
         code ~= "immutable methodName = `" ~ methodName ~ "`;\n";
 
@@ -738,6 +838,138 @@ template TClient(Interface) if (is(Interface _ == interface)) {
   }());
 }
 
+template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
+  mixin({
+    static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
+      static assert(BaseInterfaces.length == 1,
+        "Services cannot be derived from more than one parent.");
+
+      string code = "class TServiceProcessor : " ~
+        "TServiceProcessor!(BaseTypeTuple!(Interface)[0]) {\n";
+      code ~= "private Interface iface_;\n";
+
+      string constructorCode = "this(Interface iface) {\n";
+      constructorCode ~= "super(iface);\n";
+      constructorCode ~= "iface_ = iface;\n";
+    } else {
+      string code = "class TServiceProcessor : TProcessor {";
+      code ~= q{
+        override bool process(TProtocol iprot, TProtocol oprot) {
+          iprot.readMessage((TMessage msg) {
+            if (msg.type != TMessageType.CALL && msg.type != TMessageType.ONEWAY) {
+              skip(iprot, TType.STRUCT);
+              auto x = new TApplicationException(
+                TApplicationException.Type.INVALID_MESSAGE_TYPE);
+              oprot.writeMessage(TMessage(msg.name, TMessageType.EXCEPTION,
+                msg.seqid), { x.write(oprot); });
+              oprot.getTransport().writeEnd();
+              oprot.getTransport().flush();
+            } else if (auto dg = processMap_.get(msg.name, null)) {
+              dg(msg.seqid, iprot, oprot);
+            } else {
+              skip(iprot, TType.STRUCT);
+              auto x = new TApplicationException("Invalid method name: '" ~
+                msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE);
+              oprot.writeMessage(TMessage(msg.name, TMessageType.EXCEPTION,
+                msg.seqid), { x.write(oprot); });
+              oprot.getTransport().writeEnd();
+              oprot.getTransport().flush();
+            }
+
+          });
+          iprot.getTransport().readEnd();
+          return true;
+        }
+
+        alias void delegate(int, TProtocol, TProtocol) ProcessFunc;
+        protected ProcessFunc[string] processMap_;
+        private Interface iface_;
+      };
+
+      string constructorCode = "this(Interface iface) {\n";
+      constructorCode ~= "iface_ = iface;\n";
+    }
+
+    foreach (methodName; __traits(derivedMembers, Interface)) {
+      static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
+        immutable procFuncName = "process_" ~ methodName;
+        constructorCode ~= "processMap_[`" ~ methodName ~ "`] = &" ~
+          procFuncName ~ ";\n";
+
+        bool methodMetaFound;
+        TMethodMeta methodMeta;
+        static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
+          enum meta = find!`a.name == b`(Interface.methodMeta, methodName);
+          if (!meta.empty) {
+            methodMetaFound = true;
+            methodMeta = meta.front;
+          }
+        }
+
+        code ~= "void " ~ procFuncName ~ "(int seqid, TProtocol iprot, TProtocol oprot) {\n";
+        code ~= "TArgsStruct!(Interface, `" ~ methodName ~ "`) args;\n";
+        code ~= "args.read(iprot);\n";
+
+        code ~= "TResultStruct!(Interface, `" ~ methodName ~ "`) result;\n";
+        code ~= "try {\n";
+
+        // Generate the parameter list to pass to the called iface function.
+        string[] paramList;
+        foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+          paramList ~= "args." ~ (methodMetaFound ? methodMeta.params[i].name :
+              "param" ~ to!string(i + 1));
+        }
+
+        immutable call = "iface_." ~ methodName ~ "(" ~ ctfeJoin(paramList) ~ ")";
+        if (is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+          code ~= call ~ ";\n";
+        } else {
+          code ~= "result.set!`success`(" ~ call ~ ");\n";
+        }
+
+        // If this is not a oneway method, generate the recieving code.
+        if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
+          // DMD @@BUG@@: The second if condition should not be necessary, but
+          // otherwise DMD ICEs on empty exception arrays.
+          if (methodMetaFound && !methodMeta.exceptions.empty) {
+            foreach (e; methodMeta.exceptions) {
+              code ~= "} catch (Interface." ~ e.type ~ " " ~ e.name ~ ") {\n";
+              code ~= "result.set!`" ~ e.name ~ "`(" ~ e.name ~ ");\n";
+            }
+          }
+
+          code ~= "} catch (Exception e) {\n";
+          code ~= "auto x = new TApplicationException(to!string(e));\n";
+          code ~= "oprot.writeMessage(TMessage(`" ~ methodName ~ "`, " ~
+            "TMessageType.EXCEPTION, seqid), { x.write(oprot); });\n";
+          code ~= "oprot.getTransport().writeEnd();\n";
+          code ~= "oprot.getTransport().flush();\n";
+          code ~= "return;\n";
+          code ~= "}\n";
+
+          code ~= "oprot.writeMessage(TMessage(`" ~ methodName ~ "`, " ~
+            "TMessageType.REPLY, seqid), { result.write(oprot); });\n";
+          code ~= "oprot.getTransport().writeEnd();\n";
+          code ~= "oprot.getTransport().flush();\n";
+        } else {
+          // There is nothing really what we can do about unhandled exceptions
+          // in oneway methods as long as event handlers are not implemented –
+          // for now, just pass them on.
+          code ~= "} catch (Exception e) {\n";
+          code ~= "throw e;\n";
+          code ~= "}\n";
+        }
+        code ~= "}\n";
+      }
+    }
+
+    code ~= constructorCode ~ "}\n";
+    code ~= "}\n";
+
+    return code;
+  }());
+}
+
 private {
   /**
    * Returns a D code string containing the matching TType value for a passed
@@ -787,7 +1019,7 @@ private {
   /**
    * Simple eager join() for strings, std.algorithm.join isn't CTFEable yet.
    */
-  string ctfeJoin(string[] strings, string separator) {
+  string ctfeJoin(string[] strings, string separator = ", ") {
     string result;
     if (strings.length > 0) {
       result ~= strings[0];
