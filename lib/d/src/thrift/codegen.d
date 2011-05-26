@@ -844,8 +844,8 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
                 msg.seqid), { x.write(oprot); });
               oprot.getTransport().writeEnd();
               oprot.getTransport().flush();
-            } else if (auto dg = processMap_.get(msg.name, null)) {
-              dg(msg.seqid, iprot, oprot);
+            } else if (auto dg = msg.name in processMap_) {
+              (*dg)(msg.seqid, iprot, oprot);
             } else {
               skip(iprot, TType.STRUCT);
               auto x = new TApplicationException("Invalid method name: '" ~
