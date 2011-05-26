@@ -229,10 +229,6 @@ class TTransportException : TException {
     INTERNAL_ERROR
   }
 
-  this(string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
-    this(Type.UNKNOWN, file, line, next);
-  }
-
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
     string msgForType(Type type) {
       switch (type) {
