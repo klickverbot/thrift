@@ -30,9 +30,19 @@ import thrift.protocol.base;
  * Struct field requirement levels.
  */
 enum TReq {
+  /// The field is treated as optional when deserializing/receiving the struct
+  /// and as required when serializing/sending. This is the Thrift default if
+  /// neither "required" nor "optional" are specified in the IDL file.
+  OPT_IN_REQ_OUT,
+
+  /// The field is optional.
   OPTIONAL,
+
+  /// The field is required.
   REQUIRED,
-  IGNORE /// Ignore the struct field when serializing/deserializing.
+
+  /// Ignore the struct field when serializing/deserializing.
+  IGNORE
 }
 
 enum TMethodType {
@@ -260,6 +270,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
       code ~= "if (f.type == " ~ dToTTypeString!F ~ ") {";
       code ~= pCall ~ "\n";
       if (req == TReq.REQUIRED) {
+        // For required fields, set the corresponding local isSet variable.
         code ~= "isSet" ~ name ~ " = true;\n";
       } else if (!isNullable!F){
         code ~= "s.isSetFlags." ~ name ~ " = true;\n";
@@ -410,7 +421,6 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
         code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
           ", " ~ to!string(id) ~ "), { " ~ pCall ~ " });\n";
-        // code ~= "writefln(`" ~ name ~ ": %s`, " ~ v ~ ");\n";
 
         if (!pointerStruct && req == TReq.OPTIONAL) {
           code ~= "}\n";
@@ -455,7 +465,7 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
               "meta information for field '" ~name ~ "' in struct '" ~
               T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
           }
-          code ~= writeFieldCode!F(name, lastId, TReq.OPTIONAL);
+          code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
         }
       }
 
