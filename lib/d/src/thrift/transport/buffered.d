@@ -124,15 +124,13 @@ protected:
   this() {}
 
   /// Convenience mutator for setting the read buffer.
-  void setReadBuffer(ubyte[] buf)
-  {
+  void setReadBuffer(ubyte[] buf) {
     rBase_ = buf.ptr;
     rBound_ = buf.ptr + buf.length;
   }
 
   /// Convenience mutator for setting the write buffer.
-  void setWriteBuffer(ubyte[] buf)
-  {
+  void setWriteBuffer(ubyte[] buf) {
     wBase_ = buf.ptr;
     wBound_ = buf.ptr + buf.length;
   }
@@ -152,8 +150,7 @@ class TBufferedTransport : TBufferBase {
   enum int DEFAULT_BUFFER_SIZE = 512;
 
   /// Use default buffer sizes.
-  this(TTransport transport)
-  {
+  this(TTransport transport) {
     transport_ = transport;
     rBuf_ = new ubyte[DEFAULT_BUFFER_SIZE];
     wBuf_ = new ubyte[DEFAULT_BUFFER_SIZE];
@@ -161,8 +158,7 @@ class TBufferedTransport : TBufferBase {
   }
 
   /// Use specified buffer sizes.
-  this(TTransport transport, uint sz)
-  {
+  this(TTransport transport, uint sz) {
     transport_ = transport;
     rBuf_ = new ubyte[sz];
     wBuf_ = new ubyte[sz];
@@ -170,8 +166,7 @@ class TBufferedTransport : TBufferBase {
   }
 
   /// Use specified read and write buffer sizes.
-  this(TTransport transport, uint rsz, uint wsz)
-  {
+  this(TTransport transport, uint rsz, uint wsz) {
     transport_ = transport;
     rBuf_ = new ubyte[rsz];
     wBuf_ = new ubyte[wsz];
@@ -193,11 +188,31 @@ class TBufferedTransport : TBufferBase {
     return (rBound_ > rBase_);
   }
 
+  override void flush() {
+    // Write out any data waiting in the write buffer.
+    uint have_bytes = wBase_ - wBuf_.ptr;
+    if (have_bytes > 0) {
+      // Note that we reset wBase_ prior to the underlying write
+      // to ensure we're in a sane state (i.e. internal buffer cleaned)
+      // if the underlying write throws up an exception
+      wBase_ = wBuf_.ptr;
+      transport_.write(wBuf_[0..have_bytes]);
+    }
+
+    // Flush the underlying transport.
+    transport_.flush();
+  }
+
   override void close() {
     flush();
     transport_.close();
   }
 
+  TTransport underlyingTransport() @property {
+    return transport_;
+  }
+
+protected:
   override uint readSlow(ubyte[] buf) {
     uint have = rBound_ - rBase_;
 
@@ -276,22 +291,6 @@ class TBufferedTransport : TBufferBase {
     wBase_ = wBuf_.ptr + newBuf.length;
   }
 
-  override void flush() {
-    // Write out any data waiting in the write buffer.
-    uint have_bytes = wBase_ - wBuf_.ptr;
-    if (have_bytes > 0) {
-      // Note that we reset wBase_ prior to the underlying write
-      // to ensure we're in a sane state (i.e. internal buffer cleaned)
-      // if the underlying write throws up an exception
-      wBase_ = wBuf_.ptr;
-      transport_.write(wBuf_[0..have_bytes]);
-    }
-
-    // Flush the underlying transport.
-    transport_.flush();
-  }
-
-
   /**
    * The following behavior is currently implemented by TBufferedTransport,
    * but that may change in a future version:
@@ -307,13 +306,7 @@ class TBufferedTransport : TBufferBase {
     return null;
   }
 
-  TTransport getUnderlyingTransport() {
-    return transport_;
-  }
-
- protected:
-  void initPointers()
-  {
+  void initPointers() {
     setReadBuffer(rBuf_[0..0]);
     setWriteBuffer(wBuf_);
     // Write size never changes.
