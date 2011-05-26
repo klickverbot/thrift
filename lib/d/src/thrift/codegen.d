@@ -284,6 +284,10 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     string isSetFlagCode = "";
     string isSetCheckCode = "";
     string readMembersCode = "";
+
+    // The last automatically assigned id – fields with no meta information
+    // are assigned (in lexical order) descending negative ids, starting with
+    // -1, just like the Thrift compiler does.
     short lastId;
 
     foreach (name; __traits(derivedMembers, T)) {
@@ -291,7 +295,16 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         !isSomeFunction!(MemberType!(T, name)))
       {
         enum meta = find!`a.name == b`(fieldMetaData, name);
-        static if (!meta.empty && meta.front.req != TReq.IGNORE) {
+        static if (meta.empty) {
+          --lastId;
+          version (TVerboseCodegen) {
+            code ~= "pragma(msg, `[thrift.codegen.readStruct] Warning: No " ~
+              "meta information for field '" ~ name ~ "' in struct '" ~
+              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
+          }
+          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
+            name, lastId, TReq.OPT_IN_REQ_OUT);
+        } else static if (meta.front.req != TReq.IGNORE) {
           if (meta.front.req == TReq.REQUIRED) {
             // For required fields, generate bool flags to keep track whether
             // the field has been encountered.
@@ -303,25 +316,6 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
           }
           readMembersCode ~= readFieldCode!(MemberType!(T, name))(
             name, meta.front.id, meta.front.req);
-          lastId = max(lastId, meta.front.id);
-        }
-      }
-    }
-
-    foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) &&
-        !isSomeFunction!(MemberType!(T, name)))
-      {
-        enum meta = find!`a.name == b`(fieldMetaData, name);
-        static if (meta.empty) {
-          ++lastId;
-          version (ThriftVerbose) {
-            code ~= "pragma(msg, `[thrift.codegen.readStruct] Warning: No " ~
-              "meta information for field '" ~name ~ "' in struct '" ~
-              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
-          }
-          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
-            name, lastId, TReq.OPTIONAL);
         }
       }
     }
@@ -431,10 +425,12 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         return code;
       }
 
-      // Generate code for fields withot meta information later, to be able
-      // to infer unoccupied ids.
-      string code = "";
+      // The last automatically assigned id – fields with no meta information
+      // are assigned (in lexical order) descending negative ids, starting with
+      // -1, just like the Thrift compiler does.
       short lastId;
+
+      string code = "";
       foreach (name; __traits(derivedMembers, T)) {
         static if (is(MemberType!(T, name)) &&
           !isSomeFunction!(MemberType!(T, name)))
@@ -442,33 +438,17 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
           alias MemberType!(T, name) F;
 
           auto meta = find!`a.name == b`(fieldMetaData, name);
-          if (meta.empty || meta.front.req == TReq.IGNORE) {
-            continue;
+          if (meta.empty) {
+            --lastId;
+            version (TVerboseCodegen) {
+              code ~= "pragma(msg, `[thrift.codegen.writeStruct] Warning: No " ~
+                "meta information for field '" ~ name ~ "' in struct '" ~
+                T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
+            }
+            code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
+          } else if (meta.front.req != TReq.IGNORE) {
+            code ~= writeFieldCode!F(name, meta.front.id, meta.front.req);
           }
-
-          code ~= writeFieldCode!F(name, meta.front.id, meta.front.req);
-          lastId = max(lastId, meta.front.id);
-        }
-      }
-
-      foreach (name; __traits(derivedMembers, T)) {
-        static if (is(MemberType!(T, name)) &&
-          !isSomeFunction!(MemberType!(T, name)))
-        {
-          alias MemberType!(T, name) F;
-
-          auto meta = find!`a.name == b`(fieldMetaData, name);
-          if (!meta.empty) {
-            continue;
-          }
-
-          ++lastId;
-          version (ThriftVerbose) {
-            code ~= "pragma(msg, `[thrift.codegen.writeStruct] Warning: No " ~
-              "meta information for field '" ~name ~ "' in struct '" ~
-              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
-          }
-          code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
         }
       }
 
@@ -509,7 +489,7 @@ template TArgsStruct(Interface, string methodName) {
 
     string code = "struct TArgsStruct {\n";
     code ~= memberCode;
-    version (ThriftVerbose) {
+    version (TVerboseCodegen) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
@@ -561,7 +541,7 @@ template TPargsStruct(Interface, string methodName) {
 
     string code = "struct TPargsStruct {\n";
     code ~= memberCode;
-    version (ThriftVerbose) {
+    version (TVerboseCodegen) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
@@ -601,14 +581,14 @@ template TResultStruct(Interface, string methodName) {
         // on empty exception arrays.
         if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
-          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id)
-            ~ ", TReq.OPTIONAL)";
+          fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
+            ", TReq.OPTIONAL)";
         }
         methodMetaFound = true;
       }
     }
 
-    version (ThriftVerbose) {
+    version (TVerboseCodegen) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
@@ -664,7 +644,7 @@ template TPresultStruct(Interface, string methodName) {
       }
     }
 
-    version (ThriftVerbose) {
+    version (TVerboseCodegen) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
