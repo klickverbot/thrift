@@ -431,6 +431,8 @@ AX_THRIFT_GEN(javame, [JavaME], yes)
 AM_CONDITIONAL([THRIFT_GEN_javame], [test "$ax_thrift_gen_javame" = "yes"])
 AX_THRIFT_GEN(go, [GO_C], yes)
 AM_CONDITIONAL([THRIFT_GEN_go], [test "$ax_thrift_gen_go" = "yes"])
+AX_THRIFT_GEN(d, [D], yes)
+AM_CONDITIONAL([THRIFT_GEN_d], [test "$ax_thrift_gen_d" = "yes"])
 
 # --- Coverage hooks ---
 

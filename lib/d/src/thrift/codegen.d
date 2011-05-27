@@ -791,7 +791,7 @@ template TClient(Interface) if (is(Interface _ == interface)) {
           code ~= q{
             iprot_.readMessage((TMessage msg) {
               if (msg.type == TMessageType.EXCEPTION) {
-                auto x = new TApplicationException();
+                auto x = new TApplicationException(null);
                 x.read(iprot_);
                 iprot_.getTransport().readEnd();
                 throw x;

@@ -117,6 +117,9 @@ endif
 if THRIFT_GEN_go
 thrift_SOURCES += src/generate/t_go_generator.cc
 endif
+if THRIFT_GEN_d
+thrift_SOURCES += src/generate/t_d_generator.cc
+endif
 
 thrift_CPPFLAGS = -I$(srcdir)/src
 thrift_CXXFLAGS = -Wall
