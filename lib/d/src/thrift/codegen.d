@@ -24,6 +24,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.traits;
 import thrift.base;
+import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.processor;
 
@@ -228,6 +229,69 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
+    // Returns the code string for reading a value of type F off the wire and
+    // assigning it to v. The level parameter is used to make sure that there
+    // are no conflicting variable names on recursive calls.
+    string readValueCode(F)(string v, size_t level = 0) {
+      static if (is(F == bool)) {
+        return v ~ " = p.readBool();";
+      } else static if (is(F == byte)) {
+        return v ~ " = p.readByte();";
+      } else static if (is(F == double)) {
+        return v ~ " = p.readDouble();";
+      } else static if (is(F == short)) {
+        return v ~ " = p.readI16();";
+      } else static if (is(F == int)) {
+        return v ~ " = p.readI32();";
+      } else static if (is(F == long)) {
+        return v ~ " = p.readI64();";
+      } else static if (is(F : string)) {
+        return v ~ " = p.readString();";
+      } else static if (is(F == enum)) {
+        return v ~ " = cast(typeof(" ~ v ~ "))p.readI32();";
+      } else static if (is(F _ : E[], E)) {
+        return "p.readList((TList list) {\n" ~
+            // TODO: Check element type here?
+            v ~ ".clear();\n" ~
+            v ~ ".length = list.size;\n" ~
+            "for (int i = 0; i < list.size; ++i) {\n" ~
+              readValueCode!E(v ~ "[i]", level + 1) ~ "\n" ~
+            "}\n" ~
+          "});";
+      } else static if (is(F _ : V[K], K, V)) {
+        immutable key = "key" ~ to!string(level);
+        immutable value = "value" ~ to!string(level);
+        return "p.readMap((TMap map) {\n" ~
+          v ~ ".clear();\n" ~
+          // TODO: Check key/value types here?
+          "for (int i = 0; i < map.size; ++i) {\n" ~
+            "typeof(" ~ v ~ ".keys[0]) " ~ key ~ ";\n" ~
+            readValueCode!K(key, level + 1) ~ "\n" ~
+            "typeof(" ~ v ~ ".values[0]) " ~ value ~ ";\n" ~
+            readValueCode!V(value, level + 1) ~ "\n" ~
+            v ~ "[" ~ key ~ "] = " ~ value ~ ";\n" ~
+          "}\n" ~
+        "});";
+      } else static if (is(F _ : HashSet!(E), E)) {
+        immutable elem = "elem" ~ to!string(level);
+        return "p.readSet((TSet set) {\n" ~
+            // TODO: Check element type here?
+            v ~ ".clear();\n" ~
+            "for (int i = 0; i < set.size; ++i) {\n" ~
+              "typeof(" ~ v ~ "[][0]) " ~ elem ~ ";\n" ~
+              readValueCode!E(elem, level + 1) ~ "\n" ~
+              v ~ " ~= " ~ elem ~ ";\n" ~
+            "}\n" ~
+          "});";
+      } else static if (is(F == struct)) {
+        return v ~ " = typeof(" ~ v ~ ")();\n" ~ v ~ ".read(p);";
+      } else static if (is(F : TException)) {
+        return v ~ " = new typeof(" ~ v ~ ")();\n" ~ v ~ ".read(p);";
+      } else {
+        static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
+      }
+    }
+
     string readFieldCode(FieldType)(string name, short id, TReq req) {
       static if (pointerStruct && isPointer!FieldType) {
         immutable v = "(*s." ~ name ~ ")";
@@ -237,42 +301,12 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         alias Unqual!FieldType F;
       }
 
-      static if (is(F == bool)) {
-        immutable pCall = v ~ " = p.readBool();";
-      } else static if (is(F == byte)) {
-        immutable pCall = v ~ " = p.readByte();";
-      } else static if (is(F == double)) {
-        immutable pCall = v ~ " = p.readDouble();";
-      } else static if (is(F == short)) {
-        immutable pCall = v ~ " = p.readI16();";
-      } else static if (is(F == int)) {
-        immutable pCall = v ~ " = p.readI32();";
-      } else static if (is(F == long)) {
-        immutable pCall = v ~ " = p.readI64();";
-      } else static if (is(F : string)) {
-        immutable pCall = v ~ " = p.readString();";
-      } else static if (is(F == enum)) {
-        immutable pCall = v ~ " = cast(typeof(" ~ v ~ "))p.readI32();";
-      } else static if (is(F _ : U[], U)) {
-        static assert(false, "list<> not implemented yet.");
-      } else static if (is(F _ : V[K], K, V)) {
-        static assert(false, "map<> not implemented yet.");
-      } else static if (is(F == struct)) {
-        immutable pCall = v ~ " = typeof(" ~ v ~ ")();\n" ~
-          v ~ ".read(p);";
-      } else static if (is(F : TException)) {
-        immutable pCall = v ~ " = new typeof(" ~ v ~ ")();\n" ~
-          v ~ ".read(p);";
-      } else {
-        static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
-      }
-
       string code = "case " ~ to!string(id) ~ ":\n";
-      code ~= "if (f.type == " ~ dToTTypeString!F ~ ") {";
-      code ~= pCall ~ "\n";
+      code ~= "if (f.type == " ~ dToTTypeString!F ~ ") {\n";
+      code ~= readValueCode!F(v) ~ "\n";
       if (req == TReq.REQUIRED) {
         // For required fields, set the corresponding local isSet variable.
-        code ~= "isSet" ~ name ~ " = true;\n";
+        code ~= "isSet_" ~ name ~ " = true;\n";
       } else if (!isNullable!F){
         code ~= "s.isSetFlags." ~ name ~ " = true;\n";
       }
@@ -311,7 +345,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
             immutable n = "isSet_" ~ name;
             isSetFlagCode ~= "bool " ~ n ~ ";\n";
             isSetCheckCode ~= "enforce(" ~ n ~ ", new TProtocolException(" ~
-              "`TRequired field '" ~ name ~ "' not found in serialized data`, " ~
+              "`Required field '" ~ name ~ "' not found in serialized data`, " ~
               "TProtocolException.Type.INVALID_DATA));\n";
           }
           readMembersCode ~= readFieldCode!(MemberType!(T, name))(
@@ -374,7 +408,60 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
   p.writeStruct(TStruct(T.stringof), {
     mixin({
+      string writeValueCode(F)(string v) {
+        static if (is(F == bool)) {
+          return "p.writeBool(" ~ v ~ ");";
+        } else static if (is(F == byte)) {
+          return "p.writeByte(" ~ v ~ ");";
+        } else static if (is(F == double)) {
+          return "p.writeDouble(" ~ v ~ ");";
+        } else static if (is(F == short)) {
+          return "p.writeI16(" ~ v ~ ");";
+        } else static if (is(F == int)) {
+          return "p.writeI32(" ~ v ~ ");";
+        } else static if (is(F == long)) {
+          return "p.writeI64(" ~ v ~ ");";
+        } else static if (is(F : string)) {
+          return "p.writeString(" ~ v ~ ");";
+        } else static if (is(F == enum)) {
+          return "p.writeI32(cast(int)" ~ v ~ ");";
+        } else static if (is(F _ : E[], E)) {
+          return "p.writeList(TList(" ~ dToTTypeString!E ~ ", " ~ v ~
+            ".length), {\n" ~
+            "foreach (elem; " ~ v ~ ") {\n" ~
+              writeValueCode!E("elem") ~ "\n" ~
+            "}\n" ~
+          "});";
+        } else static if (is(F _ : V[K], K, V)) {
+          return "p.writeMap(TMap(" ~ dToTTypeString!K ~ ", " ~
+            dToTTypeString!V ~ ", " ~ v ~ ".length), {\n" ~
+            "foreach (key, value; " ~ v ~ ") {\n" ~
+              writeValueCode!K("key") ~ "\n" ~
+              writeValueCode!V("value") ~ "\n" ~
+            "}\n" ~
+          "});";
+        } else static if (is(F _ : HashSet!E, E)) {
+          return "p.writeSet(TSet(" ~ dToTTypeString!E ~ ", " ~ v ~
+            ".length), {\n" ~
+            "foreach (elem; " ~ v ~ ") {\n" ~
+              writeValueCode!E("elem") ~ "\n" ~
+            "}\n" ~
+          "});";
+        } else static if (is(F == struct)) {
+          return v ~ ".write(p);";
+        } else static if (is(F : TException)) {
+          return v ~ ".write(p);";
+        } else {
+          static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
+        }
+      }
+
       string writeFieldCode(FieldType)(string name, short id, TReq req) {
+        string code;
+        if (!pointerStruct && req == TReq.OPTIONAL) {
+          code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
+        }
+
         static if (pointerStruct && isPointer!FieldType) {
           immutable v = "(*s." ~ name ~ ")";
           alias Unqual!(pointerTarget!FieldType) F;
@@ -383,41 +470,8 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
           alias Unqual!FieldType F;
         }
 
-        static if (is(F == bool)) {
-          immutable pCall = "p.writeBool(" ~ v ~ ");";
-        } else static if (is(F == byte)) {
-          immutable pCall = "p.writeByte(" ~ v ~ ");";
-        } else static if (is(F == double)) {
-          immutable pCall = "p.writeDouble(" ~ v ~ ");";
-        } else static if (is(F == short)) {
-          immutable pCall = "p.writeI16(" ~ v ~ ");";
-        } else static if (is(F == int)) {
-          immutable pCall = "p.writeI32(" ~ v ~ ");";
-        } else static if (is(F == long)) {
-          immutable pCall = "p.writeI64(" ~ v ~ ");";
-        } else static if (is(F : string)) {
-          immutable pCall = "p.writeString(" ~ v ~ ");";
-        } else static if (is(F == enum)) {
-          immutable pCall = "p.writeI32(cast(int)" ~ v ~ ");";
-        } else static if (is(F _ : U[], U)) {
-          static assert(false, "list<> not implemented yet.");
-        } else static if (is(F _ : V[K], K, V)) {
-          static assert(false, "map<> not implemented yet.");
-        } else static if (is(F == struct)) {
-          immutable pCall = v ~ ".write(p);";
-        } else static if (is(F : TException)) {
-          immutable pCall = v ~ ".write(p);";
-        } else {
-          static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
-        }
-
-        string code;
-        if (!pointerStruct && req == TReq.OPTIONAL) {
-          code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
-        }
-
         code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
-          ", " ~ to!string(id) ~ "), { " ~ pCall ~ " });\n";
+          ", " ~ to!string(id) ~ "), { " ~ writeValueCode!F(v) ~ " });\n";
 
         if (!pointerStruct && req == TReq.OPTIONAL) {
           code ~= "}\n";
@@ -976,6 +1030,8 @@ private {
       enum dToTTypeString = "TType.LIST";
     } else static if (is(T _ : V[K], K, V)) {
       enum dToTTypeString = "TType.MAP";
+    } else static if (is(T _ : HashSet!E, E)) {
+      enum dToTTypeString = "TType.SET";
     } else static if (is(T == struct)) {
       enum dToTTypeString = "TType.STRUCT";
     } else static if (is(T : TException)) {

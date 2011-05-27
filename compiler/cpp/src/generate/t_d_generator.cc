@@ -87,6 +87,7 @@ class t_d_generator : public t_oop_generator {
       endl <<
       "import thrift.base;" << endl <<
       "import thrift.codegen;" << endl <<
+      "import thrift.hashset;" << endl <<
       endl;
 
     // Include type modules from other imported programs.
@@ -179,6 +180,7 @@ class t_d_generator : public t_oop_generator {
       endl <<
       "import thrift.base;" << endl <<
       "import thrift.codegen;" << endl <<
+      "import thrift.hashset;" << endl <<
       endl;
 
     f_service << "import " << get_package(*get_program()) << program_name_ <<
