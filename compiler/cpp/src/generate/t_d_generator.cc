@@ -239,8 +239,7 @@ class t_d_generator : public t_oop_generator {
     if (!exception_types.empty()) f_service << endl;
     set<t_type*>::const_iterator et_iter;
     for (et_iter = exception_types.begin(); et_iter != exception_types.end(); ++et_iter) {
-      indent(f_service) << "alias " <<
-        (*et_iter)->get_program()->get_namespace("d") << "." <<
+      indent(f_service) << "alias " << get_package(*(*et_iter)->get_program()) <<
         (*et_iter)->get_program()->get_name() << "_types" << "." <<
         (*et_iter)->get_name() << " " << (*et_iter)->get_name() << ";" << endl;
     }
