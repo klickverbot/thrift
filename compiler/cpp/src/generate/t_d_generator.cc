@@ -126,8 +126,8 @@ class t_d_generator : public t_oop_generator {
       for (c_iter = consts.begin(); c_iter != consts.end(); ++c_iter) {
         string name = (*c_iter)->get_name();
         t_type* type = (*c_iter)->get_type();
-        f_consts <<
-          indent() << render_type_name(type) << " " << name << ";" << endl;
+        indent(f_consts) << "immutable(" << render_type_name(type) << ") " <<
+          name << ";" << endl;
       }
 
       f_consts <<
@@ -142,8 +142,10 @@ class t_d_generator : public t_oop_generator {
         } else {
           f_consts << endl;
         }
-        print_var_init(f_consts, (*c_iter)->get_name(), (*c_iter)->get_type(),
-          (*c_iter)->get_value());
+        t_type* type = (*c_iter)->get_type();
+        indent(f_consts) << (*c_iter)->get_name() <<
+          " = cast(immutable(" << render_type_name(type) << ")) " <<
+          render_const_value(type, (*c_iter)->get_value()) << ";" << endl;
       }
       indent_down();
       indent(f_consts) <<
@@ -306,8 +308,7 @@ class t_d_generator : public t_oop_generator {
 
         t_const_value* cv = (*p_iter)->get_value();
         if (cv != NULL) {
-          t_type* t = get_true_type((*p_iter)->get_type());
-          meta << ", q{" << render_const_value(t, cv) << "}";
+          meta << ", q{" << render_const_value((*p_iter)->get_type(), cv) << "}";
         }
         meta << ")";
       }
@@ -410,9 +411,7 @@ class t_d_generator : public t_oop_generator {
           out << ", " << render_req(req);
         }
         if (cv != NULL) {
-          t_type* t = get_true_type((*m_iter)->get_type());
-          out << ", `" << render_const_value(t, cv)
-            << "`";
+          out << ", `" << render_const_value((*m_iter)->get_type(), cv) << "`";
         }
         out << ")";
       }
@@ -430,101 +429,37 @@ class t_d_generator : public t_oop_generator {
   }
 
   /**
-   * Writes the statement(s) for setting the given variable to a constant
-   * value to out.
-   */
-  void print_var_init(ostream& out, string name, t_type* type, t_const_value* value) {
-    type = get_true_type(type);
-    if (type->is_base_type()) {
-      string v2 = render_const_value(type, value);
-      indent(out) << name << " = " << v2 << ";" << endl;
-    } else if (type->is_enum()) {
-      indent(out) << name << " = cast(" << render_type_name(type) << ")" <<
-        value->get_integer() << ";" << endl;
-    } else if (type->is_struct() || type->is_xception()) {
-      indent(out) << name << " = " << (type->is_xception() ? "new " : "") <<
-        render_type_name(type) << "();" << endl;
-      const vector<t_field*>& fields = ((t_struct*)type)->get_members();
-      vector<t_field*>::const_iterator f_iter;
-      const map<t_const_value*, t_const_value*>& val = value->get_map();
-      map<t_const_value*, t_const_value*>::const_iterator v_iter;
-      for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        t_type* field_type = NULL;
-        for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
-          if ((*f_iter)->get_name() == v_iter->first->get_string()) {
-            field_type = (*f_iter)->get_type();
-          }
-        }
-        if (field_type == NULL) {
-          throw "Type error: " + type->get_name() + " has no field " +
-            v_iter->first->get_string();
-        }
-        string val = render_const_value(field_type, v_iter->second);
-        indent(out) << name << ".set!`" << v_iter->first->get_string() <<
-          "`(" << val << ");" << endl;
-      }
-    } else if (type->is_map()) {
-      t_type* ktype = ((t_map*)type)->get_key_type();
-      t_type* vtype = ((t_map*)type)->get_val_type();
-      const map<t_const_value*, t_const_value*>& val = value->get_map();
-      map<t_const_value*, t_const_value*>::const_iterator v_iter;
-      for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string key = render_const_value(ktype, v_iter->first);
-        string val = render_const_value(vtype, v_iter->second);
-        indent(out) << name << "[" << key << "] = " << val << ";" << endl;
-      }
-    } else if (type->is_list()) {
-      t_type* etype = ((t_list*)type)->get_elem_type();
-      const vector<t_const_value*>& val = value->get_list();
-      vector<t_const_value*>::const_iterator v_iter;
-      for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string val = render_const_value(etype, *v_iter);
-        indent(out) << name << " ~= " << val << ";" << endl;
-      }
-    } else if (type->is_set()) {
-      t_type* etype = ((t_set*)type)->get_elem_type();
-      const vector<t_const_value*>& val = value->get_list();
-      vector<t_const_value*>::const_iterator v_iter;
-      for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string val = render_const_value(etype, *v_iter);
-        indent(out) << name << " ~= " << val << ";" << endl;
-      }
-    } else {
-      throw "Compiler error: Invalid type in print_var_init: " +
-        type->get_name();
-    }
-  }
-
-  /**
    * Returns the D representation of value. The result is guaranteed to be a
    * single expression; for complex types, immediately called delegate
    * literals are used to achieve this.
    */
   string render_const_value(t_type* type, t_const_value* value) {
-    ostringstream render;
+    // Resolve any typedefs.
+    type = get_true_type(type);
 
+    ostringstream out;
     if (type->is_base_type()) {
       t_base_type::t_base tbase = ((t_base_type*)type)->get_base();
       switch (tbase) {
       case t_base_type::TYPE_STRING:
-        render << '"' << get_escaped_string(value) << '"';
+        out << '"' << get_escaped_string(value) << '"';
         break;
       case t_base_type::TYPE_BOOL:
-        render << ((value->get_integer() > 0) ? "true" : "false");
+        out << ((value->get_integer() > 0) ? "true" : "false");
         break;
       case t_base_type::TYPE_BYTE:
       case t_base_type::TYPE_I16:
       case t_base_type::TYPE_I32:
-        render << value->get_integer();
+        out << value->get_integer();
         break;
       case t_base_type::TYPE_I64:
-        render << value->get_integer() << "L";
+        out << value->get_integer() << "L";
         break;
       case t_base_type::TYPE_DOUBLE:
         if (value->get_type() == t_const_value::CV_INTEGER) {
-          render << value->get_integer();
+          out << value->get_integer();
         } else {
-          render << value->get_double();
+          out << value->get_double();
         }
         break;
       default:
@@ -532,20 +467,72 @@ class t_d_generator : public t_oop_generator {
           t_base_type::t_base_name(tbase);
       }
     } else if (type->is_enum()) {
-      render << "(" << render_type_name(type) << ")" << value->get_integer();
+      out << "cast(" << render_type_name(type) << ")" << value->get_integer();
     } else {
-      render << "{" << endl;
+      out << "{" << endl;
       indent_up();
 
-      indent(render) << render_type_name(type) << " v;" << endl;
-      print_var_init(render, "v", type, value);
-      indent(render) << "return v;" << endl;
+      indent(out) << render_type_name(type) << " v;" << endl;
+      if (type->is_struct() || type->is_xception()) {
+        indent(out) << "v = " << (type->is_xception() ? "new " : "") <<
+          render_type_name(type) << "();" << endl;
+
+        const vector<t_field*>& fields = ((t_struct*)type)->get_members();
+        vector<t_field*>::const_iterator f_iter;
+        const map<t_const_value*, t_const_value*>& val = value->get_map();
+        map<t_const_value*, t_const_value*>::const_iterator v_iter;
+        for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
+          t_type* field_type = NULL;
+          for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
+            if ((*f_iter)->get_name() == v_iter->first->get_string()) {
+              field_type = (*f_iter)->get_type();
+            }
+          }
+          if (field_type == NULL) {
+            throw "Type error: " + type->get_name() + " has no field " +
+              v_iter->first->get_string();
+          }
+          string val = render_const_value(field_type, v_iter->second);
+          indent(out) << "v.set!`" << v_iter->first->get_string() <<
+            "`(" << val << ");" << endl;
+        }
+      } else if (type->is_map()) {
+        t_type* ktype = ((t_map*)type)->get_key_type();
+        t_type* vtype = ((t_map*)type)->get_val_type();
+        const map<t_const_value*, t_const_value*>& val = value->get_map();
+        map<t_const_value*, t_const_value*>::const_iterator v_iter;
+        for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
+          string key = render_const_value(ktype, v_iter->first);
+          string val = render_const_value(vtype, v_iter->second);
+          indent(out) << "v[" << key << "] = " << val << ";" << endl;
+        }
+      } else if (type->is_list()) {
+        t_type* etype = ((t_list*)type)->get_elem_type();
+        const vector<t_const_value*>& val = value->get_list();
+        vector<t_const_value*>::const_iterator v_iter;
+        for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
+          string val = render_const_value(etype, *v_iter);
+          indent(out) << "v ~= " << val << ";" << endl;
+        }
+      } else if (type->is_set()) {
+        t_type* etype = ((t_set*)type)->get_elem_type();
+        const vector<t_const_value*>& val = value->get_list();
+        vector<t_const_value*>::const_iterator v_iter;
+        for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
+          string val = render_const_value(etype, *v_iter);
+          indent(out) << "v ~= " << val << ";" << endl;
+        }
+      } else {
+        throw "Compiler error: Invalid type in render_const_value: " +
+          type->get_name();
+      }
+      indent(out) << "return v;" << endl;
 
       indent_down();
-      indent(render) << "}()";
+      indent(out) << "}()";
     }
 
-    return render.str();
+    return out.str();
   }
 
   /**
