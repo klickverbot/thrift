@@ -414,7 +414,7 @@ class t_d_generator : public t_oop_generator {
           out << ", " << render_req(req);
         }
         if (cv != NULL) {
-          out << ", `" << render_const_value((*m_iter)->get_type(), cv) << "`";
+          out << ", q{" << render_const_value((*m_iter)->get_type(), cv) << "}";
         }
         out << ")";
       }
