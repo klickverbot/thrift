@@ -39,6 +39,11 @@ using namespace std;
 
 /**
  * D code generator.
+ *
+ * generate_*() functions are called by the base class to emit code for the
+ * given entity, print_*() functions write a piece of code to the passed
+ * stream, and render_*() return a string containing the D representation of
+ * the passed entity.
  */
 class t_d_generator : public t_oop_generator {
  public:
@@ -53,11 +58,8 @@ class t_d_generator : public t_oop_generator {
     out_dir_base_ = "gen-d";
   }
 
-  /**
-   * Init and close methods
-   */
-
-  void init_generator() {
+ protected:
+  virtual void init_generator() {
     // Make output directory
     MKDIR(get_out_dir().c_str());
 
@@ -83,29 +85,27 @@ class t_d_generator : public t_oop_generator {
     // Print header
     f_types_ <<
       autogen_comment() <<
-      "module " << get_package(*program_) << program_name_ << "_types;" << endl <<
-      endl <<
-      "import thrift.base;" << endl <<
-      "import thrift.codegen;" << endl <<
-      "import thrift.hashset;" << endl <<
+      "module " << render_package(*program_) << program_name_ << "_types;" << endl <<
       endl;
+
+    print_default_imports(f_types_);
 
     // Include type modules from other imported programs.
     const vector<t_program*>& includes = program_->get_includes();
     for (size_t i = 0; i < includes.size(); ++i) {
       f_types_ <<
-        "import " << get_package(*(includes[i])) <<
+        "import " << render_package(*(includes[i])) <<
         includes[i]->get_name() << "_types;" << endl;
     }
     if (!includes.empty) f_types_ << endl;
   }
 
-  void close_generator() {
+  virtual void close_generator() {
     // Close output file
     f_types_.close();
   }
 
-  void generate_consts(std::vector<t_const*> consts) {
+  virtual void generate_consts(std::vector<t_const*> consts) {
     if (!consts.empty()) {
       string f_consts_name = package_dir_+program_name_+"_constants.d";
       ofstream f_consts;
@@ -113,11 +113,13 @@ class t_d_generator : public t_oop_generator {
 
       f_consts <<
         autogen_comment() <<
-        "module " << get_package(*program_) << program_name_ << "_constants;" << endl;
+        "module " << render_package(*program_) << program_name_ << "_constants;" << endl
+        << endl;
+
+      print_default_imports(f_consts);
 
       f_consts <<
-        endl <<
-        "import " << get_package(*get_program()) << program_name_ << "_types;" << endl <<
+        "import " << render_package(*get_program()) << program_name_ << "_types;" << endl <<
         endl;
 
       vector<t_const*>::iterator c_iter;
@@ -125,15 +127,22 @@ class t_d_generator : public t_oop_generator {
         string name = (*c_iter)->get_name();
         t_type* type = (*c_iter)->get_type();
         f_consts <<
-          indent() << type_name(type) << " " << name << ";" << endl;
+          indent() << render_type_name(type) << " " << name << ";" << endl;
       }
 
       f_consts <<
         endl <<
         "static this() {" << endl;
       indent_up();
+
+      bool first = true;
       for (c_iter = consts.begin(); c_iter != consts.end(); ++c_iter) {
-        print_const_value(f_consts, (*c_iter)->get_name(), (*c_iter)->get_type(),
+        if (first) {
+          first = false;
+        } else {
+          f_consts << endl;
+        }
+        print_var_init(f_consts, (*c_iter)->get_name(), (*c_iter)->get_type(),
           (*c_iter)->get_value());
       }
       indent_down();
@@ -142,32 +151,51 @@ class t_d_generator : public t_oop_generator {
     }
   }
 
-  void generate_typedef(t_typedef* ttypedef) {
+  virtual void generate_typedef(t_typedef* ttypedef) {
     f_types_ <<
-      indent() << "alias " << type_name(ttypedef->get_type()) << " " <<
+      indent() << "alias " << render_type_name(ttypedef->get_type()) << " " <<
       ttypedef->get_symbolic() << ";" << endl << endl;
   }
 
-  void generate_enum(t_enum* tenum) {
+  virtual void generate_enum(t_enum* tenum) {
     vector<t_enum_value*> constants = tenum->get_constants();
 
     string enum_name = tenum->get_name();
     f_types_ <<
-      indent() << "enum " << enum_name;
+      indent() << "enum " << enum_name << " {" << endl;
 
-    generate_enum_constant_list(f_types_, constants, "", "", true);
+    indent_up();
+
+    vector<t_enum_value*>::const_iterator c_iter;
+    bool first = true;
+    for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
+      if (first) {
+        first = false;
+      } else {
+        f_types_ << "," << endl;
+      }
+      indent(f_types_) << (*c_iter)->get_name();
+      if ((*c_iter)->has_value()) {
+        f_types_ << " = " << (*c_iter)->get_value();
+      }
+    }
+
+    f_types_ << endl;
+    indent_down();
+    indent(f_types_) << "}" << endl;
 
     f_types_ << endl;
   }
 
-  void generate_struct(t_struct* tstruct) {
-    generate_struct_definition(f_types_, tstruct, false);
-  }
-  void generate_xception(t_struct* txception) {
-    generate_struct_definition(f_types_, txception, true);
+  virtual void generate_struct(t_struct* tstruct) {
+    print_struct_definition(f_types_, tstruct, false);
   }
 
-  void generate_service(t_service* tservice) {
+  virtual void generate_xception(t_struct* txception) {
+    print_struct_definition(f_types_, txception, true);
+  }
+
+  virtual void generate_service(t_service* tservice) {
     string svc_name = tservice->get_name();
 
     // Service implementation file includes
@@ -176,20 +204,18 @@ class t_d_generator : public t_oop_generator {
     f_service.open(f_servicename.c_str());
     f_service <<
       autogen_comment() <<
-      "module " << get_package(*program_) << svc_name << ";" << endl <<
-      endl <<
-      "import thrift.base;" << endl <<
-      "import thrift.codegen;" << endl <<
-      "import thrift.hashset;" << endl <<
+      "module " << render_package(*program_) << svc_name << ";" << endl <<
       endl;
 
-    f_service << "import " << get_package(*get_program()) << program_name_ <<
+    print_default_imports(f_service);
+
+    f_service << "import " << render_package(*get_program()) << program_name_ <<
       "_types;" << endl;
 
     t_service* extends_service = tservice->get_extends();
     if (extends_service != NULL) {
       f_service <<
-        "import " << get_package(*(extends_service->get_program())) <<
+        "import " << render_package(*(extends_service->get_program())) <<
         extends_service->get_name() << ";" << endl;
     }
 
@@ -197,7 +223,7 @@ class t_d_generator : public t_oop_generator {
 
     string extends = "";
     if (tservice->get_extends() != NULL) {
-      extends = " : " + type_name(tservice->get_extends());
+      extends = " : " + render_type_name(tservice->get_extends());
     }
 
     f_service <<
@@ -211,7 +237,7 @@ class t_d_generator : public t_oop_generator {
     vector<t_function*> functions = tservice->get_functions();
     vector<t_function*>::iterator fn_iter;
     for (fn_iter = functions.begin(); fn_iter != functions.end(); ++fn_iter) {
-      indent(f_service) << type_name((*fn_iter)->get_returntype()) <<
+      indent(f_service) << render_type_name((*fn_iter)->get_returntype()) <<
         " " << (*fn_iter)->get_name() << "(";
 
       const vector<t_field*>& fields = (*fn_iter)->get_arglist()->get_members();
@@ -223,7 +249,7 @@ class t_d_generator : public t_oop_generator {
         } else {
           f_service << ", ";
         }
-        f_service << type_name((*f_iter)->get_type()) << " " << (*f_iter)->get_name();
+        f_service << render_type_name((*f_iter)->get_type()) << " " << (*f_iter)->get_name();
       }
 
       f_service << ");" << endl;
@@ -239,7 +265,7 @@ class t_d_generator : public t_oop_generator {
     if (!exception_types.empty()) f_service << endl;
     set<t_type*>::const_iterator et_iter;
     for (et_iter = exception_types.begin(); et_iter != exception_types.end(); ++et_iter) {
-      indent(f_service) << "alias " << get_package(*(*et_iter)->get_program()) <<
+      indent(f_service) << "alias " << render_package(*(*et_iter)->get_program()) <<
         (*et_iter)->get_program()->get_name() << "_types" << "." <<
         (*et_iter)->get_name() << " " << (*et_iter)->get_name() << ";" << endl;
     }
@@ -281,8 +307,7 @@ class t_d_generator : public t_oop_generator {
         t_const_value* cv = (*p_iter)->get_value();
         if (cv != NULL) {
           t_type* t = get_true_type((*p_iter)->get_type());
-          meta << ", `" <<
-            render_const_value(meta, (*p_iter)->get_name(), t, cv) << "`";
+          meta << ", q{" << render_const_value(t, cv) << "}";
         }
         meta << ")";
       }
@@ -324,9 +349,10 @@ class t_d_generator : public t_oop_generator {
     }
     indent_down();
 
-    if (!meta.str().empty()) {
+    string meta_str(meta.str());
+    if (!meta_str.empty()) {
       f_service << endl <<
-        indent() << "enum methodMeta = [" << meta.str() << endl <<
+        indent() << "enum methodMeta = [" << meta_str << endl <<
         indent() << "];" << endl;
     }
 
@@ -335,11 +361,12 @@ class t_d_generator : public t_oop_generator {
   }
 
  private:
-  void generate_struct_definition(ofstream& out, t_struct* tstruct, bool is_exception) {
-    // Get members
+  /**
+   * Writes the definition of a struct or an exception type to out.
+   */
+  void print_struct_definition(ostream& out, t_struct* tstruct, bool is_exception) {
     const vector<t_field*>& members = tstruct->get_members();
 
-    // Open struct def
     if (is_exception) {
       indent(out) << "class " << tstruct->get_name() << " : TException {" << endl;
     } else {
@@ -347,17 +374,20 @@ class t_d_generator : public t_oop_generator {
     }
     indent_up();
 
-    // Declare all fields
+    // Declare all fields.
     vector<t_field*>::const_iterator m_iter;
     for (m_iter = members.begin(); m_iter != members.end(); ++m_iter) {
-      indent(out) << type_name((*m_iter)->get_type()) << " " <<
+      indent(out) << render_type_name((*m_iter)->get_type()) << " " <<
         (*m_iter)->get_name() << ";" << endl;
     }
 
-    indent(out) << endl;
+    if (!members.empty()) indent(out) << endl;
     indent(out) << "mixin TStructHelpers!(";
 
     if (!members.empty()) {
+      // If there are any fields, construct the TFieldMeta array to pass to
+      // TStructHelpers. We can't just pass an empty array if not because []
+      // doesn't pass the TFieldMeta[] constraint.
       out << "[";
       indent_up();
 
@@ -381,7 +411,7 @@ class t_d_generator : public t_oop_generator {
         }
         if (cv != NULL) {
           t_type* t = get_true_type((*m_iter)->get_type());
-          out << ", `" << render_const_value(out, (*m_iter)->get_name(), t, cv)
+          out << ", `" << render_const_value(t, cv)
             << "`";
         }
         out << ")";
@@ -399,17 +429,21 @@ class t_d_generator : public t_oop_generator {
       endl;
   }
 
-  void print_const_value(ostream& out, string name, t_type* type, t_const_value* value) {
+  /**
+   * Writes the statement(s) for setting the given variable to a constant
+   * value to out.
+   */
+  void print_var_init(ostream& out, string name, t_type* type, t_const_value* value) {
     type = get_true_type(type);
     if (type->is_base_type()) {
-      string v2 = render_const_value(out, name, type, value);
-      indent(out) << name << " = " << v2 << ";" << endl <<
-        endl;
+      string v2 = render_const_value(type, value);
+      indent(out) << name << " = " << v2 << ";" << endl;
     } else if (type->is_enum()) {
-      indent(out) << name << " = cast(" << type_name(type) << ")" << value->get_integer() << ";" << endl <<
-        endl;
+      indent(out) << name << " = cast(" << render_type_name(type) << ")" <<
+        value->get_integer() << ";" << endl;
     } else if (type->is_struct() || type->is_xception()) {
-      indent(out) << name << " = " << (type->is_xception() ? "new " : "") << type_name(type) << "();" << endl;
+      indent(out) << name << " = " << (type->is_xception() ? "new " : "") <<
+        render_type_name(type) << "();" << endl;
       const vector<t_field*>& fields = ((t_struct*)type)->get_members();
       vector<t_field*>::const_iterator f_iter;
       const map<t_const_value*, t_const_value*>& val = value->get_map();
@@ -422,49 +456,52 @@ class t_d_generator : public t_oop_generator {
           }
         }
         if (field_type == NULL) {
-          throw "type error: " + type->get_name() + " has no field " + v_iter->first->get_string();
+          throw "Type error: " + type->get_name() + " has no field " +
+            v_iter->first->get_string();
         }
-        string val = render_const_value(out, name, field_type, v_iter->second);
-        indent(out) << name << ".set!`" << v_iter->first->get_string() << "`(" << val << ");" << endl;
+        string val = render_const_value(field_type, v_iter->second);
+        indent(out) << name << ".set!`" << v_iter->first->get_string() <<
+          "`(" << val << ");" << endl;
       }
-      out << endl;
     } else if (type->is_map()) {
       t_type* ktype = ((t_map*)type)->get_key_type();
       t_type* vtype = ((t_map*)type)->get_val_type();
       const map<t_const_value*, t_const_value*>& val = value->get_map();
       map<t_const_value*, t_const_value*>::const_iterator v_iter;
       for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string key = render_const_value(out, name, ktype, v_iter->first);
-        string val = render_const_value(out, name, vtype, v_iter->second);
+        string key = render_const_value(ktype, v_iter->first);
+        string val = render_const_value(vtype, v_iter->second);
         indent(out) << name << "[" << key << "] = " << val << ";" << endl;
       }
-      out << endl;
     } else if (type->is_list()) {
       t_type* etype = ((t_list*)type)->get_elem_type();
       const vector<t_const_value*>& val = value->get_list();
       vector<t_const_value*>::const_iterator v_iter;
       for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string val = render_const_value(out, name, etype, *v_iter);
+        string val = render_const_value(etype, *v_iter);
         indent(out) << name << " ~= " << val << ";" << endl;
       }
-      out << endl;
     } else if (type->is_set()) {
       t_type* etype = ((t_set*)type)->get_elem_type();
       const vector<t_const_value*>& val = value->get_list();
       vector<t_const_value*>::const_iterator v_iter;
       for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
-        string val = render_const_value(out, name, etype, *v_iter);
+        string val = render_const_value(etype, *v_iter);
         indent(out) << name << " ~= " << val << ";" << endl;
       }
-      out << endl;
     } else {
-      throw "INVALID TYPE IN print_const_value: " + type->get_name();
+      throw "Compiler error: Invalid type in print_var_init: " +
+        type->get_name();
     }
   }
 
-  string render_const_value(ostream& out, string name, t_type* type, t_const_value* value) {
-    (void) name;
-    std::ostringstream render;
+  /**
+   * Returns the D representation of value. The result is guaranteed to be a
+   * single expression; for complex types, immediately called delegate
+   * literals are used to achieve this.
+   */
+  string render_const_value(t_type* type, t_const_value* value) {
+    ostringstream render;
 
     if (type->is_base_type()) {
       t_base_type::t_base tbase = ((t_base_type*)type)->get_base();
@@ -491,33 +528,63 @@ class t_d_generator : public t_oop_generator {
         }
         break;
       default:
-        throw "compiler error: no const of base type " + t_base_type::t_base_name(tbase);
+        throw "Compiler error: No const of base type " +
+          t_base_type::t_base_name(tbase);
       }
     } else if (type->is_enum()) {
-      render << "(" << type_name(type) << ")" << value->get_integer();
+      render << "(" << render_type_name(type) << ")" << value->get_integer();
     } else {
-      string t = tmp("tmp");
-      indent(out) << type_name(type) << " " << t << ";" << endl;
-      print_const_value(out, t, type, value);
-      render << t;
+      render << "{" << endl;
+      indent_up();
+
+      indent(render) << render_type_name(type) << " v;" << endl;
+      print_var_init(render, "v", type, value);
+      indent(render) << "return v;" << endl;
+
+      indent_down();
+      indent(render) << "}()";
     }
 
     return render.str();
   }
 
   /**
-   * Returns the include prefix to use for a file generated by program, or the
-   * empty string if no include prefix should be used.
+   * Returns the D package to which modules for program are written (with a
+   * trailing dot, if not empty).
    */
-  string get_package(const t_program& program) const {
+  string render_package(const t_program& program) const {
     string package = program.get_namespace("d");
     if (package.size() == 0) return "";
     return package + ".";
   }
 
-  string type_name(t_type* ttype) {
+  /**
+   * Returns the name of the D repesentation of ttype.
+   */
+  string render_type_name(const t_type* ttype) const {
     if (ttype->is_base_type()) {
-      return base_type_name(((t_base_type*)ttype)->get_base());
+      t_base_type::t_base tbase = ((t_base_type*)ttype)->get_base();
+      switch (tbase) {
+      case t_base_type::TYPE_VOID:
+        return "void";
+      case t_base_type::TYPE_STRING:
+        return "string";
+      case t_base_type::TYPE_BOOL:
+        return "bool";
+      case t_base_type::TYPE_BYTE:
+        return "byte";
+      case t_base_type::TYPE_I16:
+        return "short";
+      case t_base_type::TYPE_I32:
+        return "int";
+      case t_base_type::TYPE_I64:
+        return "long";
+      case t_base_type::TYPE_DOUBLE:
+        return "double";
+      default:
+        throw "Compiler error: No D type name for base type " +
+          t_base_type::t_base_name(tbase);
+      }
     }
 
     if (ttype->is_container()) {
@@ -528,14 +595,14 @@ class t_d_generator : public t_oop_generator {
         cname = tcontainer->get_cpp_name();
       } else if (ttype->is_map()) {
         t_map* tmap = (t_map*) ttype;
-        cname = type_name(tmap->get_val_type()) + "[" +
-          type_name(tmap->get_key_type()) + "]";
+        cname = render_type_name(tmap->get_val_type()) + "[" +
+          render_type_name(tmap->get_key_type()) + "]";
       } else if (ttype->is_set()) {
         t_set* tset = (t_set*) ttype;
-        cname = "HashSet!(" + type_name(tset->get_elem_type()) + ")";
+        cname = "HashSet!(" + render_type_name(tset->get_elem_type()) + ")";
       } else if (ttype->is_list()) {
         t_list* tlist = (t_list*) ttype;
-        cname = type_name(tlist->get_elem_type()) + "[]";
+        cname = render_type_name(tlist->get_elem_type()) + "[]";
       }
 
       return cname;
@@ -544,7 +611,10 @@ class t_d_generator : public t_oop_generator {
     return ttype->get_name();
   }
 
-  string render_req(t_field::e_req req) {
+  /**
+   * Returns the D TReq enum member corresponding to req.
+   */
+  string render_req(t_field::e_req req) const {
     switch (req) {
     case t_field::T_OPT_IN_REQ_OUT:
       return "TReq.OPT_IN_REQ_OUT";
@@ -557,54 +627,16 @@ class t_d_generator : public t_oop_generator {
     }
   }
 
-  string base_type_name(t_base_type::t_base tbase) {
-    switch (tbase) {
-    case t_base_type::TYPE_VOID:
-      return "void";
-    case t_base_type::TYPE_STRING:
-      return "string";
-    case t_base_type::TYPE_BOOL:
-      return "bool";
-    case t_base_type::TYPE_BYTE:
-      return "byte";
-    case t_base_type::TYPE_I16:
-      return "short";
-    case t_base_type::TYPE_I32:
-      return "int";
-    case t_base_type::TYPE_I64:
-      return "long";
-    case t_base_type::TYPE_DOUBLE:
-      return "double";
-    default:
-      throw "compiler error: no D base type name for base type " + t_base_type::t_base_name(tbase);
-    }
-  }
-
-  void generate_enum_constant_list(std::ofstream& f,
-    const vector<t_enum_value*>& constants, const char* prefix,
-    const char* suffix, bool include_values)
-  {
-    f << " {" << endl;
-    indent_up();
-
-    vector<t_enum_value*>::const_iterator c_iter;
-    bool first = true;
-    for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-      if (first) {
-        first = false;
-      } else {
-        f << "," << endl;
-      }
-      indent(f)
-        << prefix << (*c_iter)->get_name() << suffix;
-      if (include_values && (*c_iter)->has_value()) {
-        f << " = " << (*c_iter)->get_value();
-      }
-    }
-
-    f << endl;
-    indent_down();
-    indent(f) << "}" << endl;
+  /**
+   * Writes the default list of imports (which are written to every generated
+   * module) to f.
+   */
+  void print_default_imports(ostream& out) {
+    indent(out) <<
+      "import thrift.base;" << endl <<
+      "import thrift.codegen;" << endl <<
+      "import thrift.hashset;" << endl <<
+      endl;
   }
 
   /*
