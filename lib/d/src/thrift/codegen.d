@@ -232,7 +232,9 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     // Returns the code string for reading a value of type F off the wire and
     // assigning it to v. The level parameter is used to make sure that there
     // are no conflicting variable names on recursive calls.
-    string readValueCode(F)(string v, size_t level = 0) {
+    string readValueCode(ValueType)(string v, size_t level = 0) {
+      alias FullyUnqual!ValueType F;
+
       static if (is(F == bool)) {
         return v ~ " = p.readBool();";
       } else static if (is(F == byte)) {
@@ -265,11 +267,11 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
           v ~ ".clear();\n" ~
           // TODO: Check key/value types here?
           "for (int i = 0; i < map.size; ++i) {\n" ~
-            "typeof(" ~ v ~ ".keys[0]) " ~ key ~ ";\n" ~
+            "FullyUnqual!(typeof(" ~ v ~ ".keys[0])) " ~ key ~ ";\n" ~
             readValueCode!K(key, level + 1) ~ "\n" ~
             "typeof(" ~ v ~ ".values[0]) " ~ value ~ ";\n" ~
             readValueCode!V(value, level + 1) ~ "\n" ~
-            v ~ "[" ~ key ~ "] = " ~ value ~ ";\n" ~
+            v ~ "[cast(typeof(" ~ v ~ ".keys[0]))" ~ key ~ "] = " ~ value ~ ";\n" ~
           "}\n" ~
         "});";
       } else static if (is(F _ : HashSet!(E), E)) {
@@ -295,10 +297,10 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     string readFieldCode(FieldType)(string name, short id, TReq req) {
       static if (pointerStruct && isPointer!FieldType) {
         immutable v = "(*s." ~ name ~ ")";
-        alias Unqual!(pointerTarget!FieldType) F;
+        alias pointerTarget!FieldType F;
       } else {
         immutable v = "s." ~ name;
-        alias Unqual!FieldType F;
+        alias FieldType F;
       }
 
       string code = "case " ~ to!string(id) ~ ":\n";
@@ -408,7 +410,8 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
   p.writeStruct(TStruct(T.stringof), {
     mixin({
-      string writeValueCode(F)(string v) {
+      string writeValueCode(ValueType)(string v) {
+        alias FullyUnqual!ValueType F;
         static if (is(F == bool)) {
           return "p.writeBool(" ~ v ~ ");";
         } else static if (is(F == byte)) {
@@ -464,10 +467,10 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
 
         static if (pointerStruct && isPointer!FieldType) {
           immutable v = "(*s." ~ name ~ ")";
-          alias Unqual!(pointerTarget!FieldType) F;
+          alias pointerTarget!FieldType F;
         } else {
           immutable v = "s." ~ name;
-          alias Unqual!FieldType F;
+          alias FieldType F;
         }
 
         code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
@@ -1002,6 +1005,29 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
 
     return code;
   }());
+}
+
+/**
+ * Removes all type qualifiers from T.
+ *
+ * In contrast to std.traits.Unqual, FullyUnqual also removes qualifiers from
+ * array elements (e.g. immutable(byte[]) -> byte[], not immutable(byte)[]),
+ * excluding strings (string isn't reduced to char[]).
+ */
+template FullyUnqual(T) {
+  static if (is(T _ == const(U), U)) {
+    alias FullyUnqual!U FullyUnqual;
+  } else static if (is(T _ == immutable(U), U)) {
+    alias FullyUnqual!U FullyUnqual;
+  } else static if (is(T _ == shared(U), U)) {
+    alias FullyUnqual!U FullyUnqual;
+  } else static if (is(T _ == U[], U) && !isSomeString!T) {
+    alias FullyUnqual!(U)[] FullyUnqual;
+  } else static if (is(T _ == V[K], K, V)) {
+    alias FullyUnqual!(V)[FullyUnqual!K] FullyUnqual;
+  } else {
+    alias T FullyUnqual;
+  }
 }
 
 private {

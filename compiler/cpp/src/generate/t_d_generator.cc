@@ -143,8 +143,11 @@ class t_d_generator : public t_oop_generator {
           f_consts << endl;
         }
         t_type* type = (*c_iter)->get_type();
-        indent(f_consts) << (*c_iter)->get_name() <<
-          " = cast(immutable(" << render_type_name(type) << ")) " <<
+        indent(f_consts) << (*c_iter)->get_name() << " = ";
+        if (!is_immutable_type(type)) {
+          f_consts << "cast(immutable(" << render_type_name(type) << ")) ";
+        }
+        f_consts <<
           render_const_value(type, (*c_iter)->get_value()) << ";" << endl;
       }
       indent_down();
@@ -506,7 +509,11 @@ class t_d_generator : public t_oop_generator {
         for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
           string key = render_const_value(ktype, v_iter->first);
           string val = render_const_value(vtype, v_iter->second);
-          indent(out) << "v[" << key << "] = " << val << ";" << endl;
+          indent(out) << "v[";
+          if (!is_immutable_type(ktype)) {
+            out << "cast(immutable(" << render_type_name(ktype) << "))";
+          }
+          out << key << "] = " << val << ";" << endl;
         }
       } else if (type->is_list()) {
         t_type* etype = ((t_list*)type)->get_elem_type();
@@ -577,24 +584,30 @@ class t_d_generator : public t_oop_generator {
     }
 
     if (ttype->is_container()) {
-      string cname;
-
       t_container* tcontainer = (t_container*) ttype;
       if (tcontainer->has_cpp_name()) {
-        cname = tcontainer->get_cpp_name();
+        return tcontainer->get_cpp_name();
       } else if (ttype->is_map()) {
         t_map* tmap = (t_map*) ttype;
-        cname = render_type_name(tmap->get_val_type()) + "[" +
-          render_type_name(tmap->get_key_type()) + "]";
+        t_type* ktype = tmap->get_key_type();
+
+        string name = render_type_name(tmap->get_val_type()) + "[";
+        if (!is_immutable_type(ktype)) {
+          name += "immutable(";
+        }
+        name += render_type_name(ktype);
+        if (!is_immutable_type(ktype)) {
+          name += ")";
+        }
+        name += "]";
+        return name;
       } else if (ttype->is_set()) {
         t_set* tset = (t_set*) ttype;
-        cname = "HashSet!(" + render_type_name(tset->get_elem_type()) + ")";
+        return "HashSet!(" + render_type_name(tset->get_elem_type()) + ")";
       } else if (ttype->is_list()) {
         t_list* tlist = (t_list*) ttype;
-        cname = render_type_name(tlist->get_elem_type()) + "[]";
+        return render_type_name(tlist->get_elem_type()) + "[]";
       }
-
-      return cname;
     }
 
     return ttype->get_name();
@@ -626,6 +639,15 @@ class t_d_generator : public t_oop_generator {
       "import thrift.codegen;" << endl <<
       "import thrift.hashset;" << endl <<
       endl;
+  }
+
+  /**
+   * Returns whether type is »intrinsically immutable«, in the sense that
+   * a value of that type is implicitly castable to immutable(type), and it is
+   * allowed for AA keys without an immutable() qualifier.
+   */
+  bool is_immutable_type(const t_type* type) const {
+    return type->is_base_type() || type->is_enum();
   }
 
   /*
