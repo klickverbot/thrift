@@ -449,6 +449,8 @@ class t_d_generator : public t_oop_generator {
         break;
       case t_base_type::TYPE_BYTE:
       case t_base_type::TYPE_I16:
+        out << "cast(" << render_type_name(type) << ")" << value->get_integer();
+        break;
       case t_base_type::TYPE_I32:
         out << value->get_integer();
         break;
