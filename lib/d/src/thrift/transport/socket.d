@@ -24,6 +24,18 @@ import std.exception : enforce;
 import std.socket;
 import thrift.transport.base;
 
+private {
+  // FreeBSD and OS X return -1 and set ECONNRESET if socket was closed by
+  // the other side, we need to check for that before throwing an exception.
+  version (FreeBSD) {
+    enum connresetOnPeerShutdown = true;
+  } else version (OSX) {
+    enum connresetOnPeerShutdown = true;
+  } else {
+    enum connresetOnPeerShutdown = false;
+  }
+}
+
 /**
  * Socket implementation of the TTransport interface. To be commented soon!
  *
@@ -96,7 +108,7 @@ public class TSocket : TTransport {
     ubyte buf;
     auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
     if (r == -1) {
-      version (FreeBSD) {
+      static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
           close();
           return false;
@@ -112,10 +124,9 @@ public class TSocket : TTransport {
     assert(isOpen, "Called read on non-open socket.");
     auto r = socket_.receive(cast(void[])buf);
     if (r == -1) {
-      version (FreeBSD) {
+      static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
-          close();
-          return false;
+          return 0;
         }
       }
       throw new TTransportException("Receiving from socket failed",
@@ -128,10 +139,10 @@ public class TSocket : TTransport {
     assert(isOpen, "Called write on non-open socket.");
     auto r = socket_.send(buf);
     if (r == -1) {
-      version (FreeBSD) {
+      static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
           close();
-          return false;
+          return;
         }
       }
       throw new TTransportException("Writing to socket failed",
