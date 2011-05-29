@@ -671,18 +671,22 @@ template TPresultStruct(Interface, string methodName) {
 
     string[] fieldMetaCodes;
 
-    static if (!is(ReturnType!(mixin("Interface." ~ methodName)) == void)) {
+    alias ReturnType!(mixin("Interface." ~ methodName)) ResultType;
+    static if (!is(ResultType == void)) {
       code ~= q{
         ReturnType!(mixin("Interface." ~ methodName))* success;
-        struct IsSetFlags {
-          bool success;
-        }
-        IsSetFlags isSetFlags;
       };
-      fieldMetaCodes ~= [
-        "TFieldMeta(`success`, 0, TReq.OPTIONAL)",
-        "TFieldMeta(`isSetFlags`, 0, TReq.IGNORE)"
-      ];
+      fieldMetaCodes ~= "TFieldMeta(`success`, 0, TReq.OPTIONAL)";
+
+      static if (!isNullable!ResultType) {
+        code ~= q{
+          struct IsSetFlags {
+            bool success;
+          }
+          IsSetFlags isSetFlags;
+        };
+        fieldMetaCodes ~= "TFieldMeta(`isSetFlags`, 0, TReq.IGNORE)";
+      }
     }
 
     bool methodMetaFound;
@@ -713,7 +717,11 @@ template TPresultStruct(Interface, string methodName) {
     code ~= q{
       bool isSet(string fieldName)() const if (is(MemberType!(typeof(this), fieldName))) {
         static if (fieldName == "success") {
-          return isSetFlags.success;
+          static if (isNullable!(typeof(*success))) {
+            return *success !is null;
+          } else {
+            return isSetFlags.success;
+          }
         } else {
           // We are dealing with an exception member, which, being a nullable
           // type (exceptions are always classes), has no isSet flag.
