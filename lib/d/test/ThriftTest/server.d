@@ -30,6 +30,7 @@ import thrift.server.simple;
 import thrift.transport.buffered;
 import thrift.transport.serversocket;
 
+import common;
 import thrift.test.ThriftTest_types;
 import thrift.test.ThriftTest;
 
@@ -141,6 +142,8 @@ class TestHandler : ThriftTest {
     crazy.xtructs ~= goodbye;
 
     Insanity looney;
+    // The C++ TestServer also assigns these to crazy, but that is probably
+    // an oversight.
     looney.userMap[Numberz.FIVE] = 5;
     looney.xtructs ~= hello;
 
@@ -153,29 +156,11 @@ class TestHandler : ThriftTest {
     second_map[Numberz.SIX] = looney;
     insane[2] = second_map;
 
-    version (Trace) write("return = {");
-    foreach(key1, value1; insane) {
-      version (Trace) writef("%s => {", key1);
-      foreach(key2, value2; value1) {
-        version (Trace) writef("%s => {", key2);
-        version (Trace) write("{");
-        foreach(key3, value3; value2.userMap) {
-          version (Trace) writef("%s => %s, ", key3, value3);
-        }
-        version (Trace) write("}, ");
-
-        version (Trace) write("{");
-        foreach (x; value2.xtructs) {
-          version (Trace) writef("{\"%s\", %s, %s, %s}, ",
-            x.string_thing, x.byte_thing, x.i32_thing, x.i64_thing);
-        }
-        version (Trace) write("}");
-
-        version (Trace) write("}, ");
-      }
-      version (Trace) write("}, ");
+    version (Trace) {
+      write("return = ");
+      writeInsanityReturn(insane);
+      writeln();
     }
-    version (Trace) writeln("}");
 
     return insane;
   }
