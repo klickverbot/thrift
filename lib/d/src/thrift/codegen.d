@@ -162,7 +162,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
         string code;
         foreach (field; fieldMetaData) {
           if (field.defaultValue.empty) continue;
-          code ~= "result." ~ field.name ~ " = " ~ field.defaultValue ~ ";";
+          code ~= "result." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
         }
         return code;
       }());
@@ -254,8 +254,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
       } else static if (is(F _ : E[], E)) {
         return "p.readList((TList list) {\n" ~
             // TODO: Check element type here?
-            v ~ ".clear();\n" ~
-            v ~ ".length = list.size;\n" ~
+            v ~ " = new typeof(" ~ v ~ "[0])[list.size];\n" ~
             "for (int i = 0; i < list.size; ++i) {\n" ~
               readValueCode!E(v ~ "[i]", level + 1) ~ "\n" ~
             "}\n" ~
@@ -264,7 +263,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         immutable key = "key" ~ to!string(level);
         immutable value = "value" ~ to!string(level);
         return "p.readMap((TMap map) {\n" ~
-          v ~ ".clear();\n" ~
+          v ~ " = null;\n" ~
           // TODO: Check key/value types here?
           "for (int i = 0; i < map.size; ++i) {\n" ~
             "FullyUnqual!(typeof(" ~ v ~ ".keys[0])) " ~ key ~ ";\n" ~
@@ -278,7 +277,7 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
         immutable elem = "elem" ~ to!string(level);
         return "p.readSet((TSet set) {\n" ~
             // TODO: Check element type here?
-            v ~ ".clear();\n" ~
+            v ~ " = new typeof(" ~ v ~ ")();\n" ~
             "for (int i = 0; i < set.size; ++i) {\n" ~
               "typeof(" ~ v ~ "[][0]) " ~ elem ~ ";\n" ~
               readValueCode!E(elem, level + 1) ~ "\n" ~

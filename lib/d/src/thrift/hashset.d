@@ -33,10 +33,6 @@ final class HashSet(E) {
     insert(elems);
   }
 
-  void clear() {
-    aa_ = null;
-  }
-
   void insert(Stuff)(Stuff stuff) if (isImplicitlyConvertible!(Stuff, E)) {
     aa_[cast(immutable(E))stuff] = [];
   }
@@ -57,6 +53,10 @@ final class HashSet(E) {
     aa_.remove(cast(immutable(E))e);
   }
   alias remove removeKey;
+
+  void removeAll() {
+    aa_ = null;
+  }
 
   size_t length() @property const {
     return aa_.length;
