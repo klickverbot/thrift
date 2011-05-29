@@ -22,6 +22,7 @@ import core.stdc.errno;
 import std.array : empty;
 import std.exception : enforce;
 import std.socket;
+import std.stdio : stderr; // No proper logging support yet.
 import thrift.transport.base;
 
 private {
@@ -37,29 +38,30 @@ private {
 }
 
 /**
- * Socket implementation of the TTransport interface. To be commented soon!
+ * Socket implementation of the TTransport interface.
  *
- * TODO: Support timeout?
+ * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
+ * sockets or IPv6) are currently supported.
  */
-public class TSocket : TTransport {
+class TSocket : TTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
-   * @param socket Already created, connected socket object
+   * Params:
+   *   socket = Already created, connected socket object.
    */
   this(Socket socket) {
     socket_ = socket;
-    // Catch SocketExceptions like for Java here?
-    socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.LINGER, linger(0, 0));
-    socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.TCP_NODELAY, true);
+    setSocketOpts();
   }
 
   /**
    * Creates a new unconnected socket that will connect to the given host
    * on the given port.
    *
-   * @param host Remote host
-   * @param port Remote port
+   * Params:
+   *   host = Remote host
+   *   port = Remote port
    */
   this(string host, ushort port) {
     host_ = host;
@@ -85,11 +87,16 @@ public class TSocket : TTransport {
       TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
 
     if (socket_ is null) {
-      initSocket();
+      socket_ = new TcpSocket(AddressFamily.INET);
+      setSocketOpts();
     }
 
-    // TODO: Catch and wrap exception here?
-    socket_.connect(new InternetAddress(host_, port_));
+    try {
+      socket_.connect(new InternetAddress(host_, port_));
+    } catch (SocketException e) {
+      throw new TTransportException(TTransportException.Type.NOT_OPEN,
+        __FILE__, __LINE__, e);
+    }
   }
 
   /**
@@ -152,21 +159,25 @@ public class TSocket : TTransport {
 
 private:
   /**
-   * Initializes the socket object.
+   * Sets the needed socket options.
    */
-  void initSocket() {
-    socket_ = new TcpSocket(AddressFamily.INET);
-    // Catch SocketExceptions like for Java here?
-    socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.LINGER, linger(0, 0));
-    socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.TCP_NODELAY, true);
+  void setSocketOpts() {
+    try {
+      socket_.setOption(SocketOptionLevel.SOCKET,
+        SocketOption.LINGER, linger(0, 0));
+      socket_.setOption(SocketOptionLevel.SOCKET,
+        SocketOption.TCP_NODELAY, true);
+    } catch (SocketException e) {
+      stderr.writefln("Could not set socket option: %s", e);
+    }
   }
 
   /// Wrapped socket object.
-  Socket socket_ = null;
+  Socket socket_;
 
   /// Remote host.
-  string host_  = null;
+  string host_;
 
   /// Remote port.
-  ushort port_ = 0;
+  ushort port_;
 }

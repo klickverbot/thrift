@@ -64,7 +64,11 @@ void main(string[] args) {
     try {
       transport.open();
     } catch (TTransportException ttx) {
-      writefln("Connect failed: %s", ttx);
+      writef("Connect failed: %s", ttx.msg);
+      if (ttx.next !is null) {
+        writef(". Reason: %s.", ttx.next);
+      }
+      writeln();
       continue;
     }
 
