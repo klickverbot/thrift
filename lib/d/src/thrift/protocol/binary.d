@@ -190,7 +190,7 @@ class TBinaryProtocol : TProtocol {
 
   override TList readList(void delegate(TList) readContents) {
     auto l = TList(cast(TType)readByte(), readI32());
-    enforce(l.size > 0,
+    enforce(l.size >= 0,
       new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
     readContents(l);
     return l;
@@ -198,7 +198,7 @@ class TBinaryProtocol : TProtocol {
 
   override TMap readMap(void delegate(TMap) readContents) {
     auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
-    enforce(m.size > 0,
+    enforce(m.size >= 0,
       new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
     readContents(m);
     return m;
@@ -234,7 +234,7 @@ class TBinaryProtocol : TProtocol {
 
   override TSet readSet(void delegate(TSet) readContents) {
     auto s = TSet(cast(TType)readByte(), readI32());
-    enforce(s.size > 0,
+    enforce(s.size >= 0,
       new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
     readContents(s);
     return s;
