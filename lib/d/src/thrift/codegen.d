@@ -549,7 +549,7 @@ template TArgsStruct(Interface, string methodName) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
-        code ~= "pragma(msg, `[thrift.codegen.TPargsStruct] Warning: No " ~
+        code ~= "pragma(msg, `[thrift.codegen.TArgsStruct] Warning: No " ~
           "meta information for method '" ~ methodName ~ "' in service '" ~
           Interface.stringof ~ "' found.`);\n";
       }
@@ -601,7 +601,7 @@ template TPargsStruct(Interface, string methodName) {
       if (!methodMetaFound &&
         ParameterTypeTuple!(mixin("Interface." ~ methodName)).length > 0)
       {
-        code ~= "pragma(msg, `[thrift.codegen.TArgsStruct] Warning: No " ~
+        code ~= "pragma(msg, `[thrift.codegen.TPargsStruct] Warning: No " ~
           "meta information for method '" ~ methodName ~ "' in service '" ~
           Interface.stringof ~ "' found.`);\n";
       }
@@ -1035,31 +1035,31 @@ private {
    * D type, e.g. dToTTypeString!byte == "TType.BYTE".
    */
   template dToTTypeString(T) {
-    static if (is(T == bool)) {
+    static if (is(FullyUnqual!T == bool)) {
       enum dToTTypeString = "TType.BOOL";
-    } else static if (is(T == byte)) {
+    } else static if (is(FullyUnqual!T == byte)) {
       enum dToTTypeString = "TType.BYTE";
-    } else static if (is(T == double)) {
+    } else static if (is(FullyUnqual!T == double)) {
       enum dToTTypeString = "TType.DOUBLE";
-    } else static if (is(T == short)) {
+    } else static if (is(FullyUnqual!T == short)) {
       enum dToTTypeString = "TType.I16";
-    } else static if (is(T == int)) {
+    } else static if (is(FullyUnqual!T == int)) {
       enum dToTTypeString = "TType.I32";
-    } else static if (is(T == long)) {
+    } else static if (is(FullyUnqual!T == long)) {
       enum dToTTypeString = "TType.I64";
-    } else static if (is(T : string)) {
+    } else static if (is(FullyUnqual!T : string)) {
       enum dToTTypeString = "TType.STRING";
-    } else static if (is(T == enum)) {
+    } else static if (is(FullyUnqual!T == enum)) {
       enum dToTTypeString = "TType.I32";
-    } else static if (is(T _ : U[], U)) {
+    } else static if (is(FullyUnqual!T _ : U[], U)) {
       enum dToTTypeString = "TType.LIST";
-    } else static if (is(T _ : V[K], K, V)) {
+    } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
       enum dToTTypeString = "TType.MAP";
-    } else static if (is(T _ : HashSet!E, E)) {
+    } else static if (is(FullyUnqual!T _ : HashSet!E, E)) {
       enum dToTTypeString = "TType.SET";
-    } else static if (is(T == struct)) {
+    } else static if (is(FullyUnqual!T == struct)) {
       enum dToTTypeString = "TType.STRUCT";
-    } else static if (is(T : TException)) {
+    } else static if (is(FullyUnqual!T : TException)) {
       enum dToTTypeString = "TType.STRUCT";
     } else {
       static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
