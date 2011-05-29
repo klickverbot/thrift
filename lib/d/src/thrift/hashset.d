@@ -24,6 +24,7 @@
  */
 module thrift.hashset;
 
+import std.algorithm : join, map;
 import std.traits : isImplicitlyConvertible;
 import std.range : ElementType, isInputRange;
 
@@ -76,6 +77,10 @@ final class HashSet(E) {
 
   int opApply(scope int delegate(ref E elem) dg) const {
     return aa_.byKey()(cast(int delegate(ref immutable(E) elem)) dg);
+  }
+
+  override string toString() const {
+    return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
   }
 
 private:
