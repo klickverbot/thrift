@@ -646,8 +646,9 @@ class t_d_generator : public t_oop_generator {
    * a value of that type is implicitly castable to immutable(type), and it is
    * allowed for AA keys without an immutable() qualifier.
    */
-  bool is_immutable_type(const t_type* type) const {
-    return type->is_base_type() || type->is_enum();
+  bool is_immutable_type(t_type* type) const {
+    t_type* ttype = get_true_type(type);
+    return ttype->is_base_type() || ttype->is_enum();
   }
 
   /*
