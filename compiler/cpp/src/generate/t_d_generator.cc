@@ -97,7 +97,7 @@ class t_d_generator : public t_oop_generator {
         "import " << render_package(*(includes[i])) <<
         includes[i]->get_name() << "_types;" << endl;
     }
-    if (!includes.empty) f_types_ << endl;
+    if (!includes.empty()) f_types_ << endl;
   }
 
   virtual void close_generator() {
