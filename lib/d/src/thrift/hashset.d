@@ -100,6 +100,6 @@ unittest {
   a.remove(2);
   assert(a.length == 2);
   assert(2 !in a);
-  a.clear();
+  a.removeAll();
   assert(a.empty);
 }

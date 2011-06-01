@@ -19,3 +19,17 @@ software distributed under the License is distributed on an
 KIND, either express or implied. See the License for the
 specific language governing permissions and limitations
 under the License.
+
+Testing
+=======
+
+D support in Thrift is covered by two sets of tests: first,
+the unit test blocks contained in the D source files, and
+second, the more extensive testing applications in the test/
+subdirectory, which also make use of the Thrift compiler.
+Both are built when running "make check", but only the
+unit tests are immediately run, however – the separate test
+cases typically run longer or require manual intervention.
+It might also be prudent to run the independent tests,
+which typically consist of a server and a client part,
+against the other language implementations.

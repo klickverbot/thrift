@@ -21,28 +21,28 @@ SUBDIRS = test/ThriftTest
 
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = \
-  src/thrift/base.d \
-  src/thrift/codegen.d \
-  src/thrift/hashset.d
+	src/thrift/base.d \
+	src/thrift/codegen.d \
+	src/thrift/hashset.d
 
 d_protocoldir = $(d_thriftdir)/protocol
 d_protocol_DATA = \
-  src/thrift/protocol/base.d \
-  src/thrift/protocol/binary.d \
-  src/thrift/protocol/processor.d
+	src/thrift/protocol/base.d \
+	src/thrift/protocol/binary.d \
+	src/thrift/protocol/processor.d
 
 d_serverdir = $(d_thriftdir)/server
 d_server_DATA = \
-  src/thrift/server/base.d \
-  src/thrift/server/simple.d
+	src/thrift/server/base.d \
+	src/thrift/server/simple.d
 
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = \
-  src/thrift/transport/base.d \
-  src/thrift/transport/buffered.d \
-  src/thrift/transport/server.d \
-  src/thrift/transport/serversocket.d \
-  src/thrift/transport/socket.d
+	src/thrift/transport/base.d \
+	src/thrift/transport/buffered.d \
+	src/thrift/transport/server.d \
+	src/thrift/transport/serversocket.d \
+	src/thrift/transport/socket.d
 
 d_sources = $(d_thrift_DATA) $(d_protocol_DATA) $(d_server_DATA) $(d_transport_DATA)
 
@@ -52,10 +52,17 @@ libthriftd.a: $(d_sources)
 	$(DMD) -oflibthriftd -lib $(d_sources)
 
 clean-local:
-	$(RM) libthriftd.a
+	$(RM) libthriftd.a unittest emptymain.d
 
 lib_LIBRARIES = libthriftd.a
 
+TESTS = unittest
+
+emptymain.d:
+	@echo 'void main() {}' >$@
+
+unittest: $(d_sources) emptymain.d libthriftd.a
+	$(DMD) -unittest -ofunittest -Isrc $(d_sources) emptymain.d
+
 EXTRA_DIST = \
-  README \
-  test
+	README
