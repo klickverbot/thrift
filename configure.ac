@@ -89,6 +89,10 @@ AC_ARG_VAR([GOBIN], [Binary directory for Go.
                            Default = "/usr/local/bin"])
 AS_IF([test "x$GOBIN" = x], [GOBIN="/usr/local/bin"])
 
+AC_ARG_VAR([D_IMPORT_PREFIX], [Prefix for installing D modules.
+                           [INCLUDEDIR/d2]])
+AS_IF([test "x$D_IMPORT_PREFIX" = x], [D_IMPORT_PREFIX="${includedir}/d2"])
+
 AC_PROG_CC
 AC_PROG_CPP
 AC_PROG_CXX
@@ -275,6 +279,16 @@ if test "$with_go" = "yes";  then
   fi
 fi
 AM_CONDITIONAL(WITH_GO, [test "$have_go" = "yes"])
+
+AX_THRIFT_LIB(d, [D], yes)
+if test "$with_d" = "yes";  then
+  AX_DMD
+  AC_SUBST(DMD)
+  if test "x$DMD" != "x"; then
+    have_d="yes"
+  fi
+fi
+AM_CONDITIONAL(WITH_D, [test "$have_d" = "yes"])
 
 AC_C_CONST
 AC_C_INLINE
@@ -465,6 +479,8 @@ AC_CONFIG_FILES([
   lib/c_glib/thrift_c_glib.pc
   lib/c_glib/test/Makefile
   lib/csharp/Makefile
+  lib/d/Makefile
+  lib/d/test/ThriftTest/Makefile
   lib/erl/Makefile
   lib/erl/src/Makefile
   lib/hs/Makefile
@@ -501,6 +517,7 @@ echo "Building Perl Library ........ : $have_perl"
 echo "Building PHP Library ......... : $have_php"
 echo "Building Erlang Library ...... : $have_erlang"
 echo "Building Go Library .......... : $have_go"
+echo "Building D Library. .......... : $have_d"
 if test "$have_cpp" = "yes" ; then
   echo
   echo "Building TZlibTransport ...... : $have_zlib"
@@ -549,6 +566,10 @@ if test "$have_go" = "yes" ; then
   echo "Using GOARCH.................. : $GOARCH"
   echo "Using GO Compiler............. : $GO_C"
   echo "Using GO Linker............... : $GO_L"
+fi
+if test "$have_d" = "yes" ; then
+  echo
+  echo "Using D Compiler.............. : $DMD"
 fi
 echo
 echo "If something is missing that you think should be present,"

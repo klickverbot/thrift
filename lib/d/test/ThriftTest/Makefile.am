@@ -17,61 +17,29 @@
 # under the License.
 #
 
-SUBDIRS =
+#
+# Common thrift code generation rules
+#
+THRIFT = $(top_builddir)/compiler/cpp/thrift
 
-if WITH_CPP
-SUBDIRS += cpp
-endif
+thrift_test_gen = \
+  gen-d/thrift/test/SecondService.d \
+  gen-d/thrift/test/ThriftTest.d \
+  gen-d/thrift/test/ThriftTest_constants.d \
+  gen-d/thrift/test/ThriftTest_types.d
 
-if WITH_C_GLIB
-SUBDIRS += c_glib
-endif
+$(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
+	$(THRIFT) --gen d $<
 
-if WITH_MONO
-SUBDIRS += csharp
-endif
+d_flags = -I$(top_srcdir)/lib/d/src -Igen-d -L-L$(top_builddir)/lib/d -L-lthriftd
 
-if WITH_JAVA
-SUBDIRS += java
-# JavaScript unit test depends on java
-# so test only if java, ant & co is available
-SUBDIRS += js/test
-endif
+check-local: client server
 
-if WITH_PYTHON
-SUBDIRS += py
-endif
+client: client.d common.d $(thrift_test_gen)
+	$(DMD) $(d_flags) -ofclient $(thrift_test_gen) common.d client.d
 
-if WITH_ERLANG
-SUBDIRS += erl
-endif
+server: server.d common.d $(thrift_test_gen)
+	$(DMD) $(d_flags) -ofserver $(thrift_test_gen) common.d client.d
 
-if WITH_RUBY
-SUBDIRS += rb
-endif
-
-if WITH_HASKELL
-SUBDIRS += hs
-endif
-
-if WITH_PERL
-SUBDIRS += perl
-endif
-
-if WITH_PHP
-SUBDIRS += php
-endif
-
-if WITH_D
-SUBDIRS += d
-endif
-
-# All of the libs that don't use Automake need to go in here
-# so they will end up in our release tarballs.
-EXTRA_DIST = \
-  cocoa \
-  ocaml \
-  js \
-  as3 \
-  st \
-  go
+clean-local:
+	$(RM) -rf gen-d client client.o server server.o
