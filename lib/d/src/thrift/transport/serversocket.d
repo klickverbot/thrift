@@ -222,12 +222,12 @@ unittest {
   auto sock = new TServerSocket(0);
   sock.listen();
 
-  static void interruptSocket(shared(TServerSocket) socket) {
+  auto intThread = new Thread({
     // Sleep for a bit until the socket is accepting.
     Thread.sleep(dur!"msecs"(1));
-    (cast(TServerSocket) socket).interrupt();
-  }
-  spawn(&interruptSocket, cast(shared(TServerSocket))sock);
+    sock.interrupt();
+  });
+  intThread.start();
 
   try {
     sock.accept();
