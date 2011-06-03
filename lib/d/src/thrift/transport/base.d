@@ -265,13 +265,7 @@ class TTransportException : TException {
     this(msg ~ ": " ~ to!string(strerror(errno)), type, file, line, next);
   }
 
-  /**
-   * Returns an error code that provides information about the type of error
-   * that has occurred.
-   *
-   * @return Error code
-   */
-  Type getType() const nothrow {
+  Type type() const nothrow @property {
     return type_;
   }
 

@@ -19,9 +19,11 @@
 module thrift.transport.serversocket;
 
 import core.thread : dur, Thread;
+import core.stdc.errno : errno, EINTR;
+import core.stdc.string : strerror;
 import std.array : empty;
 import std.exception : enforce;
-import std.stdio : stderr, writeln, writefln;
+import std.stdio : stderr; // No proper logging support yet.
 import std.socket;
 import thrift.transport.base;
 import thrift.transport.server;
@@ -66,6 +68,15 @@ class TServerSocket : TServerTransport {
   }
 
   override void listen() {
+    try {
+      auto pair = socketPair();
+      intSendSocket_ = pair[0];
+      intRecvSocket_ = pair[1];
+    } catch (SocketException e) {
+      throw new TTransportException("Could create interrupt socket pair.",
+        TTransportException.Type.NOT_OPEN, __FILE__, __LINE__, e);
+    }
+
     // TODO: Catch any SocketExceptions and rethrow them as TTransportException.
     serverSocket_ = new Socket(AddressFamily.INET, SocketType.STREAM,
       ProtocolType.TCP);
@@ -89,10 +100,6 @@ class TServerSocket : TServerTransport {
     // If we are working with a TCP socket, set TCP_NODELAY.
     serverSocket_.setOption(lvlSock, SocketOption.TCP_NODELAY, true);
 
-    // Set the (accepting) socket to NONBLOCK.
-    // TODO: Enable this once interruption sockets are implemented for D.
-    // serverSocket_.blocking = false;
-
     auto localAddr = new InternetAddress("0.0.0.0", port_);
 
     int retries;
@@ -114,18 +121,81 @@ class TServerSocket : TServerTransport {
   }
 
   override void close() {
+    assert(serverSocket_, "Called close() on non-listening TServerSocket.");
     serverSocket_.shutdown(SocketShutdown.BOTH);
     serverSocket_.close();
+    serverSocket_ = null;
+
+    intSendSocket_.close();
+    intSendSocket_ = null;
+
+    intRecvSocket_.close();
+    intRecvSocket_ = null;
   }
 
   override void interrupt() {
-    throw new Exception("TServerSocket.interrupt() not implemented yet for D.");
+    assert(intSendSocket_, "Called interrupt() on non-listening TServerSocket.");
+    // Just ping the interrupt socket to throw acceptImpl() out of the
+    // select() call.
+    intSendSocket_.send(cast(void[])[0]);
   }
 
 protected:
   override TTransport acceptImpl() {
-    auto client = new TSocket(serverSocket_.accept());
-    return client;
+    assert(serverSocket_, "Called accept() on non-listening TServerSocket.");
+
+    enum maxEintrs = 5;
+    uint numEintrs = 0;
+
+    while (true) {
+      auto set = new SocketSet(2);
+      set.add(serverSocket_);
+      set.add(intRecvSocket_);
+
+      auto ret = Socket.select(set, null, null);
+      enforce(ret != 0, new TTransportException("Socket.select() returned 0.",
+        TTransportException.Type.UNKNOWN));
+
+      if (ret < 0) {
+        // error cases
+        if (errno == EINTR && (numEintrs++ < maxEintrs)) {
+          // EINTR needs to be handled manually and we can tolerate
+          // a certain number
+          continue;
+        }
+        throw new TTransportException("Unknown error on Socket.select()",
+          TTransportException.Type.UNKNOWN, errno);
+      } else {
+        // Check for an interrupt message on the interrupt socket..
+        if (set.isSet(intRecvSocket_)) {
+          ubyte[1] buf;
+          try {
+            auto result = intRecvSocket_.receive(buf);
+            if (result == Socket.ERROR) {
+              stderr.writeln("TServerSocket.acceptImpl(): Error receiving" ~
+                " interrupt message: %s", to!string(strerror(errno)));
+            }
+          } catch (SocketException e) {
+            stderr.writeln("TServerSocket.acceptImpl(): Error receiving" ~
+              " interrupt message: %s", to!string(e));
+          }
+          throw new TTransportException(TTransportException.Type.INTERRUPTED);
+        }
+
+        // Check for the actual server socket having a connection waiting.
+        if (set.isSet(serverSocket_)) {
+          break;
+        }
+      }
+    }
+
+    try {
+      auto client = new TSocket(serverSocket_.accept());
+      return client;
+    } catch (SocketException e) {
+      throw new TTransportException(TTransportException.Type.UNKNOWN,
+        __FILE__, __LINE__, e);
+    }
   }
 
 private:
@@ -139,4 +209,30 @@ private:
   int tcpRecvBuffer_;
 
   Socket serverSocket_;
+  Socket intRecvSocket_;
+  Socket intSendSocket_;
+}
+
+version (unittest) {
+  import std.concurrency : spawn;
+}
+
+unittest {
+  // Test interrupt().
+  auto sock = new TServerSocket(0);
+  sock.listen();
+
+  static void interruptSocket(shared(TServerSocket) socket) {
+    // Sleep for a bit until the socket is accepting.
+    Thread.sleep(dur!"msecs"(1));
+    (cast(TServerSocket) socket).interrupt();
+  }
+  spawn(&interruptSocket, cast(shared(TServerSocket))sock);
+
+  try {
+    sock.accept();
+    throw new Exception("Didn't interrupt, test failed.");
+  } catch (TTransportException e) {
+    if (e.type != TTransportException.Type.INTERRUPTED) throw e;
+  }
 }
