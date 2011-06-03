@@ -18,7 +18,7 @@
  */
 module thrift.transport.serversocket;
 
-import core.thread : dur, Thread;
+import core.thread : dur, Duration, Thread;
 import core.stdc.errno : errno, EINTR;
 import core.stdc.string : strerror;
 import std.array : empty;
@@ -37,17 +37,19 @@ import thrift.transport.socket;
  * only for the same reason.
  */
 class TServerSocket : TServerTransport {
-  this(ushort port, int sendTimeout = 0, int recvTimeout = 0) {
+  this(ushort port, Duration sendTimeout = dur!"hnsecs"(0),
+    Duration recvTimeout = dur!"hnsecs"(0))
+  {
     port_ = port;
     sendTimeout_ = sendTimeout;
     recvTimeout_ = recvTimeout;
   }
 
-  void sendTimeout(int sendTimeout) @property {
+  void sendTimeout(Duration sendTimeout) @property {
     sendTimeout_ = sendTimeout;
   }
 
-  void recvTimeout(int recvTimeout) @property {
+  void recvTimeout(Duration recvTimeout) @property {
     recvTimeout_ = recvTimeout;
   }
 
@@ -55,7 +57,7 @@ class TServerSocket : TServerTransport {
     retryLimit_ = retryLimit;
   }
 
-  void retryDelay(int retryDelay) @property {
+  void retryDelay(Duration retryDelay) @property {
     retryDelay_ = retryDelay;
   }
 
@@ -110,7 +112,7 @@ class TServerSocket : TServerTransport {
       } catch (SocketException) {}
       retries++;
       if (retries < retryLimit_) {
-        Thread.sleep(dur!"seconds"(retryDelay_));
+        Thread.sleep(retryDelay_);
       } else {
         throw new TTransportException("Could not bind.",
           TTransportException.Type.NOT_OPEN);
@@ -201,10 +203,10 @@ protected:
 private:
   ushort port_;
   int acceptBacklog_ = 1024;
-  int sendTimeout_;
-  int recvTimeout_;
+  Duration sendTimeout_;
+  Duration recvTimeout_;
   int retryLimit_;
-  int retryDelay_;
+  Duration retryDelay_;
   int tcpSendBuffer_;
   int tcpRecvBuffer_;
 
