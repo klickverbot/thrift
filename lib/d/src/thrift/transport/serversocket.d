@@ -168,7 +168,7 @@ protected:
         throw new TTransportException("Unknown error on Socket.select()",
           TTransportException.Type.UNKNOWN, errno);
       } else {
-        // Check for an interrupt message on the interrupt socket..
+        // Check for a ping on the interrupt socket.
         if (set.isSet(intRecvSocket_)) {
           ubyte[1] buf;
           try {
@@ -193,6 +193,8 @@ protected:
 
     try {
       auto client = new TSocket(serverSocket_.accept());
+      client.sendTimeout = sendTimeout_;
+      client.recvTimeout = recvTimeout_;
       return client;
     } catch (SocketException e) {
       throw new TTransportException(TTransportException.Type.UNKNOWN,
@@ -215,26 +217,60 @@ private:
   Socket intSendSocket_;
 }
 
-version (unittest) {
-  import std.concurrency : spawn;
-}
-
 unittest {
   // Test interrupt().
-  auto sock = new TServerSocket(0);
-  sock.listen();
+  {
+    auto sock = new TServerSocket(0);
+    sock.listen();
+    scope (exit) sock.close();
 
-  auto intThread = new Thread({
-    // Sleep for a bit until the socket is accepting.
-    Thread.sleep(dur!"msecs"(1));
-    sock.interrupt();
-  });
-  intThread.start();
+    auto intThread = new Thread({
+      // Sleep for a bit until the socket is accepting.
+      Thread.sleep(dur!"msecs"(1));
+      sock.interrupt();
+    });
+    intThread.start();
 
-  try {
-    sock.accept();
-    throw new Exception("Didn't interrupt, test failed.");
-  } catch (TTransportException e) {
-    if (e.type != TTransportException.Type.INTERRUPTED) throw e;
+    try {
+      sock.accept();
+      throw new Exception("Didn't interrupt, test failed.");
+    } catch (TTransportException e) {
+      if (e.type != TTransportException.Type.INTERRUPTED) throw e;
+    }
+  }
+
+  // Test receive() timeout on accepted client sockets.
+  {
+    immutable port = 11122;
+    auto timeout = dur!"msecs"(500);
+    auto serverSock = new TServerSocket(port, timeout, timeout);
+    serverSock.listen();
+    scope (exit) serverSock.close();
+
+    auto clientSock = new TSocket("127.0.0.1", port);
+    clientSock.open();
+    scope (exit) clientSock.close();
+
+    shared bool hasTimedOut;
+    auto recvThread = new Thread({
+      auto sock = serverSock.accept();
+      ubyte[1] data;
+      try {
+        sock.read(data);
+      } catch (TTransportException e) {
+        if (e.type == TTransportException.Type.TIMED_OUT) {
+          hasTimedOut = true;
+        } else {
+          stderr.writeln(e);
+        }
+      }
+    });
+    recvThread.isDaemon = true;
+    recvThread.start();
+
+    // Wait for the timeout, with a little bit of spare time.
+    Thread.sleep(timeout + dur!"msecs"(50));
+    enforce(hasTimedOut,
+      "Client socket receive() blocked for longer than recvTimeout.");
   }
 }

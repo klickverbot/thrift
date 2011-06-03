@@ -18,7 +18,7 @@
  */
 module thrift.transport.socket;
 
-import core.stdc.errno;
+import core.time : Duration;
 import std.array : empty;
 import std.exception : enforce;
 import std.socket;
@@ -34,6 +34,35 @@ private {
     enum connresetOnPeerShutdown = true;
   } else {
     enum connresetOnPeerShutdown = false;
+  }
+
+  version (Win32) {
+    import std.c.windows.winsock : WSAGetLastError;
+    import std.windows.syserror : sysErrorString;
+  } else {
+    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET;
+    import core.stdc.string : strerror;
+  }
+
+  version (Win32) {
+    alias WSAGetLastError getSocketErrno;
+    // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
+    enum TIMEOUT_ERRNO = 10060;
+  } else {
+    alias getErrno getSocketErrno;
+
+    // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
+    // set (undocumentedly) in out of ressource conditions; adapt the code
+    // accordingly.
+    alias EAGAIN TIMEOUT_ERRNO;
+  }
+
+  string socketErrnoString(uint errno) {
+    version (Win32) {
+      return sysErrorString(errno);
+    } else {
+      return to!string(strerror(errno));
+    }
   }
 }
 
@@ -115,14 +144,15 @@ class TSocket : TTransport {
     ubyte buf;
     auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
     if (r == -1) {
+      auto errno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
           close();
           return false;
         }
       }
-      throw new TTransportException("Peeking into socket failed",
-        TTransportException.Type.UNKNOWN, errno);
+      throw new TTransportException("Peeking into socket failed: " ~
+        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
     }
     return (r > 0);
   }
@@ -131,13 +161,18 @@ class TSocket : TTransport {
     assert(isOpen, "Called read on non-open socket.");
     auto r = socket_.receive(cast(void[])buf);
     if (r == -1) {
+      auto errno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
           return 0;
         }
       }
-      throw new TTransportException("Receiving from socket failed",
-        TTransportException.Type.UNKNOWN, errno);
+      if (errno == TIMEOUT_ERRNO) {
+        throw new TTransportException(TTransportException.Type.TIMED_OUT);
+      } else {
+        throw new TTransportException("Receiving from socket failed: " ~
+          socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+      }
     }
     return r;
   }
@@ -146,15 +181,38 @@ class TSocket : TTransport {
     assert(isOpen, "Called write on non-open socket.");
     auto r = socket_.send(buf);
     if (r == -1) {
+      auto errno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         if (errno == ECONNRESET) {
           close();
           return;
         }
       }
-      throw new TTransportException("Writing to socket failed",
-        TTransportException.Type.UNKNOWN, errno);
+      if (errno == TIMEOUT_ERRNO) {
+        throw new TTransportException(TTransportException.Type.TIMED_OUT);
+      } else {
+        throw new TTransportException("Receiving from socket failed: " ~
+          socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+      }
     }
+  }
+
+  Duration sendTimeout() const @property {
+    return sendTimeout_;
+  }
+
+  void sendTimeout(Duration value) @property {
+    sendTimeout_ = value;
+    setTimeout(SocketOption.SNDTIMEO, value);
+  }
+
+  Duration recvTimeout() const @property {
+    return recvTimeout_;
+  }
+
+  void recvTimeout(Duration value) @property {
+    recvTimeout_ = value;
+    setTimeout(SocketOption.RCVTIMEO, value);
   }
 
 private:
@@ -163,12 +221,40 @@ private:
    */
   void setSocketOpts() {
     try {
-      socket_.setOption(SocketOptionLevel.SOCKET,
-        SocketOption.LINGER, linger(0, 0));
-      socket_.setOption(SocketOptionLevel.SOCKET,
-        SocketOption.TCP_NODELAY, true);
+      alias SocketOptionLevel.SOCKET lvlSock;
+      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+      socket_.setOption(lvlSock, SocketOption.TCP_NODELAY, true);
+      socket_.setOption(lvlSock, SocketOption.SNDTIMEO, sendTimeout_);
+      socket_.setOption(lvlSock, SocketOption.RCVTIMEO, recvTimeout_);
     } catch (SocketException e) {
       stderr.writefln("Could not set socket option: %s", e);
+    }
+  }
+
+  void setTimeout(SocketOption type, Duration value) {
+    assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
+    version (Win32) {
+      auto msecs = value.total!"msecs";
+      if (msecs < 500) {
+        stderr.writefln(
+          "Socket %s timeout of %s ms might be raised to 500 ms on Windows.",
+          (type == SocketOption.SNDTIMEO) ? "send" : "receive",
+          msecs
+        );
+      }
+    }
+
+    if (socket_) {
+      try {
+        socket_.setOption(SocketOptionLevel.SOCKET, type, value);
+      } catch (SocketException e) {
+        throw new TTransportException(
+          "Could not set send timeout: " ~ socketErrnoString(e.errorCode),
+          TTransportException.Type.UNKNOWN,
+          __FILE__,
+          __LINE__
+        );
+      }
     }
   }
 
@@ -180,4 +266,10 @@ private:
 
   /// Remote port.
   ushort port_;
+
+  /// Timeout for sending.
+  Duration sendTimeout_;
+
+  /// Timeout for receiving.
+  Duration recvTimeout_;
 }
