@@ -33,3 +33,10 @@ cases typically run longer or require manual intervention.
 It might also be prudent to run the independent tests,
 which typically consist of a server and a client part,
 against the other language implementations.
+
+To build the unit tests on Windows, the easiest way might
+be to manually create a file containing an empty main() and
+invoke the compiler by running the following in the src/
+directory (PowerShell syntax):
+
+dmd -ofunittest -unittest -w $(dir -r -filter '*.d' -name)
