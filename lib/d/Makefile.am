@@ -40,6 +40,7 @@ d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = \
 	src/thrift/transport/base.d \
 	src/thrift/transport/buffered.d \
+	src/thrift/transport/memory.d \
 	src/thrift/transport/server.d \
 	src/thrift/transport/serversocket.d \
 	src/thrift/transport/socket.d

@@ -149,7 +149,9 @@ class TTransport {
    * Throws: TTransportException if an error occurs.
    */
   void write(in ubyte[] buf) in {
-    assert(isOpen, "Called write() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.memory unittests.
+    // assert(isOpen, "Called read() on non-open transport!");
   } body {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
       "Base TTransport cannot write.");
@@ -215,7 +217,9 @@ class TTransport {
    * Throws: TTransportException if an error occurs.
    */
   const(ubyte)[] borrow(ubyte* buf, size_t len) in {
-    assert(isOpen, "Called borrow() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.memory unittests.
+    // assert(isOpen, "Called read() on non-open transport!");
   } out (result) {
     assert(result is null || result.length >= len,
       "Buffer returned by borrow() too short.");
@@ -224,7 +228,7 @@ class TTransport {
   }
 
   /**
-   * Remove len bytes from the transport. This should always follow a borrow
+   * Remove len bytes from the transport. This must always follow a borrow
    * of at least len bytes, and should always succeed.
    *
    * The transport must be open when calling this.
@@ -235,7 +239,9 @@ class TTransport {
    * Throws: TTransportException if an error occurs.
    */
   void consume(size_t len) in {
-    assert(isOpen, "Called consume() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.memory unittests.
+    // assert(isOpen, "Called read() on non-open transport!");
   } body {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
       "Base TTransport cannot consume.");

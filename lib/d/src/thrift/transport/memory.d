@@ -1,0 +1,167 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+module thrift.transport.memory;
+
+import std.algorithm : min;
+import std.exception : enforce;
+import thrift.transport.base;
+
+/**
+ * A tranpsort that simply reads from and writes to an in-memory buffer. Every
+ * time you call write on it, the data is simply placed into a buffer, and
+ * every time you call read, data is consumed from that buffer.
+ */
+class TMemoryBuffer : TTransport {
+  /**
+   * Constructs a new memory transport with an empty internal buffer.
+   */
+  this() {}
+
+  /**
+   * Constructs a new memory transport with an empty internal buffer,
+   * reserving space for capacity items in advance.
+   *
+   * If the amount of data which will be written to the buffer is already
+   * known on construction, this can better performance over the default
+   * constructor because reallocations can be avoided.
+   *
+   * If the preallocated buffer is exhausted, data can still be written to the
+   * transport, but reallocations will happen.
+   *
+   * Params:
+   *   capacity = Size of the initially reserved buffer (in bytes).
+   */
+  this(size_t capacity) {
+    buffer_.reserve(capacity);
+  }
+
+  /**
+   * Constructs a new memory transport initially containing the passed data.
+   *
+   * Params:
+   *   buffer = Initial contents available to be read.
+   */
+  this(immutable(ubyte)[] contents) {
+    buffer_ = contents;
+  }
+
+  /**
+   * Returns a read-only view of the buffer contents.
+   */
+  immutable(ubyte)[] getContents() {
+    return buffer_;
+  }
+
+  /**
+   * A memory transport is always open.
+   */
+  override bool isOpen() @property {
+    return true;
+  }
+
+  /**
+   * Tests whether there is more data to read or if the remote side is
+   * still open.
+   *
+   * By default this is true whenever the transport is open, but
+   * implementations should add logic to test for this condition where
+   * possible (e.g. on a socket). This is used by a server to check if it
+   * should listen for another request.
+   */
+  override bool peek() {
+    return buffer_.length > 0;
+  }
+
+  /**
+   * Opening is a no-op() for a memory buffer.
+   */
+  override void open() {}
+
+  /**
+   * Closing is a no-op() for a memory buffer, it is always open.
+   */
+  override void close() {}
+
+  override size_t read(ubyte[] buf) {
+    auto size = min(buffer_.length, buf.length);
+    buf[0..size] = buffer_[0..size];
+    buffer_ = buffer_[size..$];
+    return size;
+  }
+
+  override void write(in ubyte[] buf) {
+    buffer_ ~= buf;
+  }
+
+  override const(ubyte)[] borrow(ubyte* buf, size_t len) {
+    if (len >= buffer_.length) {
+      return buffer_;
+    } else {
+      return null;
+    }
+  }
+
+  override void consume(size_t len) {
+    buffer_ = buffer_[len..$];
+  }
+
+private:
+  immutable(ubyte)[] buffer_;
+}
+
+version (unittest) {
+  import std.exception;
+}
+
+unittest {
+  auto a = new TMemoryBuffer(5);
+  immutable(ubyte[]) testData = [1, 2, 3, 4];
+  auto buf = new ubyte[testData.length];
+  assert(a.isOpen);
+
+  // a should be empty.
+  assert(!a.peek());
+  assert(a.read(buf) == 0);
+  assertThrown!TTransportException(a.readAll(buf));
+
+  // Write some data and read it back again.
+  a.write(testData);
+  assert(a.peek());
+  assert(a.getContents() == testData);
+  assert(a.read(buf) == testData.length);
+  assert(buf == testData);
+
+  // a should be empty again.
+  assert(!a.peek);
+  assert(a.read(buf) == 0);
+  assertThrown!TTransportException(a.readAll(buf));
+
+  // Test the constructor which directly accepts initial data.
+  auto b = new TMemoryBuffer(testData);
+  assert(b.isOpen);
+  assert(b.peek());
+  assert(b.getContents() == testData);
+
+  // Test borrow().
+  auto borrowed = b.borrow(null, testData.length);
+  assert(borrowed == testData);
+  assert(b.peek());
+  b.consume(testData.length);
+  assert(!b.peek());
+}
