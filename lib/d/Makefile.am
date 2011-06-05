@@ -49,7 +49,7 @@ d_sources = $(d_thrift_DATA) $(d_protocol_DATA) $(d_server_DATA) $(d_transport_D
 all-local: libthriftd.a
 
 libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -lib $(d_sources)
+	$(DMD) -oflibthriftd -w -lib $(d_sources)
 
 clean-local:
 	$(RM) libthriftd.a unittest emptymain.d
@@ -62,7 +62,7 @@ emptymain.d:
 	@echo 'void main() {}' >$@
 
 unittest: $(d_sources) emptymain.d libthriftd.a
-	$(DMD) -unittest -ofunittest -Isrc $(d_sources) emptymain.d
+	$(DMD) -unittest -w -ofunittest -Isrc $(d_sources) emptymain.d
 
 EXTRA_DIST = \
 	README
