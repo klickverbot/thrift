@@ -30,26 +30,27 @@ class TTransport {
   /**
    * Whether this transport is open.
    */
-  bool isOpen() {
+  bool isOpen() @property {
     return false;
   }
 
   /**
    * Tests whether there is more data to read or if the remote side is
-   * still open. By default this is true whenever the transport is open,
-   * but implementations should add logic to test for this condition where
-   * possible (i.e. on a socket).
-   * This is used by a server to check if it should listen for another
-   * request.
+   * still open.
+   *
+   * By default this is true whenever the transport is open, but
+   * implementations should add logic to test for this condition where
+   * possible (e.g. on a socket). This is used by a server to check if it
+   * should listen for another request.
    */
   bool peek() {
-    return isOpen();
+    return isOpen;
   }
 
   /**
    * Opens the transport for communications.
    *
-   * Throws: TTransportException if opening failed.
+   * Throws: TTransportException if opening fails.
    */
   void open() {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
@@ -59,7 +60,7 @@ class TTransport {
   /**
    * Closes the transport.
    *
-   * Throws: TTransportException if closing failed.
+   * Throws: TTransportException if closing fails.
    */
   void close() {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
@@ -67,31 +68,45 @@ class TTransport {
   }
 
   /**
-   * Attempt to read up to the specified number of bytes into the string.
+   * Attempts to read data into the given buffer, stopping when the buffer is
+   * exhausted or no more data is available.
    *
-   * @param buf  Reference to the location to write the data
-   * @return How many bytes were actually read
-   * @throws TTransportException If an error occurs
+   * The transport must be open when calling this.
+   *
+   * Params:
+   *   buf = Slice to use as buffer.
+   *
+   * Returns: How many bytes were actually read
+   *
+   * Throws: TTransportException if an error occurs.
    */
-  uint read(ubyte[] buf) {
+  size_t read(ubyte[] buf) in {
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.serversocket unittests.
+    // assert(isOpen, "Called read() on non-open transport!");
+  } body {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
       "Base TTransport cannot read.");
   }
 
   /**
-   * Reads the given amount of data in its entirety no matter what.
+   * Fills the given buffer by reading data into it, failing if not enough
+   * data is available.
    *
-   * @param s     Reference to location for read data
-   * @param len   How many bytes to read
-   * @return How many bytes read, which must be equal to size
-   * @throws TTransportException If insufficient data was read
+   * The transport must be open when calling this.
+   *
+   * Params:
+   *   buf = Slice to use as buffer.
+   *
+   * Throws: TTransportException if insufficient data is available or reading
+   *   fails altogether.
    */
-  void readAll(ubyte[] buf) {
-    uint have = 0;
-    uint get = 0;
-
+  void readAll(ubyte[] buf) in {
+    assert(isOpen, "Called readAll() on non-open transport!");
+  } body {
+    size_t have;
     while (have < buf.length) {
-      get = read(buf[have..$]);
+      size_t get = read(buf[have..$]);
       if (get <= 0) {
         throw new TTransportException(TTransportException.Type.END_OF_FILE,
           "No more data to read.");
@@ -101,104 +116,134 @@ class TTransport {
   }
 
   /**
-   * Called when read is completed.
-   * This can be over-ridden to perform a transport-specific action
-   * e.g. logging the request to a file
+   * Must be called by clients when read is completed.
    *
-   * @return number of bytes read if available, 0 otherwise.
+   * Implementations can choose to perform a transport-specific action, e.g.
+   * logging the request to a file.
+   *
+   * The transport must be open when calling this.
+   *
+   * Returns: The number of bytes read if available, 0 otherwise.
    */
-  uint readEnd() {
+  size_t readEnd() in {
+    assert(isOpen, "Called readEnd() on non-open transport!");
+  } body {
     // default behaviour is to do nothing
     return 0;
   }
 
   /**
-   * Writes the string in its entirety to the buffer.
+   * Writes the passed slice of data.
+   *
+   * The transport must be open when calling this.
    *
    * Note: You must call flush() to ensure the data is actually written,
    * and available to be read back in the future.  Destroying a TTransport
-   * object does not automatically flush pending data--if you destroy a
+   * object does not automatically flush pending data – if you destroy a
    * TTransport object with written but unflushed data, that data may be
    * discarded.
    *
-   * @param buf  The data to write out
-   * @throws TTransportException if an error occurs
+   * Params:
+   *   buf = Slice of data to write.
+   *
+   * Throws: TTransportException if an error occurs.
    */
-  void write(in ubyte[] buf) {
+  void write(in ubyte[] buf) in {
+    assert(isOpen, "Called write() on non-open transport!");
+  } body {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
-                              "Base TTransport cannot write.");
+      "Base TTransport cannot write.");
   }
 
   /**
-   * Called when write is completed.
-   * This can be over-ridden to perform a transport-specific action
-   * at the end of a request.
+   * Must be called by clients when write is completed.
    *
-   * @return number of bytes written if available, 0 otherwise
+   * Implementations can choose to perform a transport-specific action, e.g.
+   * logging the request to a file.
+   *
+   * Returns: The number of bytes written if available, 0 otherwise.
    */
-  uint writeEnd() {
+  size_t writeEnd() in {
+    assert(isOpen, "Called writeEnd() on non-open transport!");
+  } body {
     // default behaviour is to do nothing
     return 0;
   }
 
   /**
-   * Flushes any pending data to be written. Typically used with buffered
+   * Flushes any pending data to be written.
+   *
+   * Must be called before destruction to ensure writes are actually complete,
+   * otherwise pending data may be discarded. Typically used with buffered
    * transport mechanisms.
    *
-   * @throws TTransportException if an error occurs
+   * The transport must be open when calling this.
+   *
+   * Throws: TTransportException if an error occurs.
    */
-  void flush() {
+  void flush() in {
+    assert(isOpen, "Called flush() on non-open transport!");
+  } body {
     // default behaviour is to do nothing
   }
 
   /**
-   * Attempts to return a pointer to \c len bytes, possibly copied into \c buf.
-   * Does not consume the bytes read (i.e.: a later read will return the same
-   * data).  This method is meant to support protocols that need to read
-   * variable-length fields.  They can attempt to borrow the maximum amount of
-   * data that they will need, then consume (see next method) what they
-   * actually use.  Some transports will not support this method and others
-   * will fail occasionally, so protocols must be prepared to use read if
+   * Attempts to return a slice of <code>len</code> bytes of incoming data,
+   * possibly copied into buf, not consuming them (i.e.: a later read will
+   * return the same data).
+   *
+   * This method is meant to support protocols that need to read variable-
+   * length fields. They can attempt to borrow the maximum amount of data that
+   * they will need, then <code>consume()</code> what they actually use. Some
+   * transports will not support this method and others will fail occasionally,
+   * so protocols must be prepared to fall back to <code>read()</code> if
    * borrow fails.
    *
-   * @oaram buf  A buffer where the data can be stored if needed.
-   *             If borrow doesn't return buf, then the contents of
-   *             buf after the call are undefined.  This parameter may be
-   *             NULL to indicate that the caller is not supplying storage,
-   *             but would like a pointer into an internal buffer, if
-   *             available.
-   * @param len  *len should initially contain the number of bytes to borrow.
-   *             If borrow succeeds, *len will contain the number of bytes
-   *             available in the returned pointer.  This will be at least
-   *             what was requested, but may be more if borrow returns
-   *             a pointer to an internal buffer, rather than buf.
-   *             If borrow fails, the contents of *len are undefined.
-   * @return If the borrow succeeds, return a pointer to the borrowed data.
-   *         This might be equal to \c buf, or it might be a pointer into
-   *         the transport's internal buffers.
-   * @throws TTransportException if an error occurs
+   * The transport must be open when calling this.
+   *
+   * Params:
+   *   buf = A buffer where the data can be stored if needed, or null to
+   *     indicate that the caller is not supplying storage, but would like a
+   *     slice of an internal buffer, if available.
+   *   len = The number of bytes to borrow.
+   *
+   * Returns: If the borrow succeeds, a slice containing the borrowed data,
+   *   null otherwise. The slice will be at least as long as requested, but
+   *   may be longer if the returned slice points into an internal buffer
+   *   rather than buf.
+   *
+   * Throws: TTransportException if an error occurs.
    */
-  const(ubyte)* borrow(ubyte* buf, ref uint len) {
+  const(ubyte)[] borrow(ubyte* buf, size_t len) in {
+    assert(isOpen, "Called borrow() on non-open transport!");
+  } out (result) {
+    assert(result is null || result.length >= len,
+      "Buffer returned by borrow() too short.");
+  } body {
     return null;
   }
 
   /**
    * Remove len bytes from the transport. This should always follow a borrow
    * of at least len bytes, and should always succeed.
-   * TODO(dreiss): Is there any transport that could borrow but fail to
-   * consume, or that would require a buffer to dump the consumed data?
    *
-   * @param len  How many bytes to consume
-   * @throws TTransportException If an error occurs
+   * The transport must be open when calling this.
+   *
+   * Params:
+   *   len = Number of bytes to consume.
+   *
+   * Throws: TTransportException if an error occurs.
    */
-  void consume(uint len) {
+  void consume(size_t len) in {
+    assert(isOpen, "Called consume() on non-open transport!");
+  } body {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
       "Base TTransport cannot consume.");
   }
 
 protected:
   this() {}
-};
+}
 
 /**
  * Generic factory class to make an input and output transport out of a

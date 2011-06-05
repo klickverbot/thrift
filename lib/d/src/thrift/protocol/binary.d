@@ -172,9 +172,8 @@ class TBinaryProtocol : TProtocol {
       return null;
     }
 
-    uint got = size;
     // TODO: Does borrowing actually buy us anything at all here?
-    if (auto borrowBuf = trans_.borrow(null, got)) {
+    if (auto borrowBuf = trans_.borrow(null, size)) {
       auto buf = borrowBuf[0..size].dup;
       trans_.consume(size);
       return buf;
@@ -270,9 +269,8 @@ protected:
       return null;
     }
 
-    uint got = size;
     // TODO: Does borrowing actually buy us anything at all here?
-    if (auto borrowBuf = trans_.borrow(null, got)) {
+    if (auto borrowBuf = trans_.borrow(null, size)) {
       auto str = cast(string)borrowBuf[0..size].idup;
       trans_.consume(size);
       return str;

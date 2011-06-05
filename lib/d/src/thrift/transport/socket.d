@@ -157,8 +157,7 @@ class TSocket : TTransport {
     return (r > 0);
   }
 
-  override uint read(ubyte[] buf) {
-    assert(isOpen, "Called read on non-open socket.");
+  override size_t read(ubyte[] buf) {
     auto r = socket_.receive(cast(void[])buf);
     if (r == -1) {
       auto errno = getSocketErrno();
@@ -178,7 +177,6 @@ class TSocket : TTransport {
   }
 
   override void write(in ubyte[] buf) {
-    assert(isOpen, "Called write on non-open socket.");
     auto r = socket_.send(buf);
     if (r == -1) {
       auto errno = getSocketErrno();

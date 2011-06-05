@@ -37,7 +37,7 @@ class TBufferBase : TTransport {
    * is empty, we call out to our slow path, implemented by a subclass.
    * This method is meant to eventually be nonvirtual and inlinable.
    */
-  override uint read(ubyte[] buf) {
+  override size_t read(ubyte[] buf) {
     ubyte* new_rBase = rBase_ + buf.length;
     if (new_rBase <= rBound_) {
       buf[] = rBase_[0..buf.length];
@@ -82,10 +82,9 @@ class TBufferBase : TTransport {
   /**
    * Fast-path borrow.  A lot like the fast-path read.
    */
-  override const(ubyte)* borrow(ubyte* buf, ref uint len) {
+  override const(ubyte)[] borrow(ubyte* buf, size_t len) {
     if (cast(ptrdiff_t)len <= rBound_ - rBase_) {
-      len = cast(uint)(rBound_ - rBase_);
-      return rBase_;
+      return rBase_[0 .. (rBound_ - rBase_)];
     }
     return borrowSlow(buf, len);
   }
@@ -93,7 +92,7 @@ class TBufferBase : TTransport {
   /**
    * Consume doesn't require a slow path.
    */
-  override void consume(uint len) {
+  override void consume(size_t len) {
     enforce(cast(ptrdiff_t)len <= rBound_ - rBase_, new TTransportException(
       TTransportException.Type.BAD_ARGS, "consume did not follow a borrow."));
     rBase_ += len;
@@ -102,17 +101,13 @@ class TBufferBase : TTransport {
 
 protected:
   /// Slow path read.
-  abstract uint readSlow(ubyte[] buf);
+  abstract size_t readSlow(ubyte[] buf);
 
   /// Slow path write.
   abstract void writeSlow(in ubyte[] buf);
 
-  /**
-   * Slow path borrow.
-   *
-   * POSTCONDITION: return == NULL || rBound_ - rBase_ >= *len
-   */
-  abstract const(ubyte)* borrowSlow(ubyte* buf, ref uint len);
+  /// Slow path borrow.
+  abstract const(ubyte)[] borrowSlow(ubyte* buf, size_t len);
 
   /**
    * Trivial constructor.
@@ -213,8 +208,8 @@ class TBufferedTransport : TBufferBase {
   }
 
 protected:
-  override uint readSlow(ubyte[] buf) {
-    uint have = rBound_ - rBase_;
+  override size_t readSlow(ubyte[] buf) {
+    size_t have = rBound_ - rBase_;
 
     // We should only take the slow path if we can't satisfy the read
     // with the data already in the buffer.
@@ -238,7 +233,7 @@ protected:
     setReadBuffer(rBuf_[0..transport_.read(rBuf_)]);
 
     // Hand over whatever we have.
-    uint give = min(buf.length, cast(uint)(rBound_ - rBase_));
+    auto give = min(buf.length, cast(size_t)(rBound_ - rBase_));
     buf[0..give] = rBase_[0..give];
     rBase_ += give;
 
@@ -302,7 +297,7 @@ protected:
    *    will ever have to be copied again.  For optimial performance,
    *    stay under this limit.
    */
-  override const(ubyte)* borrowSlow(ubyte* buf, ref uint len) {
+  override const(ubyte)[] borrowSlow(ubyte* buf, size_t len) {
     return null;
   }
 
