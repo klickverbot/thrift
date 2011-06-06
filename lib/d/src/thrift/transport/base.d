@@ -184,7 +184,9 @@ class TTransport {
    * Throws: TTransportException if an error occurs.
    */
   void flush() in {
-    assert(isOpen, "Called flush() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.framed unittests.
+    // assert(isOpen, "Called read() on non-open transport!");
   } body {
     // default behaviour is to do nothing
   }
