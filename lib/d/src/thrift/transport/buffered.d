@@ -28,7 +28,7 @@ import std.algorithm : min;
 import std.exception : enforce;
 import thrift.transport.base;
 
-class TBufferBase : TTransport {
+class TBufferBase : TBaseTransport {
   /**
    * Fast-path read.
    *

@@ -27,7 +27,7 @@ import thrift.transport.base;
  * time you call write on it, the data is simply placed into a buffer, and
  * every time you call read, data is consumed from that buffer.
  */
-class TMemoryBuffer : TTransport {
+class TMemoryBuffer : TBaseTransport {
   /**
    * Constructs a new memory transport with an empty internal buffer.
    */

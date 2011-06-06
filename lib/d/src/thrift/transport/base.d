@@ -22,50 +22,37 @@ import core.stdc.string : strerror;
 import std.conv : to;
 import thrift.base;
 
-/**
+/***
  * Generic interface for a method of transporting data. A TTransport may be
  * capable of either reading or writing, but not necessarily both.
  */
-class TTransport {
+interface TTransport {
   /**
    * Whether this transport is open.
    */
-  bool isOpen() @property {
-    return false;
-  }
+  bool isOpen() @property;
 
   /**
    * Tests whether there is more data to read or if the remote side is
    * still open.
    *
-   * By default this is true whenever the transport is open, but
-   * implementations should add logic to test for this condition where
-   * possible (e.g. on a socket). This is used by a server to check if it
-   * should listen for another request.
+   * This is used by a server to check if it should listen for another request.
    */
-  bool peek() {
-    return isOpen;
-  }
+  bool peek();
 
   /**
    * Opens the transport for communications.
    *
    * Throws: TTransportException if opening fails.
    */
-  void open() {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Cannot open base TTransport.");
-  }
+  void open();
 
   /**
    * Closes the transport.
    *
    * Throws: TTransportException if closing fails.
    */
-  void close() {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Cannot close base TTransport.");
-  }
+  void close();
 
   /**
    * Attempts to read data into the given buffer, stopping when the buffer is
@@ -84,9 +71,6 @@ class TTransport {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.serversocket unittests.
     // assert(isOpen, "Called read() on non-open transport!");
-  } body {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Base TTransport cannot read.");
   }
 
   /**
@@ -102,17 +86,9 @@ class TTransport {
    *   fails altogether.
    */
   void readAll(ubyte[] buf) in {
-    assert(isOpen, "Called readAll() on non-open transport!");
-  } body {
-    size_t have;
-    while (have < buf.length) {
-      size_t get = read(buf[have..$]);
-      if (get <= 0) {
-        throw new TTransportException(TTransportException.Type.END_OF_FILE,
-          "No more data to read.");
-      }
-      have += get;
-    }
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // thrift.transport.framed unittests.
+    // assert(isOpen, "Called readAll() on non-open transport!");
   }
 
   /**
@@ -127,9 +103,6 @@ class TTransport {
    */
   size_t readEnd() in {
     assert(isOpen, "Called readEnd() on non-open transport!");
-  } body {
-    // default behaviour is to do nothing
-    return 0;
   }
 
   /**
@@ -152,9 +125,6 @@ class TTransport {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.memory unittests.
     // assert(isOpen, "Called read() on non-open transport!");
-  } body {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Base TTransport cannot write.");
   }
 
   /**
@@ -167,9 +137,6 @@ class TTransport {
    */
   size_t writeEnd() in {
     assert(isOpen, "Called writeEnd() on non-open transport!");
-  } body {
-    // default behaviour is to do nothing
-    return 0;
   }
 
   /**
@@ -187,8 +154,6 @@ class TTransport {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.framed unittests.
     // assert(isOpen, "Called read() on non-open transport!");
-  } body {
-    // default behaviour is to do nothing
   }
 
   /**
@@ -227,8 +192,6 @@ class TTransport {
     // thrift.transport.memory borrow() unittest.
     version(none) assert(result is null || result.length >= len,
        "Buffer returned by borrow() too short.");
-  } body {
-    return null;
   }
 
   /**
@@ -246,9 +209,74 @@ class TTransport {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.memory unittests.
     // assert(isOpen, "Called read() on non-open transport!");
-  } body {
+  }
+}
+
+/**
+ * Provides basic fallback implementations of the TTransport interface.
+ */
+class TBaseTransport : TTransport {
+  override bool isOpen() @property {
+    return false;
+  }
+
+  override bool peek() {
+    return isOpen;
+  }
+
+  override void open() {
     throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Base TTransport cannot consume.");
+      "Cannot open TBaseTransport.");
+  }
+
+  override void close() {
+    throw new TTransportException(TTransportException.Type.NOT_OPEN,
+      "Cannot close TBaseTransport.");
+  }
+
+  override size_t read(ubyte[] buf) {
+    throw new TTransportException(TTransportException.Type.NOT_OPEN,
+      "TBaseTransport cannot read.");
+  }
+
+  override void readAll(ubyte[] buf) {
+    size_t have;
+    while (have < buf.length) {
+      size_t get = read(buf[have..$]);
+      if (get <= 0) {
+        throw new TTransportException(TTransportException.Type.END_OF_FILE,
+          "No more data to read.");
+      }
+      have += get;
+    }
+  }
+
+  override size_t readEnd() {
+    // default behaviour is to do nothing
+    return 0;
+  }
+
+  override void write(in ubyte[] buf) {
+    throw new TTransportException(TTransportException.Type.NOT_OPEN,
+      "TBaseTransport cannot write.");
+  }
+
+  override size_t writeEnd() {
+    // default behaviour is to do nothing
+    return 0;
+  }
+
+  override void flush() {
+    // default behaviour is to do nothing
+  }
+
+  override const(ubyte)[] borrow(ubyte* buf, size_t len) {
+    return null;
+  }
+
+  override void consume(size_t len) {
+    throw new TTransportException(TTransportException.Type.NOT_OPEN,
+      "TBaseTransport cannot consume.");
   }
 
 protected:

@@ -72,7 +72,7 @@ private {
  * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
  * sockets or IPv6) are currently supported.
  */
-class TSocket : TTransport {
+class TSocket : TBaseTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
