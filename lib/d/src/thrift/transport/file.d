@@ -995,7 +995,7 @@ unittest {
       transport.open();
 
       // Don't flush because of # of bytes written
-      transport.maxFlushBytes = 0xffffffff;
+      transport.maxFlushBytes = transport.maxFlushBytes.max;
 
       // Set the flush interval
       transport.maxFlushInterval = flushDuration;
