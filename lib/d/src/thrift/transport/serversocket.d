@@ -174,12 +174,12 @@ protected:
           try {
             auto result = intRecvSocket_.receive(buf);
             if (result == Socket.ERROR) {
-              stderr.writeln("TServerSocket.acceptImpl(): Error receiving" ~
-                " interrupt message: %s", to!string(strerror(errno)));
+              stderr.writefln("TServerSocket.acceptImpl(): Error receiving" ~
+                " interrupt message: %s", strerror(errno));
             }
           } catch (SocketException e) {
-            stderr.writeln("TServerSocket.acceptImpl(): Error receiving" ~
-              " interrupt message: %s", to!string(e));
+            stderr.writefln("TServerSocket.acceptImpl(): Error receiving" ~
+              " interrupt message: %s", e);
           }
           throw new TTransportException(TTransportException.Type.INTERRUPTED);
         }

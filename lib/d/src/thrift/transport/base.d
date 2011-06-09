@@ -19,7 +19,7 @@
 module thrift.transport.base;
 
 import core.stdc.string : strerror;
-import std.conv : to;
+import std.conv : text;
 import thrift.base;
 
 /***
@@ -225,18 +225,18 @@ class TBaseTransport : TTransport {
   }
 
   override void open() {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Cannot open TBaseTransport.");
+    throw new TTransportException("Cannot open TBaseTransport.",
+      TTransportException.Type.NOT_OPEN);
   }
 
   override void close() {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "Cannot close TBaseTransport.");
+    throw new TTransportException("Cannot close TBaseTransport.",
+      TTransportException.Type.NOT_OPEN);
   }
 
   override size_t read(ubyte[] buf) {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "TBaseTransport cannot read.");
+    throw new TTransportException("TBaseTransport cannot read.",
+      TTransportException.Type.NOT_OPEN);
   }
 
   override void readAll(ubyte[] buf) {
@@ -244,8 +244,9 @@ class TBaseTransport : TTransport {
     while (have < buf.length) {
       size_t get = read(buf[have..$]);
       if (get <= 0) {
-        throw new TTransportException(TTransportException.Type.END_OF_FILE,
-          "No more data to read.");
+        throw new TTransportException(text("Could not readAll() ", buf.length,
+          " bytes as no more data was available after ", have, " bytes."),
+          TTransportException.Type.END_OF_FILE);
       }
       have += get;
     }
@@ -257,8 +258,8 @@ class TBaseTransport : TTransport {
   }
 
   override void write(in ubyte[] buf) {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "TBaseTransport cannot write.");
+    throw new TTransportException("TBaseTransport cannot write.",
+      TTransportException.Type.NOT_OPEN);
   }
 
   override size_t writeEnd() {
@@ -275,8 +276,8 @@ class TBaseTransport : TTransport {
   }
 
   override void consume(size_t len) {
-    throw new TTransportException(TTransportException.Type.NOT_OPEN,
-      "TBaseTransport cannot consume.");
+    throw new TTransportException("TBaseTransport cannot consume.",
+      TTransportException.Type.NOT_OPEN);
   }
 
 protected:
@@ -345,7 +346,7 @@ class TTransportException : TException {
   this(string msg, Type type, int errno, string file = __FILE__,
     size_t line = __LINE__, Throwable next = null)
   {
-    this(msg ~ ": " ~ to!string(strerror(errno)), type, file, line, next);
+    this(text(": ", strerror(errno)), type, file, line, next);
   }
 
   Type type() const nothrow @property {

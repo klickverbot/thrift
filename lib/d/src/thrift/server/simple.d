@@ -68,7 +68,7 @@ class TSimpleServer : TServer {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writeln("TSimpleServer listen() failed: " ~ to!string(ttx));
+      stderr.writefln("TSimpleServer listen() failed: %s", ttx);
       return;
     }
 
@@ -87,13 +87,13 @@ class TSimpleServer : TServer {
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
       } catch (TTransportException ttx) {
-        stderr.writeln("TServerTransport died on accept: " ~ to!string(ttx));
+        stderr.writefln("TServerTransport died on accept: %s", ttx);
         continue;
       } catch (TException tx) {
-        stderr.writeln("Some kind of accept exception: " ~ to!string(tx));
+        stderr.writefln("Some kind of accept exception: %s", tx);
         continue;
       } catch (Exception e) {
-        stderr.writeln("Some kind of accept exception: " ~ to!string(e));
+        stderr.writefln("Some kind of accept exception: %s", e);
         continue;
       }
 
@@ -106,27 +106,27 @@ class TSimpleServer : TServer {
           }
         }
       } catch (TTransportException ttx) {
-        stderr.writeln("TSimpleServer client died: " ~ to!string(ttx));
+        stderr.writefln("TSimpleServer client died: $s", ttx);
       } catch (TException tx) {
-        stderr.writeln("TSimpleServer exception: " ~ to!string(tx));
+        stderr.writefln("TSimpleServer exception: $s", tx);
       } catch (Exception e) {
-        stderr.writeln("TSimpleServer uncaught exception");
+        stderr.writefln("TSimpleServer uncaught exception: %s", e);
       }
 
       try {
         inputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writeln("TSimpleServer input close failed: " ~ to!string(ttx));
+        stderr.writefln("TSimpleServer input close failed: %s", ttx);
       }
       try {
         outputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writeln("TSimpleServer output close failed: " ~ to!string(ttx));
+        stderr.writefln("TSimpleServer output close failed: %s", ttx);
       }
       try {
         client.close();
       } catch (TTransportException ttx) {
-        stderr.writeln("TSimpleServer client close failed: " ~ to!string(ttx));
+        stderr.writefln("TSimpleServer client close failed: %s", ttx);
       }
     }
 
@@ -134,7 +134,7 @@ class TSimpleServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writeln("TServerTransport failed on close: " ~ to!string(ttx));
+        stderr.writefln("TServerTransport failed on close: %s", ttx);
       }
       stop_ = false;
     }
