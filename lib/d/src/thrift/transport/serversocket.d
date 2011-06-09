@@ -124,9 +124,11 @@ class TServerSocket : TServerTransport {
         to!string(e), TTransportException.Type.NOT_OPEN);
     }
 
-    // Set TCP_NODELAY.
+    // Set TCP_NODELAY. Do not fail hard as root privileges might be required
+    // on Linux to set the option.
     try {
-      serverSocket_.setOption(lvlSock, SocketOption.TCP_NODELAY, true);
+      serverSocket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY,
+        true);
     } catch (SocketException e) {
       throw new TTransportException("Could not disable Nagle's algorithm: " ~
         to!string(e), TTransportException.Type.NOT_OPEN);
