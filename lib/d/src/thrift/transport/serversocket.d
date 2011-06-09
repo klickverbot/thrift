@@ -75,32 +75,62 @@ class TServerSocket : TServerTransport {
       intSendSocket_ = pair[0];
       intRecvSocket_ = pair[1];
     } catch (SocketException e) {
-      throw new TTransportException("Could create interrupt socket pair.",
-        TTransportException.Type.NOT_OPEN, __FILE__, __LINE__, e);
+      throw new TTransportException("Could not create interrupt socket pair: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
     }
 
-    // TODO: Catch any SocketExceptions and rethrow them as TTransportException.
-    serverSocket_ = new Socket(AddressFamily.INET, SocketType.STREAM,
-      ProtocolType.TCP);
+    try {
+      serverSocket_ = new Socket(AddressFamily.INET, SocketType.STREAM,
+        ProtocolType.TCP);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not create accepting socket: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
 
     alias SocketOptionLevel.SOCKET lvlSock;
 
     // Set reusaddress to prevent 2MSL delay on accept.
-    serverSocket_.setOption(lvlSock, SocketOption.REUSEADDR, true);
+    try {
+      serverSocket_.setOption(lvlSock, SocketOption.REUSEADDR, true);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not set REUSEADDR socket option: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
 
     // Set TCP buffer sizes.
     if (tcpSendBuffer_ > 0) {
-      serverSocket_.setOption(lvlSock, SocketOption.SNDBUF, tcpSendBuffer_);
+      try {
+        serverSocket_.setOption(lvlSock, SocketOption.SNDBUF, tcpSendBuffer_);
+      } catch (SocketException e) {
+        throw new TTransportException("Could not set socket send buffer size: " ~
+          to!string(e), TTransportException.Type.NOT_OPEN);
+      }
     }
+
     if (tcpRecvBuffer_ > 0) {
-      serverSocket_.setOption(lvlSock, SocketOption.RCVBUF, tcpRecvBuffer_);
+      try {
+        serverSocket_.setOption(lvlSock, SocketOption.RCVBUF, tcpRecvBuffer_);
+      } catch (SocketException e) {
+        throw new TTransportException("Could not set receive send buffer size: " ~
+          to!string(e), TTransportException.Type.NOT_OPEN);
+      }
     }
 
     // Turn linger off, don't want to block on calls to close.
-    serverSocket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+    try {
+      serverSocket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+    } catch (SocketException e) {
+      throw new TTransportException("Could not disable socket linger: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
 
-    // If we are working with a TCP socket, set TCP_NODELAY.
-    serverSocket_.setOption(lvlSock, SocketOption.TCP_NODELAY, true);
+    // Set TCP_NODELAY.
+    try {
+      serverSocket_.setOption(lvlSock, SocketOption.TCP_NODELAY, true);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not disable Nagle's algorithm: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
 
     auto localAddr = new InternetAddress("0.0.0.0", port_);
 
@@ -197,8 +227,8 @@ protected:
       client.recvTimeout = recvTimeout_;
       return client;
     } catch (SocketException e) {
-      throw new TTransportException(TTransportException.Type.UNKNOWN,
-        __FILE__, __LINE__, e);
+      throw new TTransportException("Unknown error on accepting: " ~
+        to!string(e), TTransportException.Type.UNKNOWN);
     }
   }
 
