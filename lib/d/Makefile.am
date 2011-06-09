@@ -19,27 +19,27 @@
 
 SUBDIRS = test/ThriftTest
 
-d_thriftmodules = $(addprefix src/thrift/, base codegen hashset)
+d_thriftmodules = $(addprefix thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
-d_thrift_DATA = $(addsuffix .d,$(d_thriftmodules))
+d_thrift_DATA = $(addprefix src/, $(addsuffix .d,$(d_thriftmodules)))
 
-d_protocolmodules = $(addprefix src/thrift/protocol/, base binary processor)
+d_protocolmodules = $(addprefix thrift/protocol/, base binary processor)
 d_protocoldir = $(d_thriftdir)/protocol
-d_protocol_DATA = $(addsuffix .d,$(d_protocolmodules))
+d_protocol_DATA = $(addprefix src/, $(addsuffix .d,$(d_protocolmodules)))
 
-d_servermodules = $(addprefix src/thrift/server/, base simple)
+d_servermodules = $(addprefix thrift/server/, base simple)
 d_serverdir = $(d_thriftdir)/server
-d_server_DATA = $(addsuffix .d,$(d_servermodules))
+d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
 
-d_transportmodules = $(addprefix src/thrift/transport/, base buffered file \
+d_transportmodules = $(addprefix thrift/transport/, base buffered file \
 	framed memory server serversocket socket)
 d_transportdir = $(d_thriftdir)/transport
-d_transport_DATA = $(addsuffix .d,$(d_transportmodules))
+d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
 d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
 	$(d_transportmodules)
 
-d_sources = $(addsuffix .d, $(d_modules))
+d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)
 	$(DMD) -oflibthriftd -w -lib $(d_sources)
 
@@ -63,7 +63,7 @@ unittest/.directory:
 	mkdir -p unittest || exists unittest
 	touch $@
 
-unittest/%: %.d libthriftd.a unittest/emptymain.d
+unittest/%: src/%.d libthriftd.a unittest/emptymain.d
 	$(DMD) -unittest -of$@ $(d_test_flags) unittest/emptymain.d $<
 
 TESTS = $(addprefix unittest/, $(d_modules))
