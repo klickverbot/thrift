@@ -39,8 +39,9 @@ d_transport_DATA = $(addsuffix .d,$(d_transportmodules))
 d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
 	$(d_transportmodules)
 
+d_sources = $(addsuffix .d, $(d_modules))
 libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -w -lib $(addsuffix .d, $(d_modules))
+	$(DMD) -oflibthriftd -w -lib $(d_sources)
 
 all-local: libthriftd.a
 
