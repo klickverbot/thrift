@@ -896,12 +896,18 @@ version (unittest) {
 }
 
 unittest {
+  void tryRemove(string fileName) {
+    try {
+      remove(fileName);
+    } catch (Exception) {}
+  }
+
   /*
    * Check the most basic reading/writing operations.
    */
   {
     immutable fileName = "unittest.dat.tmp";
-    scope (exit) remove(fileName);
+    scope (exit) tryRemove(fileName);
 
     auto writer = new TFileWriterTransport(fileName);
     writer.open();
@@ -931,7 +937,7 @@ unittest {
     uint numOver = 0;
     foreach (n; 0 .. NUM_ITERATIONS) {
       immutable fileName = "unittest.dat.tmp";
-      scope (exit) remove(fileName);
+      scope (exit) tryRemove(fileName);
 
       auto transport = new TFileWriterTransport(fileName);
       transport.open();
@@ -983,7 +989,7 @@ unittest {
       fsyncLog = new CallLog;
 
       immutable fileName = "unittest.dat.tmp";
-      scope (exit) remove(fileName);
+      scope (exit) tryRemove(fileName);
 
       auto transport = new TFileWriterTransport(fileName);
       transport.open();
