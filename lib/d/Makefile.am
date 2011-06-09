@@ -19,53 +19,54 @@
 
 SUBDIRS = test/ThriftTest
 
+d_thriftmodules = $(addprefix src/thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
-d_thrift_DATA = \
-	src/thrift/base.d \
-	src/thrift/codegen.d \
-	src/thrift/hashset.d
+d_thrift_DATA = $(addsuffix .d,$(d_thriftmodules))
 
+d_protocolmodules = $(addprefix src/thrift/protocol/, base binary processor)
 d_protocoldir = $(d_thriftdir)/protocol
-d_protocol_DATA = \
-	src/thrift/protocol/base.d \
-	src/thrift/protocol/binary.d \
-	src/thrift/protocol/processor.d
+d_protocol_DATA = $(addsuffix .d,$(d_protocolmodules))
 
+d_servermodules = $(addprefix src/thrift/server/, base simple)
 d_serverdir = $(d_thriftdir)/server
-d_server_DATA = \
-	src/thrift/server/base.d \
-	src/thrift/server/simple.d
+d_server_DATA = $(addsuffix .d,$(d_servermodules))
 
+d_transportmodules = $(addprefix src/thrift/transport/, base buffered file \
+	framed memory server serversocket socket)
 d_transportdir = $(d_thriftdir)/transport
-d_transport_DATA = \
-	src/thrift/transport/base.d \
-	src/thrift/transport/buffered.d \
-	src/thrift/transport/file.d \
-	src/thrift/transport/framed.d \
-	src/thrift/transport/memory.d \
-	src/thrift/transport/server.d \
-	src/thrift/transport/serversocket.d \
-	src/thrift/transport/socket.d
+d_transport_DATA = $(addsuffix .d,$(d_transportmodules))
 
-d_sources = $(d_thrift_DATA) $(d_protocol_DATA) $(d_server_DATA) $(d_transport_DATA)
+d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
+	$(d_transportmodules)
+
+libthriftd.a: $(d_sources)
+	$(DMD) -oflibthriftd -w -lib $(addsuffix .d, $(d_modules))
 
 all-local: libthriftd.a
 
-libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -w -lib $(d_sources)
-
 clean-local:
-	$(RM) libthriftd.a unittest emptymain.d
+	$(RM) -rf libthriftd.a unittest
 
 lib_LIBRARIES = libthriftd.a
 
-TESTS = unittest
 
-emptymain.d:
-	@echo 'void main() {}' >$@
+#
+# Unit tests
+#
+d_test_flags = -w -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d -L-lthriftd
 
-unittest: $(d_sources) emptymain.d libthriftd.a
-	$(DMD) -unittest -w -ofunittest -Isrc $(d_sources) emptymain.d
+unittest/emptymain.d: unittest/.directory
+	@echo 'void main(){}' >$@
+
+unittest/.directory:
+	mkdir -p unittest || exists unittest
+	touch $@
+
+unittest/%: %.d libthriftd.a unittest/emptymain.d
+	$(DMD) -unittest -of$@ $(d_test_flags) unittest/emptymain.d $<
+
+TESTS = $(addprefix unittest/, $(d_modules))
+
 
 EXTRA_DIST = \
 	README

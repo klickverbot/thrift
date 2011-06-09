@@ -20,26 +20,23 @@
 #
 # Common thrift code generation rules
 #
+d_test_flags = -w -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d -L-lthriftd
+
 THRIFT = $(top_builddir)/compiler/cpp/thrift
 
-thrift_test_gen = \
-  gen-d/thrift/test/SecondService.d \
-  gen-d/thrift/test/ThriftTest.d \
-  gen-d/thrift/test/ThriftTest_constants.d \
-  gen-d/thrift/test/ThriftTest_types.d
+thrift_test_gen = $(addprefix gen-d/thrift/test/, SecondService.d \
+	ThriftTest.d ThriftTest_constants.d ThriftTest_types.d)
 
 $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 	$(THRIFT) --gen d $<
 
-d_flags = -I$(top_srcdir)/lib/d/src -Igen-d -L-L$(top_builddir)/lib/d -L-lthriftd
-
 check-local: client server
 
 client: client.d common.d $(thrift_test_gen)
-	$(DMD) $(d_flags) -ofclient $(thrift_test_gen) common.d client.d
+	$(DMD) $(d_test_flags) -Igen-d -ofclient $(thrift_test_gen) common.d client.d
 
 server: server.d common.d $(thrift_test_gen)
-	$(DMD) $(d_flags) -ofserver $(thrift_test_gen) common.d client.d
+	$(DMD) $(d_test_flags) -Igen-d -ofserver $(thrift_test_gen) common.d client.d
 
 clean-local:
 	$(RM) -rf gen-d client client.o server server.o
