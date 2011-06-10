@@ -872,6 +872,7 @@ private {
 }
 
 version (unittest) {
+  import core.memory : GC;
   import std.file;
 
   version (linux) {
@@ -967,6 +968,10 @@ unittest {
       if (sw.peek.msecs > 1) {
         ++numOver;
       }
+
+      // Force garbage collection runs every now and then to make sure we
+      // don't run out of OS thread handles.
+      if (!(n % 100)) GC.collect();
     }
 
     // Make sure fewer than 10% of the runs took longer than 1000us
