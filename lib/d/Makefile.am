@@ -31,13 +31,18 @@ d_servermodules = $(addprefix thrift/server/, base simple)
 d_serverdir = $(d_thriftdir)/server
 d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
 
+d_servertransportmodules = $(addprefix thrift/server/transport/, base socket)
+d_servertransportdir = $(d_thriftdir)/server/transport
+d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
+	$(d_servertransportmodules)))
+
 d_transportmodules = $(addprefix thrift/transport/, base buffered file \
-	framed memory server serversocket socket)
+	framed memory socket)
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
 d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
-	$(d_transportmodules)
+	$(d_servertransportmodules) $(d_transportmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)

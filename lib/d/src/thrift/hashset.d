@@ -19,7 +19,7 @@
 
 /**
  * A quickly hacked together hash set implementation to have something to
- * compile Thrift's map<> to until std.container gains something suitable.
+ * compile Thrift's set<> to until std.container gains something suitable.
  * Breaks immutability, not really tested, slow, and NOT FOR PRODUCTION USE!
  */
 module thrift.hashset;

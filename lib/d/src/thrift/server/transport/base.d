@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift.transport.server;
+module thrift.server.transport.base;
 
 import thrift.transport.base;
 

@@ -27,8 +27,8 @@ import thrift.codegen;
 import thrift.hashset;
 import thrift.protocol.binary;
 import thrift.server.simple;
+import thrift.server.transport.socket;
 import thrift.transport.buffered;
-import thrift.transport.serversocket;
 
 import common;
 import thrift.test.ThriftTest_types;

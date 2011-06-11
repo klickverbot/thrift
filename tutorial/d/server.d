@@ -25,8 +25,8 @@ import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
 import thrift.server.simple;
+import thrift.server.transport.socket;
 import thrift.transport.buffered;
-import thrift.transport.serversocket;
 
 import share.SharedService;
 import share.shared_types;

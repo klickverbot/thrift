@@ -21,8 +21,8 @@ module thrift.server.base;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
+import thrift.server.transport.base;
 import thrift.transport.base;
-import thrift.transport.server;
 
 /**
  * Base class for all thrift servers.

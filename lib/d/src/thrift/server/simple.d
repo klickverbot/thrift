@@ -26,8 +26,8 @@ import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;
 import thrift.server.base;
+import thrift.server.transport.base;
 import thrift.transport.base;
-import thrift.transport.server;
 
 /**
  * This is the most basic simple server. It is single-threaded and runs a

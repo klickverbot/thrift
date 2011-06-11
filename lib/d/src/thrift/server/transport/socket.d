@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift.transport.serversocket;
+module thrift.server.transport.socket;
 
 import core.thread : dur, Duration, Thread;
 import core.stdc.errno : errno, EINTR;
@@ -25,8 +25,8 @@ import std.array : empty;
 import std.exception : enforce;
 import std.stdio : stderr; // No proper logging support yet.
 import std.socket;
+import thrift.server.transport.base;
 import thrift.transport.base;
-import thrift.transport.server;
 import thrift.transport.socket;
 
 /**
