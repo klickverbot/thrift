@@ -205,7 +205,7 @@ class TFileReaderTransport : TBaseTransport {
   /**
    * The size of the chunks the file is divided into, in bytes.
    */
-  size_t chunkSize() @property {
+  size_t chunkSize() @property const {
     return chunkSize_;
   }
 
@@ -223,7 +223,7 @@ class TFileReaderTransport : TBaseTransport {
    *
    * Defaults to 500 ms.
    */
-  Duration readTimeout() @property {
+  Duration readTimeout() @property const {
     return readTimeout_;
   }
 
@@ -240,7 +240,7 @@ class TFileReaderTransport : TBaseTransport {
    *
    * Defaults to 1 MiB.
    */
-  size_t readBufferSize() @property {
+  size_t readBufferSize() @property const {
     return readBufferSize_;
   }
 
@@ -262,7 +262,7 @@ class TFileReaderTransport : TBaseTransport {
    *
    * Defaults to zero (no limit).
    */
-  size_t maxEventSize() @property {
+  size_t maxEventSize() @property const {
     return maxEventSize_;
   }
 
@@ -282,7 +282,7 @@ class TFileReaderTransport : TBaseTransport {
    *
    * Defaults to one second.
    */
-  Duration corruptedEventSleepDuration() {
+  Duration corruptedEventSleepDuration() const {
     return corruptedEventSleepDuration_;
   }
 
@@ -300,7 +300,7 @@ class TFileReaderTransport : TBaseTransport {
    *
    * Defaults to zero.
    */
-  uint maxCorruptedEvents() @property {
+  uint maxCorruptedEvents() @property const {
     return maxCorruptedEvents_;
   }
 

@@ -37,12 +37,17 @@ d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
 	$(d_servertransportmodules)))
 
 d_transportmodules = $(addprefix thrift/transport/, base buffered file \
-	framed memory socket)
+	framed memory socket ssl)
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
+d_opensslmodules = $(addprefix thrift/util/openssl/, asn1 bio crypto err \
+	loader objects rand safestack ssl stack x509 x509_vfy x509v3)
+d_openssldir = $(d_thriftdir)/util/openssl
+d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
+
 d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
-	$(d_servertransportmodules) $(d_transportmodules)
+	$(d_opensslmodules) $(d_servertransportmodules) $(d_transportmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)

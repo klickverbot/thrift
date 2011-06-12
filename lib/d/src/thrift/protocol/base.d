@@ -349,7 +349,7 @@ class TApplicationException : TException {
     type_ = type;
   }
 
-  Type type() @property {
+  Type type() @property const {
     return type_;
   }
 

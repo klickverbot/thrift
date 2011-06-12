@@ -30,6 +30,7 @@ import thrift.protocol.binary;
 import thrift.transport.base;
 import thrift.transport.buffered;
 import thrift.transport.socket;
+import thrift.transport.ssl;
 
 import common;
 import thrift.test.ThriftTest;
@@ -39,16 +40,32 @@ void main(string[] args) {
   string host = "localhost";
   ushort port = 9090;
   int numTests = 1;
+  bool ssl;
 
-  getopt(args, "numTests|n", &numTests, "host|h", (string, string value) {
-    auto parts = split(value, ":");
-    enforce(parts.length == 1 || parts.length == 2,
-      "Host argument must be of form 'host' or 'host:port'.");
-    host = parts[0];
-    if (parts.length == 2) port = to!ushort(parts[1]);
-  });
+  getopt(args,
+    "numTests|n", &numTests,
+    "ssl", &ssl,
+    "host|h", (string, string value) {
+      auto parts = split(value, ":");
+      enforce(parts.length == 1 || parts.length == 2,
+        "Host argument must be of form 'host' or 'host:port'.");
+      host = parts[0];
+      if (parts.length == 2) port = to!ushort(parts[1]);
+    }
+  );
 
-  auto socket = new TSocket(host, port);
+  TSocket socket;
+  TSSLSocketFactory sslFactory;
+  if (ssl) {
+    sslFactory = new TSSLSocketFactory();
+    sslFactory.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+    sslFactory.authenticate = true;
+    sslFactory.loadTrustedCertificates("./trusted-ca-certificate.pem");
+    socket = sslFactory.createSocket(host, port);
+  } else {
+    socket = new TSocket(host, port);
+  }
+
   auto transport = new TBufferedTransport(socket);
   auto protocol = new TBinaryProtocol(transport);
   auto client = new TClient!ThriftTest(protocol);
@@ -58,7 +75,7 @@ void main(string[] args) {
   ulong time_tot;
 
   StopWatch sw;
-  foreach(test; 0..numTests) {
+  foreach(test; 0 .. numTests) {
     sw.start();
 
     try {

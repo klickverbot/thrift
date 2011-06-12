@@ -83,6 +83,7 @@ class TSocket : TBaseTransport {
   this(Socket socket) {
     socket_ = socket;
     setSocketOpts();
+    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -96,6 +97,7 @@ class TSocket : TBaseTransport {
   this(string host, ushort port) {
     host_ = host;
     port_ = port;
+    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -159,6 +161,8 @@ class TSocket : TBaseTransport {
   }
 
   override size_t read(ubyte[] buf) {
+    // TODO: Implement EAGAIN detection, etc.
+
     auto r = socket_.receive(cast(void[])buf);
     if (r == -1) {
       auto errno = getSocketErrno();
@@ -196,6 +200,46 @@ class TSocket : TBaseTransport {
     }
   }
 
+  /**
+   * Returns the host name of the peer.
+   *
+   * The socket must be open when calling this.
+   */
+  string getPeerHost() {
+    enforce(isOpen, new TTransportException("Cannot get peer host for " ~
+      "closed socket.", TTransportException.Type.NOT_OPEN));
+
+    if (!peerHost_) {
+      peerHost_ = peerAddress.toHostNameString();
+    }
+
+    return peerHost_;
+  }
+
+  /**
+   * Returns the port of the peer.
+   *
+   * The socket must be open when calling this.
+   */
+  ushort getPeerPort() {
+    enforce(isOpen, new TTransportException("Cannot get peer port for " ~
+      "closed socket.", TTransportException.Type.NOT_OPEN));
+
+    if (!peerPort_) {
+      peerPort_ = peerAddress.port();
+    }
+
+    return peerPort_;
+  }
+
+  string host() @property {
+    return host_;
+  }
+
+  ushort port() @property {
+    return port_;
+  }
+
   Duration sendTimeout() const @property {
     return sendTimeout_;
   }
@@ -212,6 +256,34 @@ class TSocket : TBaseTransport {
   void recvTimeout(Duration value) @property {
     recvTimeout_ = value;
     setTimeout(SocketOption.RCVTIMEO, value);
+  }
+
+  /**
+   * Maximum number of retries for receiving from socket on read() in case of
+   * EAGAIN.
+   */
+  ushort maxRecvRetries() @property const {
+    return maxRecvRetries_;
+  }
+
+  /// ditto
+  void maxRecvRetries(ushort value) @property {
+    maxRecvRetries_ = value;
+  }
+
+  enum DEFAULT_MAX_RECV_RETRIES = 5;
+
+protected:
+  typeof(socket_.handle()) socketHandle() @property {
+    return socket_.handle();
+  }
+
+  InternetAddress peerAddress() @property {
+    if (!peerAddress_) {
+      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
+      assert(peerAddress_);
+    }
+    return peerAddress_;
   }
 
 private:
@@ -257,9 +329,6 @@ private:
     }
   }
 
-  /// Wrapped socket object.
-  Socket socket_;
-
   /// Remote host.
   string host_;
 
@@ -271,4 +340,19 @@ private:
 
   /// Timeout for receiving.
   Duration recvTimeout_;
+
+  /// Maximum number of receive() retries.
+  ushort maxRecvRetries_;
+
+  /// Cached peer address.
+  InternetAddress peerAddress_;
+
+  /// Cached peer host name.
+  string peerHost_;
+
+  /// Cached peer port.
+  ushort peerPort_;
+
+  /// Wrapped socket object.
+  Socket socket_;
 }
