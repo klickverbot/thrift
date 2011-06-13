@@ -36,7 +36,7 @@ client: client.d common.d $(thrift_test_gen)
 	$(DMD) $(d_test_flags) -Igen-d -ofclient $(thrift_test_gen) common.d client.d
 
 server: server.d common.d $(thrift_test_gen)
-	$(DMD) $(d_test_flags) -Igen-d -ofserver $(thrift_test_gen) common.d client.d
+	$(DMD) $(d_test_flags) -Igen-d -ofserver $(thrift_test_gen) common.d server.d
 
 clean-local:
 	$(RM) -rf gen-d client client.o server server.o
