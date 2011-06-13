@@ -20,6 +20,7 @@ module client;
 
 import std.conv;
 import std.datetime;
+import std.exception : enforce;
 import std.getopt;
 import std.stdio;
 import std.string;

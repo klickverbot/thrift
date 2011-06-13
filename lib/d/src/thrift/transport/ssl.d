@@ -31,6 +31,7 @@ import core.stdc.stdlib : free, malloc;
 import std.conv : to;
 import std.array : empty, front, popFront;
 import std.ctype : toupper;
+import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
 import thrift.transport.base;

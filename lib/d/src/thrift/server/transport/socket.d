@@ -22,6 +22,7 @@ import core.thread : dur, Duration, Thread;
 import core.stdc.errno : errno, EINTR;
 import core.stdc.string : strerror;
 import std.array : empty;
+import std.conv : to;
 import std.exception : enforce;
 import std.stdio : stderr; // No proper logging support yet.
 import std.socket;
