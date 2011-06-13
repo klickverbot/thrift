@@ -260,6 +260,7 @@ string t_as3_generator::as3_type_imports() {
   return
     string() +
     "import org.apache.thrift.Set;\n" +
+    "import flash.utils.ByteArray;\n" +
     "import flash.utils.Dictionary;\n\n";
 }
 
@@ -467,9 +468,17 @@ void t_as3_generator::print_const_value(std::ofstream& out, string name, t_type*
   }
   if (type->is_base_type()) {
     string v2 = render_const_value(out, name, type, value);
-    out << name << ":" << type_name(type) << " = " << v2 << ";" << endl << endl;
+    out << name;
+    if (!defval) {
+      out << ":" << type_name(type);
+    }
+    out << " = " << v2 << ";" << endl << endl;
   } else if (type->is_enum()) {
-    out << name << ":" << type_name(type) << " = " << value->get_integer() << ";" << endl << endl;
+    out << name;
+    if(!defval) {
+      out << ":" << type_name(type);
+    }
+    out << " = " << value->get_integer() << ";" << endl << endl;
   } else if (type->is_struct() || type->is_xception()) {
     const vector<t_field*>& fields = ((t_struct*)type)->get_members();
     vector<t_field*>::const_iterator f_iter;
@@ -504,7 +513,11 @@ void t_as3_generator::print_const_value(std::ofstream& out, string name, t_type*
     }
     out << endl;
   } else if (type->is_map()) {
-    out << name << ":" << type_name(type) << " = new " << type_name(type, false, true) << "();" << endl;
+    out << name;
+    if(!defval){
+      out << ":" << type_name(type);
+    }
+    out << " = new " << type_name(type, false, true) << "();" << endl;
     if (!in_static) {
       indent(out) << "{" << endl;
       indent_up();
@@ -528,7 +541,11 @@ void t_as3_generator::print_const_value(std::ofstream& out, string name, t_type*
     }
     out << endl;
   } else if (type->is_list() || type->is_set()) {
-    out << name << ":" << type_name(type) << " = new " << type_name(type, false, true) << "();" << endl;
+    out << name;
+    if(!defval) {
+      out << ":" << type_name(type);
+    }
+    out << " = new " << type_name(type, false, true) << "();" << endl;
     if (!in_static) {
       indent(out) << "{" << endl;
       indent_up();
@@ -864,7 +881,7 @@ void t_as3_generator::generate_as3_struct_reader(ofstream& out,
     for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
       if ((*f_iter)->get_req() == t_field::T_REQUIRED && !type_can_be_null((*f_iter)->get_type())) {
         out <<
-          indent() << "if (!__isset." << (*f_iter)->get_name() << ") {" << endl <<
+          indent() << "if (!__isset_" << (*f_iter)->get_name() << ") {" << endl <<
           indent() << "  throw new TProtocolError(TProtocolError.UNKNOWN, \"Required field '" << (*f_iter)->get_name() << "' was not found in serialized data! Struct: \" + toString());" << endl <<
           indent() << "}" << endl;
       }
@@ -2423,7 +2440,7 @@ string t_as3_generator::type_name(t_type* ttype, bool in_container, bool in_init
 }
 
 /**
- * Returns the C++ type that corresponds to the thrift type.
+ * Returns the AS3 type that corresponds to the thrift type.
  *
  * @param tbase The base type
  * @param container Is it going in a As3 container?
@@ -2438,7 +2455,7 @@ string t_as3_generator::base_type_name(t_base_type* type,
     return "void";
   case t_base_type::TYPE_STRING:
     if (type->is_binary()) {
-      return "byte[]";
+      return "ByteArray";
     } else {
       return "String";
     }
