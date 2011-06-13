@@ -31,7 +31,7 @@ d_servermodules = $(addprefix thrift/server/, base simple)
 d_serverdir = $(d_thriftdir)/server
 d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
 
-d_servertransportmodules = $(addprefix thrift/server/transport/, base socket)
+d_servertransportmodules = $(addprefix thrift/server/transport/, base socket ssl)
 d_servertransportdir = $(d_thriftdir)/server/transport
 d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
 	$(d_servertransportmodules)))

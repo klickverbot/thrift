@@ -18,6 +18,7 @@
  */
 module server;
 
+import core.thread : dur, Thread;
 import std.algorithm;
 import std.getopt;
 import std.string;
@@ -28,7 +29,9 @@ import thrift.hashset;
 import thrift.protocol.binary;
 import thrift.server.simple;
 import thrift.server.transport.socket;
+import thrift.server.transport.ssl;
 import thrift.transport.buffered;
+import thrift.transport.ssl;
 
 import common;
 import thrift.test.ThriftTest_types;
@@ -212,13 +215,26 @@ class TestHandler : ThriftTest {
 void main(string[] args) {
   ushort port = 9090;
   auto serverType = "simple";
+  bool ssl;
 
-  getopt(args, "port", &port, "server-type", &serverType);
+  getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl);
 
   auto protocolFactory = new TBinaryProtocolFactory();
   auto processor = new TServiceProcessor!ThriftTest(new TestHandler());
   auto transportFactory = new TBufferedTransportFactory();
-  auto serverSocket = new TServerSocket(port);
+
+  TSSLSocketFactory sslFactory;
+  TServerSocket serverSocket;
+  if (ssl) {
+    sslFactory = new TSSLSocketFactory();
+    sslFactory.serverSide = true;
+    sslFactory.loadCertificate("./server-certificate.pem");
+    sslFactory.loadPrivateKey("./server-private-key.pem");
+    sslFactory.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+    serverSocket = new TSSLServerSocket(port, sslFactory);
+  } else {
+    serverSocket = new TServerSocket(port);
+  }
 
   if (serverType == "simple") {
     auto server = new TSimpleServer(processor, serverSocket,

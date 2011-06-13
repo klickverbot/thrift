@@ -225,7 +225,7 @@ protected:
     }
 
     try {
-      auto client = new TSocket(serverSocket_.accept());
+      auto client = createTSocket(serverSocket_.accept());
       client.sendTimeout = sendTimeout_;
       client.recvTimeout = recvTimeout_;
       return client;
@@ -233,6 +233,13 @@ protected:
       throw new TTransportException("Unknown error on accepting: " ~
         to!string(e), TTransportException.Type.UNKNOWN);
     }
+  }
+
+  /**
+   * Allows derived classes to create a different TSocket type.
+   */
+  TSocket createTSocket(Socket socket) {
+    return new TSocket(socket);
   }
 
 private:
