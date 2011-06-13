@@ -70,7 +70,7 @@ interface TTransport {
   size_t read(ubyte[] buf) in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.serversocket unittests.
-    // assert(isOpen, "Called read() on non-open transport!");
+    version(none) assert(isOpen, "Called read() on non-open transport!");
   }
 
   /**
@@ -88,7 +88,7 @@ interface TTransport {
   void readAll(ubyte[] buf) in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.framed unittests.
-    // assert(isOpen, "Called readAll() on non-open transport!");
+    version(none) assert(isOpen, "Called readAll() on non-open transport!");
   }
 
   /**
@@ -102,7 +102,9 @@ interface TTransport {
    * Returns: The number of bytes read if available, 0 otherwise.
    */
   size_t readEnd() in {
-    assert(isOpen, "Called readEnd() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // ThriftTest SSL server.
+    version(none) assert(isOpen, "Called readEnd() on non-open transport!");
   }
 
   /**
@@ -124,7 +126,7 @@ interface TTransport {
   void write(in ubyte[] buf) in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.memory unittests.
-    // assert(isOpen, "Called read() on non-open transport!");
+    version(none) assert(isOpen, "Called write() on non-open transport!");
   }
 
   /**
@@ -136,7 +138,9 @@ interface TTransport {
    * Returns: The number of bytes written if available, 0 otherwise.
    */
   size_t writeEnd() in {
-    assert(isOpen, "Called writeEnd() on non-open transport!");
+    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
+    // ThriftTest SSL server.
+    version(none) assert(isOpen, "Called writeEnd() on non-open transport!");
   }
 
   /**
@@ -153,7 +157,7 @@ interface TTransport {
   void flush() in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.framed unittests.
-    // assert(isOpen, "Called read() on non-open transport!");
+    version(none) assert(isOpen, "Called flush() on non-open transport!");
   }
 
   /**
@@ -186,7 +190,7 @@ interface TTransport {
   const(ubyte)[] borrow(ubyte* buf, size_t len) in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.memory unittests.
-    // assert(isOpen, "Called read() on non-open transport!");
+    version(none) assert(isOpen, "Called borrow() on non-open transport!");
   } out (result) {
     // FIXME: Commented out because len gets corrupted in
     // thrift.transport.memory borrow() unittest.
@@ -208,7 +212,7 @@ interface TTransport {
   void consume(size_t len) in {
     // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
     // thrift.transport.memory unittests.
-    // assert(isOpen, "Called read() on non-open transport!");
+    version(none) assert(isOpen, "Called consume() on non-open transport!");
   }
 }
 
