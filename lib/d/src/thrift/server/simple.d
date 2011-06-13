@@ -106,9 +106,9 @@ class TSimpleServer : TServer {
           }
         }
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer client died: $s", ttx);
+        stderr.writefln("TSimpleServer client died: %s", ttx);
       } catch (TException tx) {
-        stderr.writefln("TSimpleServer exception: $s", tx);
+        stderr.writefln("TSimpleServer exception: %s", tx);
       } catch (Exception e) {
         stderr.writefln("TSimpleServer uncaught exception: %s", e);
       }
