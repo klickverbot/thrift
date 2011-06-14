@@ -275,27 +275,26 @@ void main(string[] args) {
       }
     }
 
-    printf("client.testOneway(3) =>");
-    auto onewayWatch = StopWatch(AutoStart.yes);
-    client.testOneway(3);
-    onewayWatch.stop();
-    if (onewayWatch.peek().msecs > 200) { // 0.2 seconds
-      writefln("  FAILURE - took %s ms", onewayWatch.peek().usecs / 1000.0);
-    } else {
-      writefln("  success - took %s ms", onewayWatch.peek().usecs / 1000.0);
-    }
+    // Do not run oneway test when doing multiple iterations, as it blocks the
+    // server for three seconds.
+    if (numTests == 1) {
+      printf("client.testOneway(3) =>");
+      auto onewayWatch = StopWatch(AutoStart.yes);
+      client.testOneway(3);
+      onewayWatch.stop();
+      if (onewayWatch.peek().msecs > 200) {
+        writefln("  FAILURE - took %s ms", onewayWatch.peek().usecs / 1000.0);
+      } else {
+        writefln("  success - took %s ms", onewayWatch.peek().usecs / 1000.0);
+      }
 
-    /*
-     * redo a simple test after the oneway to make sure we aren't "off by one" --
-     * if the server treated oneway void like normal void, this next test will
-     * fail since it will get the void confirmation rather than the correct
-     * result. In this circumstance, the client will throw the exception:
-     *
-     *   TApplicationException: Wrong method name.
-     */
-    write("re-test testI32(-1)");
-    i32 = client.testI32(-1);
-    writefln(" = %s", i32);
+      // Redo a simple test after the oneway to make sure we aren't "off by
+      // one", which would be the case if the server treated oneway methods
+      // like normal ones.
+      write("re-test testI32(-1)");
+      i32 = client.testI32(-1);
+      writefln(" = %s", i32);
+    }
 
     // Time metering.
     sw.stop();
@@ -317,9 +316,10 @@ void main(string[] args) {
 
   writeln("\nAll tests done.");
 
-  ulong time_avg = time_tot / numTests;
-
-  writefln("Min time: %s us", time_min);
-  writefln("Max time: %s us", time_max);
-  writefln("Avg time: %s us", time_avg);
+  if (numTests > 1) {
+    auto time_avg = time_tot / numTests;
+    writefln("Min time: %s us", time_min);
+    writefln("Max time: %s us", time_max);
+    writefln("Avg time: %s us", time_avg);
+  }
 }
