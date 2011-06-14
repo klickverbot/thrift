@@ -302,6 +302,20 @@ class TTransportFactory {
   }
 }
 
+/**
+ * Transport factory for transports which simply wrap an underlying TTransport
+ * without requiring additional configuration.
+ */
+template TWrapperTransportFactory(T) if (
+  is(T : TTransport) && __traits(compiles, new T(TTransport.init))
+) {
+  class TWrapperTransportFactory : TTransportFactory {
+    override TTransport getTransport(TTransport trans) {
+      return new T(trans);
+    }
+  }
+}
+
 class TTransportException : TException {
   /**
    * Error codes for the various types of exceptions.

@@ -316,8 +316,4 @@ protected:
 /**
  * Wraps passed in transports in a TBufferedTransports.
  */
-class TBufferedTransportFactory : TTransportFactory {
- override TBufferedTransport getTransport(TTransport trans) {
-   return new TBufferedTransport(trans);
- }
-}
+alias TWrapperTransportFactory!TBufferedTransport TBufferedTransportFactory;

@@ -168,6 +168,8 @@ private:
   ubyte[] wBuf_;
 }
 
+alias TWrapperTransportFactory!TFramedTransport TFramedTransportFactory;
+
 version (unittest) {
   import std.random : Mt19937, uniform;
   import thrift.transport.memory;
