@@ -290,6 +290,16 @@ if test "$with_d" = "yes";  then
 fi
 AM_CONDITIONAL(WITH_D, [test "$have_d" = "yes"])
 
+# The OpenSSL bindings need the dl*() functions, which are typically in libdl
+# on Linux and libc on FreeBSD.
+DMD_LIBDL_FLAGS=""
+AC_SEARCH_LIBS(dlopen, dl, [
+  if test "$ac_cv_search_dlopen" != "none required"; then
+    DMD_LIBDL_FLAGS="-L$ac_cv_search_dlopen"
+  fi
+])
+AC_SUBST(DMD_LIBDL_FLAGS)
+
 AC_C_CONST
 AC_C_INLINE
 AC_C_VOLATILE

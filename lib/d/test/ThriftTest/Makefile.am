@@ -17,11 +17,6 @@
 # under the License.
 #
 
-#
-# Common thrift code generation rules
-#
-d_test_flags = -w -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d -L-lthriftd
-
 THRIFT = $(top_builddir)/compiler/cpp/thrift
 
 thrift_test_gen = $(addprefix gen-d/thrift/test/, SecondService.d \
@@ -29,6 +24,9 @@ thrift_test_gen = $(addprefix gen-d/thrift/test/, SecondService.d \
 
 $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 	$(THRIFT) --gen d $<
+
+d_test_flags = -w -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d \
+	-L-lthriftd $(DMD_LIBDL_FLAGS)
 
 check-local: client server
 
