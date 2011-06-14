@@ -37,7 +37,7 @@ d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
 	$(d_servertransportmodules)))
 
 d_transportmodules = $(addprefix thrift/transport/, base buffered file \
-	framed memory socket ssl)
+	framed http memory socket ssl)
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 

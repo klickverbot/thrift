@@ -28,3 +28,5 @@ class TException : Exception {
     super(msg, file, line, next);
   }
 }
+
+enum VERSION = "0.7.0 dev";
