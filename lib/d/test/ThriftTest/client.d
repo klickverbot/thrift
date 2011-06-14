@@ -30,6 +30,8 @@ import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.transport.base;
 import thrift.transport.buffered;
+import thrift.transport.framed;
+import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
 
@@ -37,16 +39,24 @@ import common;
 import thrift.test.ThriftTest;
 import thrift.test.ThriftTest_types;
 
+enum TransportType {
+  buffered,
+  framed,
+  http
+}
+
 void main(string[] args) {
   string host = "localhost";
   ushort port = 9090;
   int numTests = 1;
   bool ssl;
+  TransportType transportType;
 
   getopt(args,
     "numTests|n", &numTests,
     "ssl", &ssl,
-    "host|h", (string, string value) {
+    "transport", &transportType,
+    "host", (string, string value) {
       auto parts = split(value, ":");
       enforce(parts.length == 1 || parts.length == 2,
         "Host argument must be of form 'host' or 'host:port'.");
@@ -67,7 +77,19 @@ void main(string[] args) {
     socket = new TSocket(host, port);
   }
 
-  auto transport = new TBufferedTransport(socket);
+  TTransport transport;
+  final switch (transportType) {
+    case TransportType.buffered:
+      transport = new TBufferedTransport(socket);
+      break;
+    case TransportType.framed:
+      transport = new TFramedTransport(socket);
+      break;
+    case TransportType.http:
+      transport = new TClientHttpTransport(socket, host, "/service");
+      break;
+  }
+
   auto protocol = new TBinaryProtocol(transport);
   auto client = new TClient!ThriftTest(protocol);
 

@@ -30,7 +30,10 @@ import thrift.protocol.binary;
 import thrift.server.simple;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
+import thrift.transport.base;
 import thrift.transport.buffered;
+import thrift.transport.framed;
+import thrift.transport.http;
 import thrift.transport.ssl;
 
 import common;
@@ -212,16 +215,27 @@ class TestHandler : ThriftTest {
   }
 }
 
+enum ServerType {
+  simple
+}
+
+enum TransportType {
+  buffered,
+  framed,
+  http
+}
+
 void main(string[] args) {
   ushort port = 9090;
-  auto serverType = "simple";
+  ServerType serverType;
+  TransportType transportType;
   bool ssl;
 
-  getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl);
+  getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl,
+    "transport", &transportType);
 
   auto protocolFactory = new TBinaryProtocolFactory();
   auto processor = new TServiceProcessor!ThriftTest(new TestHandler());
-  auto transportFactory = new TBufferedTransportFactory();
 
   TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;
@@ -236,14 +250,27 @@ void main(string[] args) {
     serverSocket = new TServerSocket(port);
   }
 
-  if (serverType == "simple") {
-    auto server = new TSimpleServer(processor, serverSocket,
-      transportFactory, protocolFactory);
+  TTransportFactory transportFactory;
+  final switch (transportType) {
+    case TransportType.buffered:
+      transportFactory = new TBufferedTransportFactory;
+      break;
+    case TransportType.framed:
+      transportFactory = new TFramedTransportFactory;
+      break;
+    case TransportType.http:
+      transportFactory = new TServerHttpTransportFactory;
+      break;
+  }
 
-    writefln("Starting the server on port %s...", port);
-    server.serve();
-  } else {
-    throw new Exception("Unknown server type: " ~ serverType);
+  final switch (serverType) {
+    case ServerType.simple:
+      auto server = new TSimpleServer(processor, serverSocket,
+        transportFactory, protocolFactory);
+
+      writefln("Starting the server on port %s...", port);
+      server.serve();
+      break;
   }
 
   writeln("done.");
