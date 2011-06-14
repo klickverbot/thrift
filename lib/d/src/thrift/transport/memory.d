@@ -121,6 +121,15 @@ class TMemoryBuffer : TBaseTransport {
     buffer_ = buffer_[len..$];
   }
 
+  void reset() {
+    buffer_ = null;
+  }
+
+  void reset(size_t reserveAmount) {
+    buffer_ = null;
+    buffer_.reserve(reserveAmount);
+  }
+
 private:
   immutable(ubyte)[] buffer_;
 }
