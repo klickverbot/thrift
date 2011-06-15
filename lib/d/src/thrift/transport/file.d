@@ -31,6 +31,14 @@ import thrift.transport.base;
 /// The default chunk size, in bytes.
 enum DEFAULT_CHUNK_SIZE = 16 * 1024 * 1024;
 
+/// The type used to represent event sizes in the file.
+alias uint EventSize;
+
+version (BigEndian) {
+  static assert(false,
+    "Little endian byte order is assumed in thrift.transport.file.");
+}
+
 /**
  * A transport used to write files. It can never be read from, calling read()
  * throws.
@@ -205,14 +213,16 @@ class TFileReaderTransport : TBaseTransport {
   /**
    * The size of the chunks the file is divided into, in bytes.
    */
-  size_t chunkSize() @property const {
+  ulong chunkSize() @property const {
     return chunkSize_;
   }
 
   /// ditto
-  void chunkSize(size_t value) @property {
+  void chunkSize(ulong value) @property {
     enforce(!isOpen, new TTransportException(
       "Cannot set chunk size after TFileReaderTransport has been opened."));
+    enforce(value > EventSize.sizeof, new TTransportException("Chunks must " ~
+      "be large enough to accomodate at least a single byte of payload data."));
     chunkSize_ = value;
   }
 
@@ -268,7 +278,7 @@ class TFileReaderTransport : TBaseTransport {
 
   /// ditto
   void maxEventSize(size_t value) @property {
-    enforce(value <= chunkSize_ - uint.sizeof, "Events cannot span " ~
+    enforce(value <= chunkSize_ - EventSize.sizeof, "Events cannot span " ~
       "mutiple chunks, maxEventSize must be smaller than chunk size.");
     maxEventSize_ = value;
   }
@@ -437,15 +447,14 @@ private:
       stderr.writefln("Read corrupt event. Event size(%s) greater than " ~
         "chunk size (%s)", readState_.eventLen_, chunkSize_);
       return true;
-    } else if (((offset_ + readState_.bufferPos_ - uint.sizeof) / chunkSize_) !=
-      ((offset_ + readState_.bufferPos_ + readState_.eventLen_ -
-      uint.sizeof) / chunkSize_))
+    } else if (((offset_ + readState_.bufferPos_ - EventSize.sizeof) / chunkSize_) !=
+      ((offset_ + readState_.bufferPos_ + readState_.eventLen_ - EventSize.sizeof) / chunkSize_))
     {
       // 3. size indicates that event crosses chunk boundary
       stderr.writefln("Read corrupt event. Event crosses chunk boundary. " ~
         "Event size: %s. Offset: %s",
         readState_.eventLen_,
-        (offset_ + readState_.bufferPos_ + uint.sizeof)
+        (offset_ + readState_.bufferPos_ + EventSize.sizeof)
       );
 
       return true;
@@ -498,7 +507,7 @@ private:
   long offset_;
   ubyte[] currentEvent_;
   size_t currentEventPos_;
-  size_t chunkSize_;
+  ulong chunkSize_;
   Duration readTimeout_;
   size_t maxEventSize_;
 
@@ -622,7 +631,7 @@ class TFileWriterTransport : TBaseTransport {
       return;
     }
 
-    auto maxSize = chunkSize - uint.sizeof;
+    auto maxSize = chunkSize - EventSize.sizeof;
     enforce(buf.length <= maxSize, new TTransportException(
       "Cannot write more than " ~ to!string(maxSize) ~
       "bytes at once due to chunk size."));
@@ -646,14 +655,14 @@ class TFileWriterTransport : TBaseTransport {
    * The size of the chunks the file is divided into, in bytes.
    *
    * A single event (write call) never spans multiple chunks – this
-   * effectively limits the event size to chunkSize - uint.sizeof.
+   * effectively limits the event size to chunkSize - EventSize.sizeof.
    */
-  size_t chunkSize() @property {
+  ulong chunkSize() @property {
     return chunkSize_;
   }
 
   /// ditto
-  void chunkSize(size_t value) @property {
+  void chunkSize(ulong value) @property {
     enforce(!isOpen, new TTransportException(
       "Cannot set chunk size after TFileWriterTransport has been opened."));
     chunkSize_ = value;
@@ -743,7 +752,7 @@ class TFileWriterTransport : TBaseTransport {
 
 private:
   string path_;
-  size_t chunkSize_;
+  ulong chunkSize_;
   size_t eventBufferSize_;
   Duration ioErrorSleepDuration_;
   size_t maxFlushBytes_;
@@ -776,15 +785,18 @@ private {
   void writerThread(
     Tid owner,
     string path,
-    size_t chunkSize,
+    ulong chunkSize,
     size_t maxFlushBytes,
     Duration maxFlushInterval,
     Duration ioErrorSleepDuration
   ) {
     bool hasIOError;
     File file;
+    ulong offset;
     try {
+      // Open file in appending and binary mode.
       file = File(path, "ab");
+      offset = file.tell();
     } catch (Exception e) {
       stderr.writeln("TFileWriterTransport: Error on opening output file " ~
         "in writer thread: %s", e);
@@ -830,7 +842,21 @@ private {
             }
           }
 
-          // TODO: Chunk boundary checking.
+          // Make sure the event does not cross the chunk boundary by writing
+          // a padding consisting of zeroes if it would.
+          auto chunk1 = offset / chunkSize;
+          auto chunk2 = (offset + EventSize.sizeof + data.length - 1) / chunkSize;
+
+          if (chunk1 != chunk2) {
+            // TODO: The C++ implementation refetches the offset here to »keep
+            // in sync« – why would this be needed?
+            auto padding = cast(size_t)
+              ((((offset / chunkSize) + 1) * chunkSize) - offset);
+            auto zeroes = new ubyte[padding];
+            file.rawWrite(zeroes);
+            unflushedByteCount += padding;
+            offset += padding;
+          }
 
           // TODO: 2 syscalls here, is this a problem performance-wise?
           // TODO: Probably abyssmal performance on Windows due to rawWrite
@@ -839,7 +865,9 @@ private {
           file.rawWrite(cast(ubyte[])(&len)[0..1]);
           file.rawWrite(data);
 
-          unflushedByteCount += data.length;
+          auto bytesWritten = EventSize.sizeof + data.length;
+          unflushedByteCount += bytesWritten;
+          offset += bytesWritten;
         }, (FlushBytesMessage msg) {
           maxFlushBytes = msg.value;
         }, (FlushIntervalMessage msg) {
@@ -883,11 +911,14 @@ unittest {
     } catch (Exception) {}
   }
 
+  immutable fileName = "unittest.dat.tmp";
+  assert(!exists(fileName), "Unit test output file " ~ fileName ~
+    " already exists.");
+
   /*
    * Check the most basic reading/writing operations.
    */
   {
-    immutable fileName = "unittest.dat.tmp";
     scope (exit) tryRemove(fileName);
 
     auto writer = new TFileWriterTransport(fileName);
@@ -909,6 +940,65 @@ unittest {
   }
 
   /*
+   * Check that chunking works as expected.
+   */
+  {
+    scope (exit) tryRemove(fileName);
+
+    static assert(EventSize.sizeof == 4);
+    enum CHUNK_SIZE = 10;
+
+    // Write some contents to the file.
+    {
+      auto writer = new TFileWriterTransport(fileName);
+      writer.chunkSize = CHUNK_SIZE;
+      writer.open();
+      scope (exit) writer.close();
+
+      writer.write([0xde]);
+      writer.write([0xad]);
+      // Chunk boundary here.
+      writer.write([0xbe]);
+      // The next write doesn't fit in the five bytes remaining, so we expect
+      // padding zero bytes to be written.
+      writer.write([0xef, 0x12]);
+
+      try {
+        writer.write(new ubyte[CHUNK_SIZE]);
+        assert(false, "Could write event not fitting in a single chunk.");
+      } catch (TTransportException e) {}
+
+      writer.flush();
+    }
+
+    // Check the raw contents of the file to see if chunk padding was written
+    // as expected.
+    auto file = File(fileName, "r");
+    assert(file.size == 26);
+    auto written = new ubyte[26];
+    file.rawRead(written);
+    assert(written == [
+      1, 0, 0, 0, 0xde,
+      1, 0, 0, 0, 0xad,
+      1, 0, 0, 0, 0xbe,
+      0, 0, 0, 0, 0,
+      2, 0, 0, 0, 0xef, 0x12
+    ]);
+
+    // Read the data back in, getting all the events at once.
+    {
+      auto reader = new TFileReaderTransport(fileName);
+      reader.chunkSize = CHUNK_SIZE;
+      reader.open();
+      scope (exit) reader.close();
+
+      auto buf = new ubyte[5];
+      reader.readAll(buf);
+      assert(buf == [0xde, 0xad, 0xbe, 0xef, 0x12]);
+    }
+  }
+
+  /*
    * Make sure that close() exits "quickly", i.e. that there is no problem
    * with the worker thread waking up.
    */
@@ -917,7 +1007,6 @@ unittest {
 
     uint numOver = 0;
     foreach (n; 0 .. NUM_ITERATIONS) {
-      immutable fileName = "unittest.dat.tmp";
       scope (exit) tryRemove(fileName);
 
       auto transport = new TFileWriterTransport(fileName);
