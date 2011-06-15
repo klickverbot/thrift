@@ -64,7 +64,8 @@ lib_LIBRARIES = libthriftd.a
 #
 # Unit tests
 #
-d_test_flags = -w -gc -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d -L-lthriftd
+d_test_flags = -w -gc -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d \
+	-L-lthriftd $(DMD_LIBDL_FLAGS)
 
 unittest/emptymain.d: unittest/.directory
 	@echo 'void main(){}' >$@
