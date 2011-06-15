@@ -874,26 +874,6 @@ private {
 version (unittest) {
   import core.memory : GC;
   import std.file;
-
-  version (linux) {
-    class CallLog {
-      void logCall() {
-        calls ~= Clock.currAppTick();
-      }
-
-      TickDuration[] calls;
-    }
-
-    __gshared CallLog fsyncLog;
-
-    extern(C) int fsync(int fd) {
-      stderr.writeln("fsync shim called.");
-      if (fsyncLog) {
-        fsyncLog.logCall();
-      }
-      return 0;
-    }
-  }
 }
 
 unittest {
@@ -976,85 +956,5 @@ unittest {
 
     // Make sure fewer than 10% of the runs took longer than 1000us
     assert(numOver < NUM_ITERATIONS / 10);
-  }
-
-  /*
-   * Make sure setFlushMaxUs() is honored. These tests are Linux-only, as
-   * hooking fsync only works there.
-   */
-  version (linux) {
-    void testMaxFlushDuration(Duration flushDuration, Duration writeDuration,
-      Duration testDuration)
-    {
-      // TFileTransport only calls fsync() if data has been written,
-      // so make sure the write interval is smaller than the flush interval.
-      assert(writeDuration < flushDuration);
-
-      // Record calls to fsync().
-      fsyncLog = new CallLog;
-
-      immutable fileName = "unittest.dat.tmp";
-      scope (exit) tryRemove(fileName);
-
-      auto transport = new TFileWriterTransport(fileName);
-      transport.open();
-
-      // Don't flush because of # of bytes written
-      transport.maxFlushBytes = transport.maxFlushBytes.max;
-
-      // Set the flush interval
-      transport.maxFlushInterval = flushDuration;
-
-      // Make one call to write, to start the writer thread now.
-      // (If we just let the thread get created during our test loop,
-      // the thread creation sometimes takes long enough to make the first
-      // fsync interval fail the check.)
-      auto buf = cast(ubyte[])"a";
-      transport.write(buf);
-
-      // Add one entry to the fsync log, just to mark the start time
-      fsyncLog.logCall();
-
-      // Loop doing write(), sleep(), ...
-      Duration elapsedTime;
-      while (true) {
-        transport.write(buf);
-        if (elapsedTime > testDuration) {
-          break;
-        }
-        Thread.sleep(writeDuration);
-        elapsedTime += writeDuration;
-      }
-
-      transport.close();
-
-      // Stop logging new fsync() calls
-      auto calls = fsyncLog.calls;
-      fsyncLog = null;
-
-      // Examine the fsync() log, allowing for a bit of leeway.
-      auto maxAllowedDelta = flushDuration + dur!"msecs"(5);
-
-      // We added 1 fsync call above.
-      // Make sure TFileTransport called fsync at least once
-      assert(calls.length > 1);
-
-      TickDuration prevTime;
-      foreach (i, time; calls) {
-        if (i > 0) {
-          assert(cast(Duration)(time - prevTime) < maxAllowedDelta);
-        }
-        prevTime = time;
-      }
-    }
-
-    // fsync every 10ms, write every 5ms, for 500ms
-    testMaxFlushDuration(dur!"msecs"(10), dur!"msecs"(5), dur!"msecs"(500));
-
-    // fsync every 50ms, write every 20ms, for 500ms
-    testMaxFlushDuration(dur!"msecs"(50), dur!"msecs"(20), dur!"msecs"(500));
-
-    // fsync every 400ms, write every 300ms, for 1s
-    testMaxFlushDuration(dur!"msecs"(400), dur!"msecs"(300), dur!"seconds"(1000));
   }
 }
