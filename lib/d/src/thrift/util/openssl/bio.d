@@ -14,7 +14,7 @@ alias void BIO;
 
 enum BIO_CTRL_FLUSH = 11;
 
-int BIO_flush(BIO* b) {
+c_long BIO_flush(BIO* b) {
   return BIO_ctrl(b, BIO_CTRL_FLUSH, 0, null);
 }
 

@@ -63,12 +63,12 @@ class TBinaryProtocol : TProtocol {
 
   override void writeString(string str) {
     auto data = cast(ubyte[])str;
-    writeI32(data.length);
+    writeI32(cast(int)data.length);
     trans_.write(data);
   }
 
   override void writeBinary(ubyte[] buf) {
-    writeI32(buf.length);
+    writeI32(cast(int)buf.length);
     trans_.write(buf);
   }
 
@@ -80,16 +80,18 @@ class TBinaryProtocol : TProtocol {
   }
 
   override void writeList(TList list, void delegate() writeContents) {
+    assert(list.size <= int.max);
     writeByte(list.elemType);
-    writeI32(list.size);
+    writeI32(cast(int)list.size);
 
     writeContents();
   }
 
   override void writeMap(TMap map, void delegate() writeContents) {
+    assert(map.size <= int.max);
     writeByte(map.keyType);
     writeByte(map.valueType);
-    writeI32(map.size);
+    writeI32(cast(int)map.size);
 
     writeContents();
   }
@@ -110,8 +112,9 @@ class TBinaryProtocol : TProtocol {
   }
 
   override void writeSet(TSet set, void delegate() writeContents) {
+    assert(set.size <= int.max);
     writeByte(set.elemType);
-    writeI32(set.size);
+    writeI32(cast(int)set.size);
 
     writeContents();
   }
@@ -258,7 +261,8 @@ protected:
    * Wraps trans_.readAll for length checking.
    */
   void read(ubyte[] buf) {
-    checkReadLength(buf.length);
+    assert(buf.length < int.max);
+    checkReadLength(cast(int)buf.length);
     trans_.readAll(buf);
   }
 

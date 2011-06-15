@@ -106,7 +106,7 @@ class TFramedTransport : TBaseTransport {
       wBuf_.assumeSafeAppend();
     }
 
-    int len = bswap(wBuf_.length);
+    int len = bswap(cast(int)wBuf_.length);
     transport_.write(cast(ubyte[])(&len)[0..1]);
     transport_.write(wBuf_);
     transport_.flush();

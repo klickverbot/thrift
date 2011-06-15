@@ -68,14 +68,14 @@ struct TField {
 /// ditto
 struct TList {
   TType elemType;
-  uint size;
+  size_t size;
 }
 
 /// ditto
 struct TMap {
   TType keyType;
   TType valueType;
-  uint size;
+  size_t size;
 }
 
 /// ditto
@@ -88,7 +88,7 @@ struct TMessage {
 /// ditto
 struct TSet {
   TType elemType;
-  uint size;
+  size_t size;
 }
 
 /// ditto
@@ -276,7 +276,7 @@ void skip(TProtocol prot, TType type) {
 
     case TType.MAP:
       prot.readMap((TMap map) {
-        for (int i = 0; i < map.size; i++) {
+        foreach (i; 0 .. map.size) {
           skip(prot, map.keyType);
           skip(prot, map.valueType);
         }
@@ -285,7 +285,7 @@ void skip(TProtocol prot, TType type) {
 
     case TType.SET:
       prot.readSet((TSet set) {
-        for (int i = 0; i < set.size; i++) {
+        foreach (i; 0 .. set.size) {
           skip(prot, set.elemType);
         }
       });
@@ -293,7 +293,7 @@ void skip(TProtocol prot, TType type) {
 
     case TType.LIST:
       prot.readList((TList list) {
-        for (int i = 0; i < list.size; i++) {
+        foreach (i; 0 .. list.size) {
           skip(prot, list.elemType);
         }
       });

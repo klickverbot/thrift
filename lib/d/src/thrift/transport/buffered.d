@@ -185,7 +185,7 @@ class TBufferedTransport : TBufferBase {
 
   override void flush() {
     // Write out any data waiting in the write buffer.
-    uint have_bytes = wBase_ - wBuf_.ptr;
+    auto have_bytes = wBase_ - wBuf_.ptr;
     if (have_bytes > 0) {
       // Note that we reset wBase_ prior to the underlying write
       // to ensure we're in a sane state (i.e. internal buffer cleaned)
@@ -241,8 +241,8 @@ protected:
   }
 
   override void writeSlow(in ubyte[] buf) {
-    uint have_bytes = wBase_ - wBuf_.ptr;
-    uint space = wBound_ - wBase_;
+    auto have_bytes = wBase_ - wBuf_.ptr;
+    auto space = wBound_ - wBase_;
     // We should only take the slow path if we can't accomodate the write
     // with the free space already in the buffer.
     assert(wBound_ - wBase_ < cast(ptrdiff_t)(buf.length));

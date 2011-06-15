@@ -98,9 +98,9 @@ class TSSLSocket : TSocket {
   override size_t read(ubyte[] buf) {
     checkHandshake();
 
-    size_t bytes;
+    int bytes;
     foreach (_; 0 .. maxRecvRetries) {
-      bytes = SSL_read(ssl_, buf.ptr, buf.length);
+      bytes = SSL_read(ssl_, buf.ptr, cast(int)buf.length);
       if (bytes >= 0) break;
 
       auto errnoCopy = getErrno();
@@ -121,7 +121,8 @@ class TSSLSocket : TSocket {
     // Loop in case SSL_MODE_ENABLE_PARTIAL_WRITE is set in SSL_CTX.
     size_t written = 0;
     while (written < buf.length) {
-      auto bytes = SSL_write(ssl_, buf.ptr + written, buf.length - written);
+      auto bytes = SSL_write(ssl_, buf.ptr + written,
+        cast(int)(buf.length - written));
       if (bytes <= 0) {
         throw new TSSLException(getSSLErrorMessage(getErrno()));
       }
@@ -626,7 +627,7 @@ private:
         len = size;
       }
       password[0 .. len] = userPassword[0 .. len]; // TODO: \0 handling correct?
-      return len;
+      return cast(int)len;
     }
   }
 
