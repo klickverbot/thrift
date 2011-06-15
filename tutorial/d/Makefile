@@ -17,18 +17,18 @@
 # under the License.
 #
 
-THRIFT_DIR = ../../lib/d/src
-LIB_DIR = .
+LIB_D_DIR = ../../lib/d
 
-GEN_SRC = ../gen-d/share/SharedService.d ../gen-d/share/shared_types.d ../gen-d/tutorial/tutorial_types.d ../gen-d/tutorial/Calculator.d
+GEN_SRC = ../gen-d/share/SharedService.d ../gen-d/share/shared_types.d \
+	../gen-d/tutorial/tutorial_types.d ../gen-d/tutorial/Calculator.d
 
 default: server client
 
 server: server.d
-	dmd -I${THRIFT_DIR} -I../gen-cpp -L-L${LIB_DIR} -L-lthriftd server.d ${GEN_SRC}
+	dmd -I${LIB_D_DIR}/src -L-L${LIB_D_DIR} -L-lthriftd server.d ${GEN_SRC}
 
 client: client.d
-	dmd -I${THRIFT_DIR} -I../gen-cpp -L-L${LIB_DIR} -L-lthriftd client.d ${GEN_SRC}
+	dmd -I${LIB_D_DIR}/src -L-L${LIB_D_DIR} -L-lthriftd client.d ${GEN_SRC}
 
 clean:
 	$(RM) -r server client
