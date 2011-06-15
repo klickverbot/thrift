@@ -7,7 +7,7 @@ import thrift.util.openssl.x509;
 import thrift.util.openssl.x509_vfy;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.ssl);
+  bindFunctions!(thrift.util.openssl.ssl, Library.ssl)();
 }
 
 c_long SSL_CTX_set_mode(SSL_CTX* ctx, c_long op) {

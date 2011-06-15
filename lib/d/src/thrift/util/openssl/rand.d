@@ -3,7 +3,7 @@ module thrift.util.openssl.rand;
 import thrift.util.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.rand);
+  bindFunctions!(thrift.util.openssl.rand)();
 }
 
 __gshared:

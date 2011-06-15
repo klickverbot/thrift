@@ -16,11 +16,11 @@ import std.string : toStringz;
 import std.traits : isFunctionPointer;
 
 enum Library {
-  ssl,
-  crypto
+  crypto,
+  ssl
 }
 
-void bindFunctions(alias Module, Library library = Library.ssl)() {
+void bindFunctions(alias Module, Library library = Library.crypto)() {
   foreach (m; __traits(derivedMembers, Module)) {
     static if (__traits(compiles, { static assert(isFunctionPointer!(
       typeof(mixin("Module." ~ m)))); }))
@@ -35,7 +35,7 @@ shared static this() {
   version (linux) {
     auto sslPaths = ["libssl.so.0.9.8", "libssl.so"];
   } else version (Win32) {
-    auto sslPaths = ["libssl32.dll"];
+    auto sslPaths = ["ssleay32.dll"];
   } else version (darwin) {
     auto sslPaths = ["/usr/lib/libssl.dylib", "libssl.dylib"];
   } else version (freebsd) {
@@ -168,7 +168,7 @@ private {
     }
   } else version (Windows) {
     import core.sys.windows.windows;
-    import std.windows.syserror.d;
+    import std.windows.syserror;
 
     alias HMODULE SharedLibHandle;
 

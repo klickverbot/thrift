@@ -5,7 +5,7 @@ import thrift.util.openssl.asn1;
 import thrift.util.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.x509);
+  bindFunctions!(thrift.util.openssl.x509)();
 }
 
 __gshared:
