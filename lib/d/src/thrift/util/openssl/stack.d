@@ -3,7 +3,7 @@ module thrift.util.openssl.stack;
 import thrift.util.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.stack);
+  bindFunctions!(thrift.util.openssl.stack)();
 }
 
 __gshared:

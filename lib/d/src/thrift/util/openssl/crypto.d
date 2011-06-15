@@ -4,7 +4,7 @@ import core.stdc.config;
 import thrift.util.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.crypto, Library.crypto);
+  bindFunctions!(thrift.util.openssl.crypto)();
 }
 
 __gshared:
