@@ -305,12 +305,11 @@ private:
   void setTimeout(SocketOption type, Duration value) {
     assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
     version (Win32) {
-      auto msecs = value.total!"msecs";
-      if (msecs < 500) {
+      if (value > dur!"hnsecs"(0) && value < dur!"msecs"(500)) {
         stderr.writefln(
           "Socket %s timeout of %s ms might be raised to 500 ms on Windows.",
           (type == SocketOption.SNDTIMEO) ? "send" : "receive",
-          msecs
+          value.total!"msecs"
         );
       }
     }
