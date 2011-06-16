@@ -18,6 +18,8 @@
  */
 module thrift.transport.memory;
 
+import core.exception : onOutOfMemoryError;
+import core.stdc.stdlib : free, realloc;
 import std.algorithm : min;
 import std.exception : enforce;
 import thrift.transport.base;
@@ -26,6 +28,9 @@ import thrift.transport.base;
  * A tranpsort that simply reads from and writes to an in-memory buffer. Every
  * time you call write on it, the data is simply placed into a buffer, and
  * every time you call read, data is consumed from that buffer.
+ *
+ * Currently, the storage for written data is never reclaimed, even if the
+ * buffer contents have already been read out again.
  */
 class TMemoryBuffer : TBaseTransport {
   /**
@@ -48,24 +53,42 @@ class TMemoryBuffer : TBaseTransport {
    *   capacity = Size of the initially reserved buffer (in bytes).
    */
   this(size_t capacity) {
-    buffer_.reserve(capacity);
+    reset(capacity);
   }
 
   /**
    * Constructs a new memory transport initially containing the passed data.
    *
+   * For now, the passed buffer is not intelligently used, the data is just
+   * copied to the internal buffer.
+   *
    * Params:
    *   buffer = Initial contents available to be read.
    */
-  this(immutable(ubyte)[] contents) {
-    buffer_ = contents;
+  this(in ubyte[] contents) {
+    auto size = contents.length;
+    reset(size);
+    buffer_[0 .. size] = contents[];
+    writeOffset_ = size;
   }
 
   /**
-   * Returns a read-only view of the buffer contents.
+   * Destructor, frees the internally allocated buffer.
    */
-  immutable(ubyte)[] getContents() {
-    return buffer_;
+  ~this() {
+    free(buffer_);
+  }
+
+  /**
+   * Returns a read-only view of the current buffer contents.
+   *
+   * Note: For performance reasons, the returned slice is only valid for the
+   * life of this object, and may be invalidated on the next write() call at
+   * will – you might want to immediately .dup it if you intend to keep it
+   * around.
+   */
+  const(ubyte)[] getContents() {
+    return buffer_[readOffset_ .. writeOffset_];
   }
 
   /**
@@ -85,7 +108,7 @@ class TMemoryBuffer : TBaseTransport {
    * should listen for another request.
    */
   override bool peek() {
-    return buffer_.length > 0;
+    return writeOffset_ - readOffset_ > 0;
   }
 
   /**
@@ -99,39 +122,65 @@ class TMemoryBuffer : TBaseTransport {
   override void close() {}
 
   override size_t read(ubyte[] buf) {
-    auto size = min(buffer_.length, buf.length);
-    buf[0..size] = buffer_[0..size];
-    buffer_ = buffer_[size..$];
+    auto size = min(buf.length, writeOffset_ - readOffset_);
+    buf[0 .. size] = buffer_[readOffset_ .. readOffset_ + size];
+    readOffset_ += size;
     return size;
   }
 
   override void write(in ubyte[] buf) {
-    buffer_ ~= buf;
+    auto need = buf.length;
+    if (bufferLen_ - writeOffset_ < need) {
+      // Exponential growth.
+      auto newLen = bufferLen_ + 1;
+      while (newLen - writeOffset_ < need) newLen *= 2;
+      cRealloc(buffer_, newLen);
+      bufferLen_ = newLen;
+    }
+
+    buffer_[writeOffset_ .. writeOffset_ + need] = buf[];
+    writeOffset_ += need;
   }
 
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    if (len >= buffer_.length) {
-      return buffer_;
+    if (len >= writeOffset_ - readOffset_) {
+      return buffer_[readOffset_ .. writeOffset_];
     } else {
       return null;
     }
   }
 
   override void consume(size_t len) {
-    buffer_ = buffer_[len..$];
+    readOffset_ += len;
   }
 
   void reset() {
-    buffer_ = null;
+    readOffset_ = 0;
+    writeOffset_ = 0;
   }
 
-  void reset(size_t reserveAmount) {
-    buffer_ = null;
-    buffer_.reserve(reserveAmount);
+  void reset(size_t capacity) {
+    readOffset_ = 0;
+    writeOffset_ = 0;
+    if (bufferLen_ < capacity) {
+      cRealloc(buffer_, capacity);
+      bufferLen_ = capacity;
+    }
   }
 
 private:
-  immutable(ubyte)[] buffer_;
+  ubyte* buffer_;
+  size_t bufferLen_;
+  size_t readOffset_;
+  size_t writeOffset_;
+}
+
+private {
+  void cRealloc(ref ubyte* data, size_t newSize) {
+    auto result = realloc(data, newSize);
+    if (result is null) onOutOfMemoryError();
+    data = cast(ubyte*)result;
+  }
 }
 
 version (unittest) {
