@@ -72,31 +72,7 @@ class TBinaryProtocol : TProtocol {
     trans_.write(buf);
   }
 
-  override void writeField(TField field, void delegate() writeContents) {
-    writeByte(field.type);
-    writeI16(field.id);
-
-    writeContents();
-  }
-
-  override void writeList(TList list, void delegate() writeContents) {
-    assert(list.size <= int.max);
-    writeByte(list.elemType);
-    writeI32(cast(int)list.size);
-
-    writeContents();
-  }
-
-  override void writeMap(TMap map, void delegate() writeContents) {
-    assert(map.size <= int.max);
-    writeByte(map.keyType);
-    writeByte(map.valueType);
-    writeI32(cast(int)map.size);
-
-    writeContents();
-  }
-
-  override void writeMessage(TMessage message, void delegate() writeContents) {
+  override void writeMessageBegin(TMessage message) {
     if (strictWrite_) {
       int versn = VERSION_1 | message.type;
       writeI32(versn);
@@ -107,22 +83,44 @@ class TBinaryProtocol : TProtocol {
       writeByte(message.type);
       writeI32(message.seqid);
     }
+  }
+  override void writeMessageEnd() {}
 
-    writeContents();
+  override void writeStructBegin(TStruct tstruct) {}
+  override void writeStructEnd() {}
+
+  override void writeFieldBegin(TField field) {
+    writeByte(field.type);
+    writeI16(field.id);
+  }
+  override void writeFieldEnd() {}
+
+  override void writeFieldStop() {
+    writeByte(TType.STOP);
   }
 
-  override void writeSet(TSet set, void delegate() writeContents) {
+  override void writeListBegin(TList list) {
+    assert(list.size <= int.max);
+    writeByte(list.elemType);
+    writeI32(cast(int)list.size);
+  }
+  override void writeListEnd() {}
+
+  override void writeMapBegin(TMap map) {
+    assert(map.size <= int.max);
+    writeByte(map.keyType);
+    writeByte(map.valueType);
+    writeI32(cast(int)map.size);
+  }
+  override void writeMapEnd() {}
+
+  override void writeSetBegin(TSet set) {
     assert(set.size <= int.max);
     writeByte(set.elemType);
     writeI32(cast(int)set.size);
-
-    writeContents();
   }
+  override void writeSetEnd() {}
 
-  override void writeStruct(TStruct tstruct, void delegate() writeContents) {
-    writeContents();
-    writeByte(TType.STOP);
-  }
 
   /*
    * Reading methods.
@@ -187,30 +185,14 @@ class TBinaryProtocol : TProtocol {
     }
   }
 
-  override TList readList(void delegate(TList) readContents) {
-    auto l = TList(cast(TType)readByte(), readI32());
-    enforce(l.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(l);
-    return l;
-  }
-
-  override TMap readMap(void delegate(TMap) readContents) {
-    auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
-    enforce(m.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(m);
-    return m;
-  }
-
-  override TMessage readMessage(void delegate(TMessage) readContents) {
+  override TMessage readMessageBegin() {
     TMessage msg = void;
 
     int size = readI32();
     if (size < 0) {
       int versn = size & VERSION_MASK;
-      enforce(versn == VERSION_1, new TProtocolException(
-        TProtocolException.Type.BAD_VERSION, "Bad version in readMessage."));
+      if(versn != VERSION_1) throw new TProtocolException(
+        TProtocolException.Type.BAD_VERSION, "Bad version in readMessage.");
 
       msg.type = cast(TMessageType)(size & MESSAGE_TYPE_MASK);
       msg.name = readString();
@@ -226,30 +208,48 @@ class TBinaryProtocol : TProtocol {
       }
     }
 
-    readContents(msg);
-
     return msg;
   }
+  override void readMessageEnd() {}
 
-  override TSet readSet(void delegate(TSet) readContents) {
+  override TStruct readStructBegin() {
+    return TStruct();
+  }
+  override void readStructEnd() {}
+
+  override TField readFieldBegin() {
+    TField f = void;
+    f.type = cast(TType)readByte();
+    if (f.type == TType.STOP) return f;
+    f.id = readI16();
+    return f;
+  }
+  override void readFieldEnd() {}
+
+  override TList readListBegin() {
+    auto l = TList(cast(TType)readByte(), readI32());
+    if (l.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    return l;
+  }
+  override void readListEnd() {}
+
+  override TMap readMapBegin() {
+    auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
+    if (m.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    return m;
+  }
+  override void readMapEnd() {}
+
+  override TSet readSetBegin() {
     auto s = TSet(cast(TType)readByte(), readI32());
-    enforce(s.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(s);
+    if (s.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     return s;
   }
+  override void readSetEnd() {}
 
-  override TStruct readStruct(void delegate(TField) readField) {
-    while (true) {
-      TField f;
-      f.type = cast(TType)readByte();
-      if (f.type == TType.STOP) {
-        return TStruct();
-      }
-      f.id = readI16();
-      readField(f);
-    }
-  }
 
   void setReadLength(int value) {
     readLength_ = value;
@@ -306,6 +306,25 @@ protected:
   int readLength_;
   bool checkReadLength_;
 }
+
+unittest {
+  import thrift.transport.memory;
+
+  // Check the message header format.
+  auto buf = new TMemoryBuffer;
+  auto binary = new TBinaryProtocol(buf);
+  binary.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
+
+  auto header = new ubyte[15];
+  buf.readAll(header);
+  assert(header == [
+    128, 1, 0, 1, // Version 1, TMessageType.CALL
+    0, 0, 0, 3, // Method name length
+    102, 111, 111, // Method name ("foo")
+    0, 0, 0, 0, // Sequence id
+  ]);
+}
+
 
 class TBinaryProtocolFactory : TProtocolFactory {
   this (bool strictRead = false, bool strictWrite = true, int readLength = 0) {

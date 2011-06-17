@@ -233,6 +233,15 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     // assigning it to v. The level parameter is used to make sure that there
     // are no conflicting variable names on recursive calls.
     string readValueCode(ValueType)(string v, size_t level = 0) {
+      // Some non-ambigous names to use (shadowing is not allowed in D).
+      immutable i = "i" ~ to!string(level);
+      immutable elem = "elem" ~ to!string(level);
+      immutable key = "key" ~ to!string(level);
+      immutable list = "list" ~ to!string(level);
+      immutable map = "map" ~ to!string(level);
+      immutable set = "set" ~ to!string(level);
+      immutable value = "value" ~ to!string(level);
+
       alias FullyUnqual!ValueType F;
 
       static if (is(F == bool)) {
@@ -252,38 +261,41 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
       } else static if (is(F == enum)) {
         return v ~ " = cast(typeof(" ~ v ~ "))p.readI32();";
       } else static if (is(F _ : E[], E)) {
-        return "p.readList((TList list) {\n" ~
-            // TODO: Check element type here?
-            v ~ " = new typeof(" ~ v ~ "[0])[list.size];\n" ~
-            "for (int i = 0; i < list.size; ++i) {\n" ~
-              readValueCode!E(v ~ "[i]", level + 1) ~ "\n" ~
-            "}\n" ~
-          "});";
+        return "{\n" ~
+          "auto " ~ list ~ " = p.readListBegin();\n" ~
+          // TODO: Check element type here?
+          v ~ " = new typeof(" ~ v ~ "[0])[" ~ list ~ ".size];\n" ~
+          "foreach (" ~ i ~ "; 0 .. " ~ list ~ ".size) {\n" ~
+            readValueCode!E(v ~ "[" ~ i ~ "]", level + 1) ~ "\n" ~
+          "}\n" ~
+          "p.readListEnd();\n" ~
+        "}";
       } else static if (is(F _ : V[K], K, V)) {
-        immutable key = "key" ~ to!string(level);
-        immutable value = "value" ~ to!string(level);
-        return "p.readMap((TMap map) {\n" ~
+        return "{\n" ~
+          "auto " ~ map ~ " = p.readMapBegin();" ~
           v ~ " = null;\n" ~
           // TODO: Check key/value types here?
-          "for (int i = 0; i < map.size; ++i) {\n" ~
+          "foreach (" ~ i ~ "; 0 .. " ~ map ~ ".size) {\n" ~
             "FullyUnqual!(typeof(" ~ v ~ ".keys[0])) " ~ key ~ ";\n" ~
             readValueCode!K(key, level + 1) ~ "\n" ~
             "typeof(" ~ v ~ ".values[0]) " ~ value ~ ";\n" ~
             readValueCode!V(value, level + 1) ~ "\n" ~
             v ~ "[cast(typeof(" ~ v ~ ".keys[0]))" ~ key ~ "] = " ~ value ~ ";\n" ~
           "}\n" ~
-        "});";
+          "p.readMapEnd();" ~
+        "}";
       } else static if (is(F _ : HashSet!(E), E)) {
-        immutable elem = "elem" ~ to!string(level);
-        return "p.readSet((TSet set) {\n" ~
-            // TODO: Check element type here?
-            v ~ " = new typeof(" ~ v ~ ")();\n" ~
-            "for (int i = 0; i < set.size; ++i) {\n" ~
-              "typeof(" ~ v ~ "[][0]) " ~ elem ~ ";\n" ~
-              readValueCode!E(elem, level + 1) ~ "\n" ~
-              v ~ " ~= " ~ elem ~ ";\n" ~
-            "}\n" ~
-          "});";
+        return "{\n" ~
+          "auto " ~ set ~ " = p.readSetBegin();" ~
+          // TODO: Check element type here?
+          v ~ " = new typeof(" ~ v ~ ")();\n" ~
+          "foreach (" ~ i ~ "; 0 .. " ~ set ~ ".size) {\n" ~
+            "typeof(" ~ v ~ "[][0]) " ~ elem ~ ";\n" ~
+            readValueCode!E(elem, level + 1) ~ "\n" ~
+            v ~ " ~= " ~ elem ~ ";\n" ~
+          "}\n" ~
+          "p.readSetEnd();" ~
+        "}";
       } else static if (is(F == struct)) {
         return v ~ " = typeof(" ~ v ~ ")();\n" ~ v ~ ".read(p);";
       } else static if (is(F : TException)) {
@@ -356,14 +368,17 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     }
 
     code ~= isSetFlagCode;
-    code ~= "p.readStruct((TField f) {\n";
-    if (!readMembersCode.empty) {
-      code ~= "switch(f.id) {\n";
-      code ~= readMembersCode;
-      code ~= "default: skip(p, f.type);\n";
-      code ~= "}\n";
-    }
-    code ~= "});\n";
+    code ~= "p.readStructBegin();\n";
+    code ~= "while (true) {\n";
+    code ~= "auto f = p.readFieldBegin();\n";
+    code ~= "if (f.type == TType.STOP) break;\n";
+    code ~= "switch(f.id) {\n";
+    code ~= readMembersCode;
+    code ~= "default: skip(p, f.type);\n";
+    code ~= "}\n";
+    code ~= "p.readFieldEnd();\n";
+    code ~= "}\n";
+    code ~= "p.readStructEnd();\n";
     code ~= isSetCheckCode;
 
     return code;
@@ -407,110 +422,118 @@ void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
     }
   }
 
-  p.writeStruct(TStruct(T.stringof), {
-    mixin({
-      string writeValueCode(ValueType)(string v) {
-        alias FullyUnqual!ValueType F;
-        static if (is(F == bool)) {
-          return "p.writeBool(" ~ v ~ ");";
-        } else static if (is(F == byte)) {
-          return "p.writeByte(" ~ v ~ ");";
-        } else static if (is(F == double)) {
-          return "p.writeDouble(" ~ v ~ ");";
-        } else static if (is(F == short)) {
-          return "p.writeI16(" ~ v ~ ");";
-        } else static if (is(F == int)) {
-          return "p.writeI32(" ~ v ~ ");";
-        } else static if (is(F == long)) {
-          return "p.writeI64(" ~ v ~ ");";
-        } else static if (is(F : string)) {
-          return "p.writeString(" ~ v ~ ");";
-        } else static if (is(F == enum)) {
-          return "p.writeI32(cast(int)" ~ v ~ ");";
-        } else static if (is(F _ : E[], E)) {
-          return "p.writeList(TList(" ~ dToTTypeString!E ~ ", " ~ v ~
-            ".length), {\n" ~
-            "foreach (elem; " ~ v ~ ") {\n" ~
-              writeValueCode!E("elem") ~ "\n" ~
-            "}\n" ~
-          "});";
-        } else static if (is(F _ : V[K], K, V)) {
-          return "p.writeMap(TMap(" ~ dToTTypeString!K ~ ", " ~
-            dToTTypeString!V ~ ", " ~ v ~ ".length), {\n" ~
-            "foreach (key, value; " ~ v ~ ") {\n" ~
-              writeValueCode!K("key") ~ "\n" ~
-              writeValueCode!V("value") ~ "\n" ~
-            "}\n" ~
-          "});";
-        } else static if (is(F _ : HashSet!E, E)) {
-          return "p.writeSet(TSet(" ~ dToTTypeString!E ~ ", " ~ v ~
-            ".length), {\n" ~
-            "foreach (elem; " ~ v ~ ") {\n" ~
-              writeValueCode!E("elem") ~ "\n" ~
-            "}\n" ~
-          "});";
-        } else static if (is(F == struct)) {
-          return v ~ ".write(p);";
-        } else static if (is(F : TException)) {
-          return v ~ ".write(p);";
-        } else {
-          static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
-        }
+  p.writeStructBegin(TStruct(T.stringof));
+  mixin({
+    string writeValueCode(ValueType)(string v, size_t level = 0) {
+      // Some non-ambigous names to use (shadowing is not allowed in D).
+      immutable elem = "elem" ~ to!string(level);
+      immutable key = "key" ~ to!string(level);
+      immutable value = "value" ~ to!string(level);
+
+      alias FullyUnqual!ValueType F;
+      static if (is(F == bool)) {
+        return "p.writeBool(" ~ v ~ ");";
+      } else static if (is(F == byte)) {
+        return "p.writeByte(" ~ v ~ ");";
+      } else static if (is(F == double)) {
+        return "p.writeDouble(" ~ v ~ ");";
+      } else static if (is(F == short)) {
+        return "p.writeI16(" ~ v ~ ");";
+      } else static if (is(F == int)) {
+        return "p.writeI32(" ~ v ~ ");";
+      } else static if (is(F == long)) {
+        return "p.writeI64(" ~ v ~ ");";
+      } else static if (is(F : string)) {
+        return "p.writeString(" ~ v ~ ");";
+      } else static if (is(F == enum)) {
+        return "p.writeI32(cast(int)" ~ v ~ ");";
+      } else static if (is(F _ : E[], E)) {
+        return "p.writeListBegin(TList(" ~ dToTTypeString!E ~ ", " ~ v ~
+          ".length));\n" ~
+          "foreach (" ~ elem ~ "; " ~ v ~ ") {\n" ~
+            writeValueCode!E(elem, level + 1) ~ "\n" ~
+          "}\n" ~
+          "p.writeListEnd();";
+      } else static if (is(F _ : V[K], K, V)) {
+        return "p.writeMapBegin(TMap(" ~ dToTTypeString!K ~ ", " ~
+          dToTTypeString!V ~ ", " ~ v ~ ".length));\n" ~
+          "foreach (" ~ key ~ ", " ~ value ~ "; " ~ v ~ ") {\n" ~
+            writeValueCode!K(key, level + 1) ~ "\n" ~
+            writeValueCode!V(value, level + 1) ~ "\n" ~
+          "}\n" ~
+          "p.writeMapEnd();";
+      } else static if (is(F _ : HashSet!E, E)) {
+        return "p.writeSetBegin(TSet(" ~ dToTTypeString!E ~ ", " ~ v ~
+          ".length));\n" ~
+          "foreach (" ~ elem ~ "; " ~ v ~ ") {\n" ~
+            writeValueCode!E(elem, level + 1) ~ "\n" ~
+          "}\n" ~
+          "p.writeSetEnd();";
+      } else static if (is(F == struct)) {
+        return v ~ ".write(p);";
+      } else static if (is(F : TException)) {
+        return v ~ ".write(p);";
+      } else {
+        static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
+      }
+    }
+
+    string writeFieldCode(FieldType)(string name, short id, TReq req) {
+      string code;
+      if (!pointerStruct && req == TReq.OPTIONAL) {
+        code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
       }
 
-      string writeFieldCode(FieldType)(string name, short id, TReq req) {
-        string code;
-        if (!pointerStruct && req == TReq.OPTIONAL) {
-          code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
-        }
-
-        static if (pointerStruct && isPointer!FieldType) {
-          immutable v = "(*s." ~ name ~ ")";
-          alias pointerTarget!FieldType F;
-        } else {
-          immutable v = "s." ~ name;
-          alias FieldType F;
-        }
-
-        code ~= "p.writeField(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
-          ", " ~ to!string(id) ~ "), { " ~ writeValueCode!F(v) ~ " });\n";
-
-        if (!pointerStruct && req == TReq.OPTIONAL) {
-          code ~= "}\n";
-        }
-        return code;
+      static if (pointerStruct && isPointer!FieldType) {
+        immutable v = "(*s." ~ name ~ ")";
+        alias pointerTarget!FieldType F;
+      } else {
+        immutable v = "s." ~ name;
+        alias FieldType F;
       }
 
-      // The last automatically assigned id – fields with no meta information
-      // are assigned (in lexical order) descending negative ids, starting with
-      // -1, just like the Thrift compiler does.
-      short lastId;
+      code ~= "p.writeFieldBegin(TField(`" ~ name ~ "`, " ~ dToTTypeString!F ~
+        ", " ~ to!string(id) ~ "));\n";
+      code ~= writeValueCode!F(v) ~ "\n";
+      code ~= "p.writeFieldEnd();\n";
 
-      string code = "";
-      foreach (name; __traits(derivedMembers, T)) {
-        static if (is(MemberType!(T, name)) &&
-          !isSomeFunction!(MemberType!(T, name)))
-        {
-          alias MemberType!(T, name) F;
-
-          auto meta = find!`a.name == b`(fieldMetaData, name);
-          if (meta.empty) {
-            --lastId;
-            version (TVerboseCodegen) {
-              code ~= "pragma(msg, `[thrift.codegen.writeStruct] Warning: No " ~
-                "meta information for field '" ~ name ~ "' in struct '" ~
-                T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
-            }
-            code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
-          } else if (meta.front.req != TReq.IGNORE) {
-            code ~= writeFieldCode!F(name, meta.front.id, meta.front.req);
-          }
-        }
+      if (!pointerStruct && req == TReq.OPTIONAL) {
+        code ~= "}\n";
       }
-
       return code;
-    }());
-  });
+    }
+
+    // The last automatically assigned id – fields with no meta information
+    // are assigned (in lexical order) descending negative ids, starting with
+    // -1, just like the Thrift compiler does.
+    short lastId;
+
+    string code = "";
+    foreach (name; __traits(derivedMembers, T)) {
+      static if (is(MemberType!(T, name)) &&
+        !isSomeFunction!(MemberType!(T, name)))
+      {
+        alias MemberType!(T, name) F;
+
+        auto meta = find!`a.name == b`(fieldMetaData, name);
+        if (meta.empty) {
+          --lastId;
+          version (TVerboseCodegen) {
+            code ~= "pragma(msg, `[thrift.codegen.writeStruct] Warning: No " ~
+              "meta information for field '" ~ name ~ "' in struct '" ~
+              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
+          }
+          code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
+        } else if (meta.front.req != TReq.IGNORE) {
+          code ~= writeFieldCode!F(name, meta.front.id, meta.front.req);
+        }
+      }
+    }
+
+    return code;
+  }());
+  p.writeFieldStop();
+  p.writeStructEnd();
 }
 
 template TArgsStruct(Interface, string methodName) {
@@ -815,10 +838,10 @@ template TClient(Interface) if (is(Interface _ == interface)) {
           "TPargsStruct!(Interface, `" ~ methodName ~ "`)";
         code ~= paramStructType ~ " args = " ~ paramStructType ~ "();\n";
         code ~= paramAssignCode;
-        code ~= "oprot_.writeMessage(TMessage(`" ~ methodName ~
-          "`, TMessageType.CALL, ++seqid_), {\n";
+        code ~= "oprot_.writeMessageBegin(TMessage(`" ~ methodName ~
+          "`, TMessageType.CALL, ++seqid_));\n";
         code ~= "args.write(oprot_);\n";
-        code ~= "});\n";
+        code ~= "oprot_.writeMessageEnd();\n";
         code ~= "oprot_.getTransport().flush();\n";
 
         // If this is not a oneway method, generate the recieving code.
@@ -833,25 +856,29 @@ template TClient(Interface) if (is(Interface _ == interface)) {
           // TODO: The C++ implementation checks for matching name here,
           // should we do as well?
           code ~= q{
-            iprot_.readMessage((TMessage msg) {
-              if (msg.type == TMessageType.EXCEPTION) {
-                auto x = new TApplicationException(null);
-                x.read(iprot_);
-                iprot_.getTransport().readEnd();
-                throw x;
-              }
-              if (msg.type != TMessageType.REPLY) {
-                skip(iprot_, TType.STRUCT);
-                iprot_.getTransport().readEnd();
-              }
-              if (msg.seqid != seqid_) {
-                throw new TApplicationException(
-                  methodName ~ " failed: Out of sequence response.",
-                  TApplicationException.Type.BAD_SEQUENCE_ID
-                );
-              }
-              result.read(iprot_);
-            });
+            auto msg = iprot_.readMessageBegin();
+            scope (exit) {
+              iprot_.readMessageEnd();
+              iprot_.getTransport().readEnd();
+            }
+
+            if (msg.type == TMessageType.EXCEPTION) {
+              auto x = new TApplicationException(null);
+              x.read(iprot_);
+              iprot_.getTransport().readEnd();
+              throw x;
+            }
+            if (msg.type != TMessageType.REPLY) {
+              skip(iprot_, TType.STRUCT);
+              iprot_.getTransport().readEnd();
+            }
+            if (msg.seqid != seqid_) {
+              throw new TApplicationException(
+                methodName ~ " failed: Out of sequence response.",
+                TApplicationException.Type.BAD_SEQUENCE_ID
+              );
+            }
+            result.read(iprot_);
           };
 
           if (methodMetaFound) {
@@ -899,29 +926,35 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
       string code = "class TServiceProcessor : TProcessor {";
       code ~= q{
         override bool process(TProtocol iprot, TProtocol oprot) {
-          iprot.readMessage((TMessage msg) {
-            if (msg.type != TMessageType.CALL && msg.type != TMessageType.ONEWAY) {
-              skip(iprot, TType.STRUCT);
-              auto x = new TApplicationException(
-                TApplicationException.Type.INVALID_MESSAGE_TYPE);
-              oprot.writeMessage(TMessage(msg.name, TMessageType.EXCEPTION,
-                msg.seqid), { x.write(oprot); });
-              oprot.getTransport().writeEnd();
-              oprot.getTransport().flush();
-            } else if (auto dg = msg.name in processMap_) {
-              (*dg)(msg.seqid, iprot, oprot);
-            } else {
-              skip(iprot, TType.STRUCT);
-              auto x = new TApplicationException("Invalid method name: '" ~
-                msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE);
-              oprot.writeMessage(TMessage(msg.name, TMessageType.EXCEPTION,
-                msg.seqid), { x.write(oprot); });
-              oprot.getTransport().writeEnd();
-              oprot.getTransport().flush();
-            }
+          auto msg = iprot.readMessageBegin();
 
-          });
-          iprot.getTransport().readEnd();
+          void writeException(TApplicationException e) {
+            oprot.writeMessageBegin(TMessage(msg.name, TMessageType.EXCEPTION,
+              msg.seqid));
+            e.write(oprot);
+            oprot.writeMessageEnd();
+            oprot.getTransport().writeEnd();
+            oprot.getTransport().flush();
+          }
+
+          if (msg.type != TMessageType.CALL && msg.type != TMessageType.ONEWAY) {
+            skip(iprot, TType.STRUCT);
+            iprot.readMessageEnd();
+            iprot.getTransport().readEnd();
+
+            writeException(new TApplicationException(
+              TApplicationException.Type.INVALID_MESSAGE_TYPE));
+          } else if (auto dg = msg.name in processMap_) {
+            (*dg)(msg.seqid, iprot, oprot);
+          } else {
+            skip(iprot, TType.STRUCT);
+            iprot.readMessageEnd();
+            iprot.getTransport().readEnd();
+
+            writeException(new TApplicationException("Invalid method name: '" ~
+              msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE));
+          }
+
           return true;
         }
 
@@ -984,15 +1017,19 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
 
           code ~= "} catch (Exception e) {\n";
           code ~= "auto x = new TApplicationException(to!string(e));\n";
-          code ~= "oprot.writeMessage(TMessage(`" ~ methodName ~ "`, " ~
-            "TMessageType.EXCEPTION, seqid), { x.write(oprot); });\n";
+          code ~= "oprot.writeMessageBegin(TMessage(`" ~ methodName ~ "`, " ~
+            "TMessageType.EXCEPTION, seqid));\n";
+          code ~= "x.write(oprot);\n";
+          code ~= "oprot.writeMessageEnd();\n";
           code ~= "oprot.getTransport().writeEnd();\n";
           code ~= "oprot.getTransport().flush();\n";
           code ~= "return;\n";
           code ~= "}\n";
 
-          code ~= "oprot.writeMessage(TMessage(`" ~ methodName ~ "`, " ~
-            "TMessageType.REPLY, seqid), { result.write(oprot); });\n";
+          code ~= "oprot.writeMessageBegin(TMessage(`" ~ methodName ~ "`, " ~
+            "TMessageType.REPLY, seqid));\n";
+          code ~= "result.write(oprot);\n";
+          code ~= "oprot.writeMessageEnd();\n";
           code ~= "oprot.getTransport().writeEnd();\n";
           code ~= "oprot.getTransport().flush();\n";
         } else {

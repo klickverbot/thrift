@@ -134,12 +134,19 @@ abstract class TProtocol {
   abstract void writeString(string str);
   abstract void writeBinary(ubyte[] buf);
 
-  abstract void writeField(TField field, void delegate() writeContents);
-  abstract void writeList(TList list, void delegate() writeContents);
-  abstract void writeMap(TMap map, void delegate() writeContents);
-  abstract void writeMessage(TMessage message, void delegate() writeContents);
-  abstract void writeSet(TSet set, void delegate() writeContents);
-  abstract void writeStruct(TStruct tstruct, void delegate() writeContents);
+  abstract void writeMessageBegin(TMessage message);
+  abstract void writeMessageEnd();
+  abstract void writeStructBegin(TStruct tstruct);
+  abstract void writeStructEnd();
+  abstract void writeFieldBegin(TField field);
+  abstract void writeFieldEnd();
+  abstract void writeFieldStop();
+  abstract void writeListBegin(TList list);
+  abstract void writeListEnd();
+  abstract void writeMapBegin(TMap map);
+  abstract void writeMapEnd();
+  abstract void writeSetBegin(TSet set);
+  abstract void writeSetEnd();
 
   /*
    * Reading methods.
@@ -154,11 +161,18 @@ abstract class TProtocol {
   abstract string readString();
   abstract ubyte[] readBinary();
 
-  abstract TList readList(void delegate(TList) readContents);
-  abstract TMap readMap(void delegate(TMap) readContents);
-  abstract TMessage readMessage(void delegate(TMessage) readContents);
-  abstract TSet readSet(void delegate(TSet) readContents);
-  abstract TStruct readStruct(void delegate(TField) readField);
+  abstract TMessage readMessageBegin();
+  abstract void readMessageEnd();
+  abstract TStruct readStructBegin();
+  abstract void readStructEnd();
+  abstract TField readFieldBegin();
+  abstract void readFieldEnd();
+  abstract TList readListBegin();
+  abstract void readListEnd();
+  abstract TMap readMapBegin();
+  abstract void readMapEnd();
+  abstract TSet readSetBegin();
+  abstract void readSetEnd();
 
   /**
    * Reset any internal state back to a blank slate. This method only needs to
@@ -269,34 +283,39 @@ void skip(TProtocol prot, TType type) {
       break;
 
     case TType.STRUCT:
-      prot.readStruct((TField field) {
-        skip(prot, field.type);
-      });
-      break;
-
-    case TType.MAP:
-      prot.readMap((TMap map) {
-        foreach (i; 0 .. map.size) {
-          skip(prot, map.keyType);
-          skip(prot, map.valueType);
-        }
-      });
-      break;
-
-    case TType.SET:
-      prot.readSet((TSet set) {
-        foreach (i; 0 .. set.size) {
-          skip(prot, set.elemType);
-        }
-      });
+      prot.readStructBegin();
+      while (true) {
+        auto f = prot.readFieldBegin();
+        if (f.type == TType.STOP) break;
+        skip(prot, f.type);
+        prot.readFieldEnd();
+      }
+      prot.readStructEnd();
       break;
 
     case TType.LIST:
-      prot.readList((TList list) {
-        foreach (i; 0 .. list.size) {
-          skip(prot, list.elemType);
-        }
-      });
+      auto l = prot.readListBegin();
+      foreach (i; 0 .. l.size) {
+        skip(prot, l.elemType);
+      }
+      prot.readListEnd();
+      break;
+
+    case TType.MAP:
+      auto m = prot.readMapBegin();
+      foreach (i; 0 .. m.size) {
+        skip(prot, m.keyType);
+        skip(prot, m.valueType);
+      }
+      prot.readMapEnd();
+      break;
+
+    case TType.SET:
+      auto s = prot.readSetBegin();
+      foreach (i; 0 .. s.size) {
+        skip(prot, s.elemType);
+      }
+      prot.readSetEnd();
       break;
 
     default:
@@ -354,7 +373,11 @@ class TApplicationException : TException {
   }
 
   void read(TProtocol iprot) {
-    iprot.readStruct((TField f) {
+    iprot.readStructBegin();
+    while (true) {
+      auto f = iprot.readFieldBegin();
+      if (f.type == TType.STOP) break;
+
       switch (f.id) {
         case 1:
           if (f.type == TType.STRING) {
@@ -374,20 +397,25 @@ class TApplicationException : TException {
           skip(iprot, f.type);
           break;
       }
-    });
+    }
+    iprot.readStructEnd();
   }
 
   void write(TProtocol oprot) const {
-    oprot.writeStruct(TStruct("TApplicationException"), {
-      if (msg != null) {
-        oprot.writeField(TField("message", TType.STRING, 1), {
-          oprot.writeString(msg);
-        });
-      }
-      oprot.writeField(TField("type", TType.I32, 2), {
-        oprot.writeI32(type_);
-      });
-    });
+    oprot.writeStructBegin(TStruct("TApplicationException"));
+
+    if (msg != null) {
+      oprot.writeFieldBegin(TField("message", TType.STRING, 1));
+      oprot.writeString(msg);
+      oprot.writeFieldEnd();
+    }
+
+    oprot.writeFieldBegin(TField("type", TType.I32, 2));
+    oprot.writeI32(type_);
+    oprot.writeFieldEnd();
+
+    oprot.writeFieldStop();
+    oprot.writeStructEnd();
   }
 
 private:
