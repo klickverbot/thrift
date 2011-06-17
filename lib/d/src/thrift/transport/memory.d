@@ -21,7 +21,6 @@ module thrift.transport.memory;
 import core.exception : onOutOfMemoryError;
 import core.stdc.stdlib : free, realloc;
 import std.algorithm : min;
-import std.exception : enforce;
 import thrift.transport.base;
 
 /**

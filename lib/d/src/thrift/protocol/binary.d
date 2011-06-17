@@ -18,7 +18,6 @@
  */
 module thrift.protocol.binary;
 
-import std.exception : enforce;
 import thrift.protocol.base;
 import thrift.transport.base;
 
@@ -286,13 +285,13 @@ protected:
   }
 
   void checkReadLength(int length) {
-    enforce(length >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
+    if(length < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
 
     if (checkReadLength_) {
       readLength_ -= length;
-      enforce(readLength_ >= 0,
-        new TProtocolException(TProtocolException.Type.SIZE_LIMIT));
+      if(readLength_ < 0)
+        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
     }
   }
 
