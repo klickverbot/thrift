@@ -490,6 +490,7 @@ AC_CONFIG_FILES([
   lib/c_glib/test/Makefile
   lib/csharp/Makefile
   lib/d/Makefile
+  lib/d/test/serialization_benchmark/Makefile
   lib/d/test/ThriftTest/Makefile
   lib/erl/Makefile
   lib/erl/src/Makefile
