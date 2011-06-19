@@ -141,7 +141,7 @@ protected:
   ubyte* wBound_;
 }
 
-class TBufferedTransport : TBufferBase {
+final class TBufferedTransport : TBufferBase {
   enum int DEFAULT_BUFFER_SIZE = 512;
 
   /// Use default buffer sizes.

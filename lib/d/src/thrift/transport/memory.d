@@ -31,7 +31,7 @@ import thrift.transport.base;
  * Currently, the storage for written data is never reclaimed, even if the
  * buffer contents have already been read out again.
  */
-class TMemoryBuffer : TBaseTransport {
+final class TMemoryBuffer : TBaseTransport {
   /**
    * Constructs a new memory transport with an empty internal buffer.
    */

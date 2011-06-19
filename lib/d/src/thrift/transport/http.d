@@ -295,7 +295,7 @@ private:
 /**
  * HTTP client transport.
  */
-class TClientHttpTransport : THttpTransport {
+final class TClientHttpTransport : THttpTransport {
   /**
    * Constructs a client http transport operating on the passed underlying
    * transport.
@@ -370,7 +370,7 @@ private:
 /**
  * HTTP server transport.
  */
-class TServerHttpTransport : THttpTransport {
+final class TServerHttpTransport : THttpTransport {
   this(TTransport transport) {
     super(transport);
   }

@@ -51,7 +51,7 @@ import thrift.util.openssl.x509v3;
 /**
  * OpenSSL implementation for SSL socket interface.
  */
-class TSSLSocket : TSocket {
+final class TSSLSocket : TSocket {
   override bool isOpen() @property {
     if (ssl_ is null || !super.isOpen()) return false;
 
@@ -148,7 +148,7 @@ class TSSLSocket : TSocket {
     return serverSide_;
   }
 
-  /// Ditto.
+  /// Ditto
   void serverSide(bool value) @property {
     serverSide_ = value;
   }

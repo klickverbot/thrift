@@ -33,7 +33,7 @@ import thrift.transport.base;
  * data payload. The receiver on the other end then performs a single
  * »fixed-length« read to get the whole message off the wire.
  */
-class TFramedTransport : TBaseTransport {
+final class TFramedTransport : TBaseTransport {
   /**
    * Constructs a new framed transport.
    *

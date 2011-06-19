@@ -47,7 +47,7 @@ version (BigEndian) {
  * using is necessary to allow manually closing the file without relying on the
  * object lifetime. Otherwise, it's a straight port of the C++ implementation.
  */
-class TFileReaderTransport : TBaseTransport {
+final class TFileReaderTransport : TBaseTransport {
   /**
    * Creates a new file writer transport.
    *
@@ -561,7 +561,7 @@ private:
  * using is necessary to allow manually closing the file without relying on the
  * object lifetime.
  */
-class TFileWriterTransport : TBaseTransport {
+final class TFileWriterTransport : TBaseTransport {
   /**
    * Creates a new file writer transport.
    *
