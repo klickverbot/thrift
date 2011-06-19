@@ -375,3 +375,11 @@ protected:
   /** Error code */
   Type type_;
 }
+
+/**
+ * Metaprogramming helper returning whether the passed type is a TTransport
+ * implementation.
+ */
+template isTTransport(T) {
+  enum isTTransport = is(T : TTransport);
+}

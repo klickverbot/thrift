@@ -23,6 +23,7 @@ import std.algorithm;
 import std.getopt;
 import std.string;
 import std.stdio;
+import std.typetuple : TypeTuple, staticMap;
 import thrift.base;
 import thrift.codegen;
 import thrift.hashset;
@@ -234,8 +235,14 @@ void main(string[] args) {
   getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl,
     "transport", &transportType);
 
-  auto protocolFactory = new TBinaryProtocolFactory();
-  auto processor = new TServiceProcessor!ThriftTest(new TestHandler());
+  // We don't need every last bit of performance here, so specifying the
+  // actual transport types is not really needed in this case, but this
+  // exercises the (template) code paths as well.
+  alias TypeTuple!(TBufferedTransport, TFramedTransport, TServerHttpTransport)
+    AvailableTransports;
+  auto protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
+  auto processor = new TServiceProcessor!(ThriftTest,
+    staticMap!(TBinaryProtocol, AvailableTransports))(new TestHandler());
 
   TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;

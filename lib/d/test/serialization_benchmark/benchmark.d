@@ -20,15 +20,15 @@ void main() {
   ooe.zomg_unicode = "\xd7\n\a\t";
   ooe.base64 = "\1\2\3\255";
 
-  auto buf = new TMemoryBuffer();
+  auto buf = new TMemoryBuffer;
 
   enum ITERATIONS = 1_000_000;
 
   {
     auto sw = StopWatch(AutoStart.yes);
+    auto prot = createTBinaryProtocol(buf);
     foreach (i; 0 .. ITERATIONS) {
       buf.reset(120);
-      auto prot = new TBinaryProtocol(buf);
       ooe.write(prot);
     }
     sw.stop();
@@ -37,13 +37,13 @@ void main() {
     writefln("Write: %s ms (%s kHz)", msecs, ITERATIONS / msecs);
   }
 
-  auto data = buf.getContents;
+  auto data = buf.getContents();
 
   {
     auto sw = StopWatch(AutoStart.yes);
     foreach (i; 0 .. ITERATIONS) {
       auto buf2 = new TMemoryBuffer(data);
-      auto prot = new TBinaryProtocol(buf2);
+      auto prot = createTBinaryProtocol(buf2);
       auto ooe2 = OneOfEach();
       ooe2.read(prot);
     }

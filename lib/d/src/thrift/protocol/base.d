@@ -111,81 +111,67 @@ struct TStruct {
  *
  * TODO: What is the proper representation of »binary« in D?
  */
-abstract class TProtocol {
-  /**
-   * Prevent direct instantiation
-   */
-  @disable TProtocol() {}
-
-  public TTransport getTransport() {
-    return trans_;
-  }
+interface TProtocol {
+  TTransport getTransport();
 
   /*
    * Writing methods.
    */
 
-  abstract void writeBool(bool b);
-  abstract void writeByte(byte b);
-  abstract void writeI16(short i16);
-  abstract void writeI32(int i32);
-  abstract void writeI64(long i64);
-  abstract void writeDouble(double dub);
-  abstract void writeString(string str);
-  abstract void writeBinary(ubyte[] buf);
+  void writeBool(bool b);
+  void writeByte(byte b);
+  void writeI16(short i16);
+  void writeI32(int i32);
+  void writeI64(long i64);
+  void writeDouble(double dub);
+  void writeString(string str);
+  void writeBinary(ubyte[] buf);
 
-  abstract void writeMessageBegin(TMessage message);
-  abstract void writeMessageEnd();
-  abstract void writeStructBegin(TStruct tstruct);
-  abstract void writeStructEnd();
-  abstract void writeFieldBegin(TField field);
-  abstract void writeFieldEnd();
-  abstract void writeFieldStop();
-  abstract void writeListBegin(TList list);
-  abstract void writeListEnd();
-  abstract void writeMapBegin(TMap map);
-  abstract void writeMapEnd();
-  abstract void writeSetBegin(TSet set);
-  abstract void writeSetEnd();
+  void writeMessageBegin(TMessage message);
+  void writeMessageEnd();
+  void writeStructBegin(TStruct tstruct);
+  void writeStructEnd();
+  void writeFieldBegin(TField field);
+  void writeFieldEnd();
+  void writeFieldStop();
+  void writeListBegin(TList list);
+  void writeListEnd();
+  void writeMapBegin(TMap map);
+  void writeMapEnd();
+  void writeSetBegin(TSet set);
+  void writeSetEnd();
 
   /*
    * Reading methods.
    */
 
-  abstract bool readBool();
-  abstract byte readByte();
-  abstract short readI16();
-  abstract int readI32();
-  abstract long readI64();
-  abstract double readDouble();
-  abstract string readString();
-  abstract ubyte[] readBinary();
+  bool readBool();
+  byte readByte();
+  short readI16();
+  int readI32();
+  long readI64();
+  double readDouble();
+  string readString();
+  ubyte[] readBinary();
 
-  abstract TMessage readMessageBegin();
-  abstract void readMessageEnd();
-  abstract TStruct readStructBegin();
-  abstract void readStructEnd();
-  abstract TField readFieldBegin();
-  abstract void readFieldEnd();
-  abstract TList readListBegin();
-  abstract void readListEnd();
-  abstract TMap readMapBegin();
-  abstract void readMapEnd();
-  abstract TSet readSetBegin();
-  abstract void readSetEnd();
+  TMessage readMessageBegin();
+  void readMessageEnd();
+  TStruct readStructBegin();
+  void readStructEnd();
+  TField readFieldBegin();
+  void readFieldEnd();
+  TList readListBegin();
+  void readListEnd();
+  TMap readMapBegin();
+  void readMapEnd();
+  TSet readSetBegin();
+  void readSetEnd();
 
   /**
    * Reset any internal state back to a blank slate. This method only needs to
    * be implemented for stateful protocols.
    */
-  void reset() {}
-
-protected:
-  this(TTransport trans) {
-    trans_ = trans;
-  }
-
-  TTransport trans_;
+  void reset();
 }
 
 interface TProtocolFactory {
@@ -248,7 +234,7 @@ protected:
   Type type_;
 }
 
-void skip(TProtocol prot, TType type) {
+void skip(Protocol)(Protocol prot, TType type) if (is(Protocol : TProtocol)) {
   switch (type) {
     case TType.BOOL:
       prot.readBool();

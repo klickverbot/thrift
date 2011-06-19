@@ -77,21 +77,21 @@ void main(string[] args) {
     socket = new TSocket(host, port);
   }
 
-  TTransport transport;
+  TProtocol protocol;
   final switch (transportType) {
     case TransportType.buffered:
-      transport = new TBufferedTransport(socket);
+      protocol = createTBinaryProtocol(new TBufferedTransport(socket));
       break;
     case TransportType.framed:
-      transport = new TFramedTransport(socket);
+      protocol = createTBinaryProtocol(new TFramedTransport(socket));
       break;
     case TransportType.http:
-      transport = new TClientHttpTransport(socket, host, "/service");
+      protocol = createTBinaryProtocol(
+        new TClientHttpTransport(socket, host, "/service"));
       break;
   }
 
-  auto protocol = new TBinaryProtocol(transport);
-  auto client = new TClient!ThriftTest(protocol);
+  auto client = createTClient!ThriftTest(protocol);
 
   ulong time_min;
   ulong time_max;
@@ -102,7 +102,7 @@ void main(string[] args) {
     sw.start();
 
     try {
-      transport.open();
+      protocol.getTransport().open();
     } catch (TTransportException ttx) {
       writef("Connect failed: %s", ttx.msg);
       if (ttx.next !is null) {
@@ -309,7 +309,7 @@ void main(string[] args) {
     if (tot > time_max) {
       time_max = tot;
     }
-    transport.close();
+    protocol.getTransport().close();
 
     sw.reset();
   }

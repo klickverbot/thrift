@@ -23,6 +23,7 @@ import std.array : empty, front;
 import std.conv : to;
 import std.exception : enforce;
 import std.traits;
+import std.typetuple : allSatisfy, TypeTuple;
 import thrift.base;
 import thrift.hashset;
 import thrift.protocol.base;
@@ -171,13 +172,12 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     }
   }
 
-  void read(TProtocol proto) {
-    readStruct!(This, fieldMetaData)(this, proto);
+  void read(Protocol)(Protocol proto) if (isTProtocol!Protocol) {
+    readStruct!(This, Protocol, fieldMetaData, false)(this, proto);
   }
 
-  void write(TProtocol proto) const {
-    // DMD @@BUG@@: Why is false required here?
-    writeStruct!(This, fieldMetaData, false)(this, proto);
+  void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol) {
+    writeStruct!(This, Protocol, fieldMetaData, false)(this, proto);
   }
 }
 
@@ -216,8 +216,9 @@ template TIsSetFlags(T, alias fieldMetaData) {
  * This is defined outside TStructHelpers to make it possible to read
  * exisiting structs from the wire without altering the types.
  */
-void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
-  bool pointerStruct = false)(ref T s, TProtocol p) {
+void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
+  bool pointerStruct = false)(ref T s, Protocol p) if (isTProtocol!Protocol)
+{
   mixin({
     string code;
 
@@ -391,8 +392,9 @@ void readStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
  * This is defined outside TStructHelpers to make it possible to write
  * exisiting structs without extending them.
  */
-void writeStruct(T, alias fieldMetaData = cast(TFieldMeta[])null,
-  bool pointerStruct = false) (const T s, TProtocol p) {
+void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
+  bool pointerStruct = false) (const T s, Protocol p) if (isTProtocol!Protocol)
+{
   // Check that all fields for which there is meta info are actually in the
   // passed struct type.
   mixin({
@@ -629,8 +631,8 @@ template TPargsStruct(Interface, string methodName) {
           Interface.stringof ~ "' found.`);\n";
       }
     }
-    code ~= "void write(TProtocol proto) const {\n";
-    code ~= "writeStruct!(TPargsStruct, [" ~ ctfeJoin(fieldMetaCodes) ~
+    code ~= "void write(P)(P proto) const if (isTProtocol!P) {\n";
+    code ~= "writeStruct!(typeof(this), P, [" ~ ctfeJoin(fieldMetaCodes) ~
       "], true)(this, proto);\n";
     code ~= "}\n";
     code ~= "}\n";
@@ -753,8 +755,8 @@ template TPresultStruct(Interface, string methodName) {
       }
     };
 
-    code ~= "void read(TProtocol proto) {\n";
-    code ~= "readStruct!(TPresultStruct, [" ~ ctfeJoin(fieldMetaCodes) ~
+    code ~= "void read(P)(P proto) if (is(P : TProtocol)) {\n";
+    code ~= "readStruct!(typeof(this), P, [" ~ ctfeJoin(fieldMetaCodes) ~
       "], true)(this, proto);\n";
     code ~= "}\n";
     code ~= "}\n";
@@ -762,45 +764,59 @@ template TPresultStruct(Interface, string methodName) {
   }());
 }
 
-template TClient(Interface) if (is(Interface _ == interface)) {
+template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
+  is(Interface _ == interface) && isTProtocol!InputProtocol &&
+  (isTProtocol!OutputProtocol || is(OutputProtocol == void))
+) {
   mixin({
     static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
       static assert(BaseInterfaces.length == 1,
         "Services cannot be derived from more than one parent.");
 
-      string code =
-        "class TClient : TClient!(BaseTypeTuple!(Interface)[0]), Interface {\n";
+      string code = "class TClient : TClient!(BaseTypeTuple!(Interface)[0], " ~
+        "IProt, OProt), Interface {\n";
       code ~= q{
-        this(TProtocol iprot, TProtocol oprot) {
+        this(IProt iprot, OProt oprot) {
           super(iprot, oprot);
         }
 
-        this(TProtocol prot) {
-          super(prot);
+        static if (is(IProt == OProt)) {
+          this(IProt prot) {
+            super(prot);
+          }
         }
       };
     } else {
       string code = "class TClient : Interface {";
       code ~= q{
-        this(TProtocol iprot, TProtocol oprot) {
+        alias InputProtocol IProt;
+        static if (isTProtocol!OutputProtocol) {
+          alias OutputProtocol OProt;
+        } else {
+          alias InputProtocol OProt;
+        }
+
+        this(IProt iprot, OProt oprot) {
           iprot_ = iprot;
           oprot_ = oprot;
         }
 
-        this(TProtocol prot) {
-          this(prot, prot);
+        static if (is(IProt == OProt)) {
+          this(IProt prot) {
+            this(prot, prot);
+          }
         }
 
-        TProtocol getInputProtocol() {
+        IProt getInputProtocol() {
           return iprot_;
         }
 
-        TProtocol getOutputProtocol() {
+        OProt getOutputProtocol() {
           return oprot_;
         }
 
-        protected TProtocol iprot_;
-        protected TProtocol oprot_;
+        protected IProt iprot_;
+        protected OProt oprot_;
         protected int seqid_;
       };
     }
@@ -909,7 +925,27 @@ template TClient(Interface) if (is(Interface _ == interface)) {
   }());
 }
 
-template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
+/**
+ * TClient construction helper to avoid having to explicitly specify
+ * the protocol types (see D Bugzilla enhancement requet 6082).
+ */
+TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
+  is(Interface _ == interface) && isTProtocol!Prot
+) {
+  return new TClient!(Interface, Prot)(prot);
+}
+
+/// Ditto
+TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
+  (IProt iprot, OProt oprot) if (
+  is(Interface _ == interface) && isTProtocol!IProt && isTProtocol!OProt
+) {
+  return new TClient!(Interface, IProt, OProt)(iprot, oprot);
+}
+
+template TServiceProcessor(Interface, Protocols...) if (
+  is(Interface _ == interface) && allSatisfy!(isTProtocolOrPair, Protocols)
+) {
   mixin({
     static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
       static assert(BaseInterfaces.length == 1,
@@ -970,8 +1006,9 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
     foreach (methodName; __traits(derivedMembers, Interface)) {
       static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
         immutable procFuncName = "process_" ~ methodName;
+        immutable dispatchFuncName = procFuncName ~ "_protocolDispatch";
         constructorCode ~= "processMap_[`" ~ methodName ~ "`] = &" ~
-          procFuncName ~ ";\n";
+          dispatchFuncName ~ ";\n";
 
         bool methodMetaFound;
         TMethodMeta methodMeta;
@@ -983,7 +1020,36 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
           }
         }
 
-        code ~= "void " ~ procFuncName ~ "(int seqid, TProtocol iprot, TProtocol oprot) {\n";
+        // The dispatch function to call the specialized handler functions. We
+        // test the protocols if they can be converted to one of the passed
+        // protocol types, and if not, fall back to the generic TProtocol
+        // version of the processing function.
+        code ~= "void " ~ dispatchFuncName ~
+          "(int seqid, TProtocol iprot, TProtocol oprot) {\n";
+        code ~= "foreach (Protocol; TypeTuple!(Protocols, TProtocol)) {\n";
+        code ~= "static if (is(Protocol _ : ProtocolPair!(I, O), I, O)) {\n";
+        code ~= "alias I IProt;\n";
+        code ~= "alias O OProt;\n";
+        code ~= "} else {\n";
+        code ~= "alias Protocol IProt;\n";
+        code ~= "alias Protocol OProt;\n";
+        code ~= "}\n";
+        code ~= "auto castedIProt = cast(IProt)iprot;\n";
+        code ~= "auto castedOProt = cast(OProt)oprot;\n";
+        code ~= "if (castedIProt && castedOProt) {\n";
+        code ~= procFuncName ~
+          "!(IProt, OProt)(seqid, castedIProt, castedOProt);\n";
+        code ~= "return;\n";
+        code ~= "}\n";
+        code ~= "}\n";
+        code ~= "throw new TException(`Internal error: Null iprot/oprot " ~
+          "passed to processor protocol dispatch function`);\n";
+        code ~= "}\n";
+
+        // The actual handler function, templated on the input and output
+        // protocol types.
+        code ~= "void " ~ procFuncName ~ "(IProt, OProt)(int seqid, IProt " ~
+          "iprot, OProt oprot) if (isTProtocol!IProt && isTProtocol!OProt) {\n";
         code ~= "TArgsStruct!(Interface, `" ~ methodName ~ "`) args;\n";
         code ~= "args.read(iprot);\n";
 
@@ -994,7 +1060,7 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
         string[] paramList;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
           paramList ~= "args." ~ (methodMetaFound ? methodMeta.params[i].name :
-              "param" ~ to!string(i + 1));
+            "param" ~ to!string(i + 1));
         }
 
         immutable call = "iface_." ~ methodName ~ "(" ~ ctfeJoin(paramList) ~ ")";
@@ -1051,6 +1117,10 @@ template TServiceProcessor(Interface) if (is(Interface _ == interface)) {
   }());
 }
 
+struct ProtocolPair(InputProtocol, OutputProtocol) if (
+  isTProtocol!InputProtocol && isTProtocol!OutputProtocol
+) {}
+
 /**
  * Removes all type qualifiers from T.
  *
@@ -1075,6 +1145,38 @@ template FullyUnqual(T) {
 }
 
 private {
+  template isTProtocol(T) {
+    enum isTProtocol = is(T : TProtocol);
+  }
+
+  unittest {
+    static assert(isTProtocol!TProtocol);
+    static assert(!isTProtocol!void);
+  }
+
+  template isProtocolPair(T) {
+    static if (is(T _ == ProtocolPair!(I, O), I, O)) {
+      enum isProtocolPair = true;
+    } else {
+      enum isProtocolPair = false;
+    }
+  }
+
+  unittest {
+    static assert(isProtocolPair!(ProtocolPair!(TProtocol, TProtocol)));
+    static assert(!isProtocolPair!TProtocol);
+  }
+
+  template isTProtocolOrPair(T) {
+    enum isTProtocolOrPair = isTProtocol!T || isProtocolPair!T;
+  }
+
+  unittest {
+    static assert(isTProtocolOrPair!TProtocol);
+    static assert(isTProtocolOrPair!(ProtocolPair!(TProtocol, TProtocol)));
+    static assert(!isTProtocolOrPair!void);
+  }
+
   /**
    * Returns a D code string containing the matching TType value for a passed
    * D type, e.g. dToTTypeString!byte == "TType.BYTE".

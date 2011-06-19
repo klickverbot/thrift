@@ -44,8 +44,8 @@ protected:
     this.processor = processor;
     this.inputTransportFactory = new TTransportFactory();
     this.outputTransportFactory = new TTransportFactory();
-    this.inputProtocolFactory = new TBinaryProtocolFactory();
-    this.outputProtocolFactory = new TBinaryProtocolFactory();
+    this.inputProtocolFactory = new TBinaryProtocolFactory!();
+    this.outputProtocolFactory = new TBinaryProtocolFactory!();
   }
 
   this(TProcessor processor, TServerTransport serverTransport) {
