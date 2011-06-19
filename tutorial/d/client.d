@@ -31,8 +31,8 @@ import tutorial.tutorial_types;
 void main() {
   auto socket = new TSocket("localhost", 9090);
   auto transport = new TBufferedTransport(socket);
-  auto protocol = new TBinaryProtocol(transport);
-  auto client = new TClient!Calculator(protocol);
+  auto protocol = createTBinaryProtocol(transport);
+  auto client = createTClient!Calculator(protocol);
 
   transport.open();
 
