@@ -55,36 +55,36 @@ final class TBinaryProtocol(Transport = TTransport) if (
   }
 
   void writeByte(byte b) {
-    trans_.write((cast(ubyte*)&b)[0..1]);
+    trans_.write((cast(ubyte*)&b)[0 .. 1]);
   }
 
   void writeI16(short i16) {
     short net = hostToNet(i16);
-    trans_.write((cast(ubyte*)&net)[0..2]);
+    trans_.write((cast(ubyte*)&net)[0 .. 2]);
   }
 
   void writeI32(int i32) {
     int net = hostToNet(i32);
-    trans_.write((cast(ubyte*)&net)[0..4]);
+    trans_.write((cast(ubyte*)&net)[0 .. 4]);
   }
 
   void writeI64(long i64) {
     long net = hostToNet(i64);
-    trans_.write((cast(ubyte*)&net)[0..8]);
+    trans_.write((cast(ubyte*)&net)[0 .. 8]);
   }
 
   void writeDouble(double dub) {
-    ulong bits = hostToNet(*cast(ulong*)(&dub));
-    trans_.write((cast(ubyte*)&bits)[0..8]);
+    static assert(double.sizeof == ulong.sizeof);
+    auto bits = hostToNet(*cast(ulong*)(&dub));
+    trans_.write((cast(ubyte*)&bits)[0 .. 8]);
   }
 
   void writeString(string str) {
-    auto data = cast(ubyte[])str;
-    writeI32(cast(int)data.length);
-    trans_.write(data);
+    writeBinary(cast(ubyte[])str);
   }
 
   void writeBinary(ubyte[] buf) {
+    assert(buf.length <= int.max);
     writeI32(cast(int)buf.length);
     trans_.write(buf);
   }
@@ -236,6 +236,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
 
   TField readFieldBegin() {
     TField f = void;
+    f.name = null;
     f.type = cast(TType)readByte();
     if (f.type == TType.STOP) return f;
     f.id = readI16();
@@ -375,50 +376,4 @@ protected:
   bool strictRead_;
   bool strictWrite_;
   int readLength_;
-}
-
-private {
-  union IntBuf(T) {
-    ubyte[T.sizeof] bytes;
-    T value;
-  }
-
-  version (BigEndian) {
-    T doNothing(T val) { return val; }
-    alias doNothing hostToNet;
-    alias doNothing netToHost;
-  } else {
-    import core.bitop : bswap;
-    import std.traits : isIntegral;
-
-    T byteSwap(T)(T t) pure nothrow @trusted if (isIntegral!T) {
-      static if (T.sizeof == 2) {
-        return cast(T)((t & 0xff) << 8) | cast(T)((t & 0xff00) >> 8);
-      } else static if (T.sizeof == 4) {
-        return cast(T)bswap(cast(uint)t);
-      } else static if (T.sizeof == 8) {
-        return cast(T)byteSwap(cast(uint)(t & 0xffffffff)) << 32 |
-          cast(T)bswap(cast(uint)(t >> 32));
-      } else static assert(false, "Type of size " ~ to!string(T.sizeof) ~ " not supported.");
-    }
-    alias byteSwap hostToNet;
-    alias byteSwap netToHost;
-  }
-
-  unittest {
-    IntBuf!short s;
-    s.bytes = [1, 2];
-    s.value = byteSwap(s.value);
-    assert(s.bytes == [2, 1]);
-
-    IntBuf!int i;
-    i.bytes = [1, 2, 3, 4];
-    i.value = byteSwap(i.value);
-    assert(i.bytes == [4, 3, 2, 1]);
-
-    IntBuf!long l;
-    l.bytes = [1, 2, 3, 4, 5, 6, 7, 8];
-    l.value = byteSwap(l.value);
-    assert(l.bytes == [8, 7, 6, 5, 4, 3, 2, 1]);
-  }
 }
