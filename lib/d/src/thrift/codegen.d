@@ -147,30 +147,95 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     } else static if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
       return __traits(getMember, this.isSetFlags, fieldName);
     } else {
-      static assert(false, "Thrift internal error, cannot check if " ~
-        fieldName ~ " is set.");
+      // This is a required field, which is always set.
+      return true;
     }
   }
 
-  // TODO: opEquals, …
+  static if (is(This _ == class)) {
+    override string toString() const {
+      return thriftToStringImpl();
+    }
+
+    override bool opEquals(Object other) const {
+      auto rhs = cast(This)other;
+      if (rhs) {
+        return thriftOpEqualsImpl(rhs);
+      }
+
+      return super.opEquals(other);
+    }
+  } else {
+    string toString() const {
+      return thriftToStringImpl();
+    }
+
+    bool opEquals(ref const This other) const {
+      return thriftOpEqualsImpl(other);
+    }
+  }
+
+  private string thriftToStringImpl() const {
+    string result = This.stringof ~ "(";
+    mixin({
+      string code = "";
+      bool first = true;
+      foreach (i, name; __traits(derivedMembers, This)) {
+        static if (!is(MemberType!(This, name))) {
+          // We hit something strange like the TStructHelpers template itself,
+          // just ignore.
+        } else {
+          if (first) {
+            first = false;
+          } else {
+            code ~= "result ~= `, `;\n";
+          }
+          code ~= "result ~= `" ~ name ~ ": ` ~ to!string(this." ~ name ~ ");\n";
+          code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
+          code ~= "result ~= ` (unset)`;\n";
+          code ~= "}\n";
+        }
+      }
+      return code;
+    }());
+    result ~= ")";
+    return result;
+  }
+
+  private bool thriftOpEqualsImpl(const ref This rhs) const {
+    foreach (i, name; __traits(derivedMembers, This)) {
+      static if (!is(MemberType!(This, name))) {
+        // We hit something strange like the TStructHelpers template itself,
+        // just ignore.
+      } else {
+        if (mixin("this." ~ name) != mixin("rhs." ~ name)) return false;
+      }
+    }
+    return true;
+  }
 
   static if (canFind!`!a.defaultValue.empty`(fieldMetaData)) {
-    // DMD @@BUG@@: Have to use auto here to avoid »no size yet for forward
-    // reference« errors.
-    static auto opCall() {
-      auto result = This.init;
+    static if (is(This _ == class)) {
+      this() {
+        mixin(thriftFieldInitCode("this"));
+      }
+    } else {
+      // DMD @@BUG@@: Have to use auto here to avoid »no size yet for forward
+      // reference« errors.
+      static auto opCall() {
+        auto result = This.init;
+        mixin(thriftFieldInitCode("result"));
+        return result;
+      }
+    }
 
-      // Generate code for assigning to result from default value strings.
-      mixin({
-        string code;
-        foreach (field; fieldMetaData) {
-          if (field.defaultValue.empty) continue;
-          code ~= "result." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
-        }
-        return code;
-      }());
-
-      return result;
+    private string thriftFieldInitCode(string thisName) {
+      string code;
+      foreach (field; fieldMetaData) {
+        if (field.defaultValue.empty) continue;
+        code ~= thisName ~ "." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
+      }
+      return code;
     }
   }
 
