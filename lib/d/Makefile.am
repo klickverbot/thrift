@@ -23,7 +23,8 @@ d_thriftmodules = $(addprefix thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = $(addprefix src/, $(addsuffix .d,$(d_thriftmodules)))
 
-d_protocolmodules = $(addprefix thrift/protocol/, base binary compact processor)
+d_protocolmodules = $(addprefix thrift/protocol/, base binary compact json \
+	processor)
 d_protocoldir = $(d_thriftdir)/protocol
 d_protocol_DATA = $(addprefix src/, $(addsuffix .d,$(d_protocolmodules)))
 
