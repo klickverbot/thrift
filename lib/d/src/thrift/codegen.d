@@ -1121,6 +1121,8 @@ template TServiceProcessor(Interface, Protocols...) if (
           "iprot, OProt oprot) if (isTProtocol!IProt && isTProtocol!OProt) {\n";
         code ~= "TArgsStruct!(Interface, `" ~ methodName ~ "`) args;\n";
         code ~= "args.read(iprot);\n";
+        code ~= "iprot.readMessageEnd();\n";
+        code ~= "iprot.getTransport().readEnd();\n";
 
         code ~= "TResultStruct!(Interface, `" ~ methodName ~ "`) result;\n";
         code ~= "try {\n";
