@@ -246,6 +246,8 @@ final class TBinaryProtocol(Transport = TTransport) if (
 
   TList readListBegin() {
     auto l = TList(cast(TType)readByte(), readI32());
+
+    // FIXME: s.size is unsigned, always false.
     if (l.size < 0)
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     return l;
@@ -254,6 +256,8 @@ final class TBinaryProtocol(Transport = TTransport) if (
 
   TMap readMapBegin() {
     auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
+
+    // FIXME: s.size is unsigned, always false.
     if (m.size < 0)
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     return m;
@@ -262,6 +266,8 @@ final class TBinaryProtocol(Transport = TTransport) if (
 
   TSet readSetBegin() {
     auto s = TSet(cast(TType)readByte(), readI32());
+
+    // FIXME: s.size is unsigned, always false.
     if (s.size < 0)
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     return s;
@@ -326,7 +332,7 @@ private:
  * the transport type (see D Bugzilla enhancement requet 6082).
  */
 TBinaryProtocol!Transport createTBinaryProtocol(Transport)(Transport trans,
-  bool strictRead = false, bool strictWrite = true)
+  bool strictRead = false, bool strictWrite = true) if(isTTransport!Transport)
 {
   return new TBinaryProtocol!Transport(trans, strictRead, strictWrite);
 }

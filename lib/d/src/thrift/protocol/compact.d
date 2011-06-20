@@ -119,6 +119,7 @@ final class TCompactProtocol(Transport = TTransport) if (
   void writeStructEnd() {
     lastFieldId_ = fieldIdStack_[$ - 1];
     fieldIdStack_ = fieldIdStack_[0 .. $ - 1];
+    fieldIdStack_.assumeSafeAppend();
   }
 
   void writeFieldBegin(TField field) {
@@ -285,14 +286,9 @@ final class TCompactProtocol(Transport = TTransport) if (
   void readFieldEnd() {}
 
   TList readListBegin() {
-    TList l = void;
-
-    ubyte size_and_type;
-    int lsize;
-
     auto sizeAndType = readByte();
 
-    lsize = (sizeAndType >> 4) & 0x0f;
+    int lsize = (sizeAndType >> 4) & 0x0f;
     if (lsize == 15) {
       lsize = readVarint32();
     }
@@ -301,7 +297,8 @@ final class TCompactProtocol(Transport = TTransport) if (
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
 
-    l.elemType = getTType(cast(CType)(size_and_type & 0x0f));
+    TList l = void;
+    l.elemType = getTType(cast(CType)(sizeAndType & 0x0f));
     l.size = cast(size_t)lsize;
 
     return l;
@@ -317,6 +314,7 @@ final class TCompactProtocol(Transport = TTransport) if (
       kvType = readByte();
     }
 
+    // FIXME: m.size is unsigned, always false.
     if (m.size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
@@ -586,6 +584,7 @@ private:
   enum TYPE_MASK = 0b1110_0000;
   enum TYPE_SHIFT_AMOUNT = 5;
 
+  // Probably need to implement a better stack at some point.
   short[] fieldIdStack_;
   short lastFieldId_;
 
@@ -604,7 +603,9 @@ private:
  * TCompactProtocol construction helper to avoid having to explicitly specify
  * the transport type (see D Bugzilla enhancement requet 6082).
  */
-TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans) {
+TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans)
+  if(isTTransport!Transport)
+{
   return new TCompactProtocol!Transport(trans);
 }
 
@@ -633,8 +634,8 @@ unittest {
 
   // Check the message header format.
   auto buf = new TMemoryBuffer;
-  auto binary = createTCompactProtocol(buf);
-  binary.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
+  auto compact = createTCompactProtocol(buf);
+  compact.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
 
   auto header = new ubyte[7];
   buf.readAll(header);
