@@ -30,6 +30,7 @@ import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.compact;
+import thrift.protocol.json;
 import thrift.transport.base;
 import thrift.transport.buffered;
 import thrift.transport.framed;
@@ -47,6 +48,8 @@ TProtocol createProtocol(T)(T trans, ProtocolType type) {
       return createTBinaryProtocol(trans);
     case ProtocolType.compact:
       return createTCompactProtocol(trans);
+    case ProtocolType.json:
+      return createTJsonProtocol(trans);
   }
 }
 

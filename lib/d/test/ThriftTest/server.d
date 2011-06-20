@@ -31,6 +31,7 @@ import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.compact;
+import thrift.protocol.json;
 import thrift.server.simple;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
@@ -203,6 +204,9 @@ void main(string[] args) {
       break;
     case ProtocolType.compact:
       protocolFactory = new TCompactProtocolFactory!AvailableTransports;
+      break;
+    case ProtocolType.json:
+      protocolFactory = new TJsonProtocolFactory!AvailableTransports;
       break;
   }
 

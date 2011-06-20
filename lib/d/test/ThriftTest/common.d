@@ -5,7 +5,8 @@ import thrift.test.ThriftTest_types;
 
 enum ProtocolType {
   binary,
-  compact
+  compact,
+  json
 }
 
 enum TransportType {
