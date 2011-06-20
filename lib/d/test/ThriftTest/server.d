@@ -28,7 +28,9 @@ import std.typetuple : TypeTuple, staticMap;
 import thrift.base;
 import thrift.codegen;
 import thrift.hashset;
+import thrift.protocol.base;
 import thrift.protocol.binary;
+import thrift.protocol.compact;
 import thrift.server.simple;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
@@ -177,30 +179,40 @@ enum ServerType {
   simple
 }
 
-enum TransportType {
-  buffered,
-  framed,
-  http
-}
-
 void main(string[] args) {
   ushort port = 9090;
   ServerType serverType;
+  ProtocolType protocolType;
   TransportType transportType;
   bool ssl;
   bool trace;
 
-  getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl,
-    "trace", &trace, "transport", &transportType);
+  getopt(args, "port", &port, "protocol", &protocolType, "server-type",
+    &serverType, "ssl", &ssl, "trace", &trace, "transport", &transportType);
 
   // We don't need every last bit of performance here, so specifying the
   // actual transport types is not really needed in this case, but this
   // exercises the (template) code paths as well.
   alias TypeTuple!(TBufferedTransport, TFramedTransport, TServerHttpTransport)
     AvailableTransports;
-  auto protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
-  auto processor = new TServiceProcessor!(ThriftTest,
-    staticMap!(TBinaryProtocol, AvailableTransports))(new TestHandler(trace));
+
+  TProtocolFactory protocolFactory;
+  final switch (protocolType) {
+    case ProtocolType.binary:
+      protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
+      break;
+    case ProtocolType.compact:
+      protocolFactory = new TCompactProtocolFactory!AvailableTransports;
+      break;
+  }
+
+  auto processor = new TServiceProcessor!(
+    ThriftTest,
+    TypeTuple!(
+      staticMap!(TBinaryProtocol, AvailableTransports),
+      staticMap!(TCompactProtocol, AvailableTransports)
+    )
+  )(new TestHandler(trace));
 
   TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;

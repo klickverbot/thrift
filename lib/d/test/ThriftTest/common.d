@@ -1,8 +1,18 @@
 module common;
 
 import std.stdio;
-
 import thrift.test.ThriftTest_types;
+
+enum ProtocolType {
+  binary,
+  compact
+}
+
+enum TransportType {
+  buffered,
+  framed,
+  http
+}
 
 void writeInsanityReturn(in Insanity[Numberz][UserId] insane) {
   write("{");

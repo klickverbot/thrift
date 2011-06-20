@@ -29,6 +29,7 @@ import thrift.codegen;
 import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.binary;
+import thrift.protocol.compact;
 import thrift.transport.base;
 import thrift.transport.buffered;
 import thrift.transport.framed;
@@ -40,10 +41,13 @@ import common;
 import thrift.test.ThriftTest;
 import thrift.test.ThriftTest_types;
 
-enum TransportType {
-  buffered,
-  framed,
-  http
+TProtocol createProtocol(T)(T trans, ProtocolType type) {
+  final switch (type) {
+    case ProtocolType.binary:
+      return createTBinaryProtocol(trans);
+    case ProtocolType.compact:
+      return createTCompactProtocol(trans);
+  }
 }
 
 void main(string[] args) {
@@ -51,11 +55,13 @@ void main(string[] args) {
   ushort port = 9090;
   int numTests = 1;
   bool ssl;
+  ProtocolType protocolType;
   TransportType transportType;
   bool trace;
 
   getopt(args,
     "numTests|n", &numTests,
+    "protocol", &protocolType,
     "ssl", &ssl,
     "transport", &transportType,
     "trace", &trace,
@@ -83,14 +89,14 @@ void main(string[] args) {
   TProtocol protocol;
   final switch (transportType) {
     case TransportType.buffered:
-      protocol = createTBinaryProtocol(new TBufferedTransport(socket));
+      protocol = createProtocol(new TBufferedTransport(socket), protocolType);
       break;
     case TransportType.framed:
-      protocol = createTBinaryProtocol(new TFramedTransport(socket));
+      protocol = createProtocol(new TFramedTransport(socket), protocolType);
       break;
     case TransportType.http:
-      protocol = createTBinaryProtocol(
-        new TClientHttpTransport(socket, host, "/service"));
+      protocol = createProtocol(
+        new TClientHttpTransport(socket, host, "/service"), protocolType);
       break;
   }
 
