@@ -139,7 +139,9 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     }
   }
 
-  bool isSet(string fieldName)() const if (is(MemberType!(This, fieldName))) {
+  bool isSet(string fieldName)() const @property if (
+    is(MemberType!(This, fieldName))
+  ) {
     static if (isNullable!(MemberType!(This, fieldName))) {
       return __traits(getMember, this, fieldName) !is null;
     } else static if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
@@ -483,7 +485,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     string writeFieldCode(FieldType)(string name, short id, TReq req) {
       string code;
       if (!pointerStruct && req == TReq.OPTIONAL) {
-        code ~= "if (s.isSet!`" ~ name ~ "`()) {\n";
+        code ~= "if (s.isSet!`" ~ name ~ "`) {\n";
       }
 
       static if (pointerStruct && isPointer!FieldType) {
@@ -740,7 +742,9 @@ template TPresultStruct(Interface, string methodName) {
     }
 
     code ~= q{
-      bool isSet(string fieldName)() const if (is(MemberType!(typeof(this), fieldName))) {
+      bool isSet(string fieldName)() const @property if (
+        is(MemberType!(typeof(this), fieldName))
+      ) {
         static if (fieldName == "success") {
           static if (isNullable!(typeof(*success))) {
             return *success !is null;
