@@ -119,6 +119,11 @@ class TestHandler : ThriftTest {
     return thing;
   }
 
+  override string[string] testStringMap(string[string] thing) {
+    if (trace_) writefln("testStringMap(%s)", thing);
+    return thing;
+  }
+
   override int[int][int] testMapMap(int hello) {
     if (trace_) writefln("testMapMap(%s)", hello);
     return testMapMapReturn;
