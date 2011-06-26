@@ -18,12 +18,78 @@
  */
 module thrift.protocol.processor;
 
+// Use selective import once DMD @@BUG@@ 314 is fixed.
+import std.variant /+ : Variant +/;
 import thrift.protocol.base;
 
 /**
  * A processor is a generic object which operates upon an input stream and
  * writes to some output stream.
+ *
+ * The definition of this object is loose, though the typical case is for some
+ * sort of server that either generates responses to an input stream or
+ * forwards data from one pipe onto another.
+ *
+ * An implementation can optionally allow one or more TProcessorEventHandlers
+ * to be attached, providing an interface to hook custom code into the
+ * handling process, which can be used e.g. for gathering statistics.
  */
 interface TProcessor {
-  bool process(TProtocol iprot, TProtocol oprot);
+  bool process(TProtocol iprot, TProtocol oprot, Variant connectionContext) in {
+    assert(iprot);
+    assert(oprot);
+  }
+
+  final bool process(TProtocol prot, Variant connectionContext) {
+    return process(prot, prot, connectionContext);
+  }
+}
+
+/**
+ * Handles events from a processor.
+ */
+interface TProcessorEventHandler {
+  /**
+   * Called before calling other callback methods.
+   *
+   * Expected to return some sort of »call context«, which is passed to all
+   * other callbacks for that function invocation.
+   */
+  Variant createContext(string methodName, Variant connectionContext);
+
+  /**
+   * Called when handling the method associated with a context has been
+   * finished – can be used to perform clean up work.
+   */
+  void deleteContext(Variant callContext, string methodName);
+
+  /**
+   * Called before reading arguments.
+   */
+  void preRead(Variant callContext, string methodName);
+
+  /**
+   * Called between reading arguments and calling the handler.
+   */
+  void postRead(Variant callContext, string methodName);
+
+  /**
+   * Called between calling the handler and writing the response.
+   */
+  void preWrite(Variant callContext, string methodName);
+
+  /**
+   * Called after writing the response.
+   */
+  void postWrite(Variant callContext, string methodName);
+
+  /**
+   * Called when handling a one-way function call is completed successfully.
+   */
+  void onewayComplete(Variant callContext, string methodName);
+
+  /**
+   * Called if the handler throws an undeclared exception.
+   */
+  void handlerError(Variant callContext, string methodName, Exception e);
 }

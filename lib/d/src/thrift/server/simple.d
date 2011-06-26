@@ -30,10 +30,11 @@ import thrift.server.transport.base;
 import thrift.transport.base;
 
 /**
- * This is the most basic simple server. It is single-threaded and runs a
- * continuous loop of accepting a single connection, processing requests on
- * that connection until it closes, and then repeating. It is a good example
- * of how to extend the TServer interface.
+ * The most basic server.
+ *
+ * It is single-threaded and runs a continuous loop of accepting a single
+ * connection, processing requests on that connection until it closes, and
+ * then repeating. It is a good example of how to extend the TServer interface.
  */
 class TSimpleServer : TServer {
   this(
@@ -72,6 +73,8 @@ class TSimpleServer : TServer {
       return;
     }
 
+    if (eventHandler) eventHandler.preServe();
+
     // Fetch client from server
     while (!stop_) {
       try {
@@ -97,11 +100,22 @@ class TSimpleServer : TServer {
         continue;
       }
 
+      Variant connectionContext;
+      if (eventHandler) {
+        connectionContext =
+          eventHandler.createContext(inputProtocol, outputProtocol);
+      }
+
       try {
-        while(true) {
-          if (!processor.process(inputProtocol, outputProtocol) ||
-              // Peek ahead, is the remote side closed?
-              !inputProtocol.getTransport().peek()) {
+        while (true) {
+          if (eventHandler) {
+            eventHandler.preProcess(connectionContext, client);
+          }
+
+          if (!processor.process(inputProtocol, outputProtocol, connectionContext) ||
+            !inputProtocol.getTransport().peek())
+          {
+            // Nothing more to process, close the connection.
             break;
           }
         }
@@ -111,6 +125,11 @@ class TSimpleServer : TServer {
         stderr.writefln("TSimpleServer exception: %s", tx);
       } catch (Exception e) {
         stderr.writefln("TSimpleServer uncaught exception: %s", e);
+      }
+
+      if (eventHandler) {
+        eventHandler.deleteContext(connectionContext, inputProtocol,
+          outputProtocol);
       }
 
       try {

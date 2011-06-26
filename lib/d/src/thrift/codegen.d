@@ -24,6 +24,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.traits;
 import std.typetuple : allSatisfy, TypeTuple;
+import std.variant : Variant;
 import thrift.base;
 import thrift.hashset;
 import thrift.protocol.base;
@@ -1030,7 +1031,7 @@ template TServiceProcessor(Interface, Protocols...) if (
     } else {
       string code = "class TServiceProcessor : TProcessor {";
       code ~= q{
-        override bool process(TProtocol iprot, TProtocol oprot) {
+        override bool process(TProtocol iprot, TProtocol oprot, Variant context) {
           auto msg = iprot.readMessageBegin();
 
           void writeException(TApplicationException e) {
@@ -1050,7 +1051,7 @@ template TServiceProcessor(Interface, Protocols...) if (
             writeException(new TApplicationException(
               TApplicationException.Type.INVALID_MESSAGE_TYPE));
           } else if (auto dg = msg.name in processMap_) {
-            (*dg)(msg.seqid, iprot, oprot);
+            (*dg)(msg.seqid, iprot, oprot, context);
           } else {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
@@ -1063,7 +1064,9 @@ template TServiceProcessor(Interface, Protocols...) if (
           return true;
         }
 
-        alias void delegate(int, TProtocol, TProtocol) ProcessFunc;
+        TProcessorEventHandler eventHandler;
+
+        alias void delegate(int, TProtocol, TProtocol, Variant) ProcessFunc;
         protected ProcessFunc[string] processMap_;
         private Interface iface_;
       };
@@ -1072,8 +1075,12 @@ template TServiceProcessor(Interface, Protocols...) if (
       constructorCode ~= "iface_ = iface;\n";
     }
 
+    // Generate the handling code for each method, consisting of the dispatch
+    // function, registering it in the constructor, and the actual templated
+    // handler function.
     foreach (methodName; __traits(derivedMembers, Interface)) {
       static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
+        // Register the processing function in the constructor.
         immutable procFuncName = "process_" ~ methodName;
         immutable dispatchFuncName = procFuncName ~ "_protocolDispatch";
         constructorCode ~= "processMap_[`" ~ methodName ~ "`] = &" ~
@@ -1094,35 +1101,62 @@ template TServiceProcessor(Interface, Protocols...) if (
         // protocol types, and if not, fall back to the generic TProtocol
         // version of the processing function.
         code ~= "void " ~ dispatchFuncName ~
-          "(int seqid, TProtocol iprot, TProtocol oprot) {\n";
+          "(int seqid, TProtocol iprot, TProtocol oprot, Variant context) {\n";
         code ~= "foreach (Protocol; TypeTuple!(Protocols, TProtocol)) {\n";
-        code ~= "static if (is(Protocol _ : ProtocolPair!(I, O), I, O)) {\n";
-        code ~= "alias I IProt;\n";
-        code ~= "alias O OProt;\n";
-        code ~= "} else {\n";
-        code ~= "alias Protocol IProt;\n";
-        code ~= "alias Protocol OProt;\n";
-        code ~= "}\n";
-        code ~= "auto castedIProt = cast(IProt)iprot;\n";
-        code ~= "auto castedOProt = cast(OProt)oprot;\n";
+        code ~= q{
+          static if (is(Protocol _ : ProtocolPair!(I, O), I, O)) {
+            alias I IProt;
+            alias O OProt;
+          } else {
+            alias Protocol IProt;
+            alias Protocol OProt;
+          }
+          auto castedIProt = cast(IProt)iprot;
+          auto castedOProt = cast(OProt)oprot;
+        };
         code ~= "if (castedIProt && castedOProt) {\n";
         code ~= procFuncName ~
-          "!(IProt, OProt)(seqid, castedIProt, castedOProt);\n";
+          "!(IProt, OProt)(seqid, castedIProt, castedOProt, context);\n";
         code ~= "return;\n";
         code ~= "}\n";
         code ~= "}\n";
         code ~= "throw new TException(`Internal error: Null iprot/oprot " ~
-          "passed to processor protocol dispatch function`);\n";
+          "passed to processor protocol dispatch function.`);\n";
         code ~= "}\n";
 
         // The actual handler function, templated on the input and output
         // protocol types.
         code ~= "void " ~ procFuncName ~ "(IProt, OProt)(int seqid, IProt " ~
-          "iprot, OProt oprot) if (isTProtocol!IProt && isTProtocol!OProt) {\n";
+          "iprot, OProt oprot, Variant connectionContext) " ~
+          "if (isTProtocol!IProt && isTProtocol!OProt) {\n";
         code ~= "TArgsStruct!(Interface, `" ~ methodName ~ "`) args;\n";
-        code ~= "args.read(iprot);\n";
-        code ~= "iprot.readMessageEnd();\n";
-        code ~= "iprot.getTransport().readEnd();\n";
+
+        // Store the (qualified) method name in a manifest constant to avoid
+        // having to litter the code below with lots of string manipulation.
+        code ~= "enum methodName = `" ~ methodName ~ "`;\n";
+
+        code ~= q{
+          enum qName = Interface.stringof ~ "." ~ methodName;
+
+          Variant callContext;
+          if (eventHandler) {
+            callContext = eventHandler.createContext(qName, connectionContext);
+          }
+
+          scope (exit) {
+            if (eventHandler) {
+              eventHandler.deleteContext(callContext, qName);
+            }
+          }
+
+          if (eventHandler) eventHandler.preRead(callContext, qName);
+
+          args.read(iprot);
+          iprot.readMessageEnd();
+          iprot.getTransport().readEnd();
+
+          if (eventHandler) eventHandler.postRead(callContext, qName);
+        };
 
         code ~= "TResultStruct!(Interface, `" ~ methodName ~ "`) result;\n";
         code ~= "try {\n";
@@ -1151,31 +1185,49 @@ template TServiceProcessor(Interface, Protocols...) if (
               code ~= "result.set!`" ~ e.name ~ "`(" ~ e.name ~ ");\n";
             }
           }
-
-          code ~= "} catch (Exception e) {\n";
-          code ~= "auto x = new TApplicationException(to!string(e));\n";
-          code ~= "oprot.writeMessageBegin(TMessage(`" ~ methodName ~ "`, " ~
-            "TMessageType.EXCEPTION, seqid));\n";
-          code ~= "x.write(oprot);\n";
-          code ~= "oprot.writeMessageEnd();\n";
-          code ~= "oprot.getTransport().writeEnd();\n";
-          code ~= "oprot.getTransport().flush();\n";
-          code ~= "return;\n";
           code ~= "}\n";
 
-          code ~= "oprot.writeMessageBegin(TMessage(`" ~ methodName ~ "`, " ~
-            "TMessageType.REPLY, seqid));\n";
-          code ~= "result.write(oprot);\n";
-          code ~= "oprot.writeMessageEnd();\n";
-          code ~= "oprot.getTransport().writeEnd();\n";
-          code ~= "oprot.getTransport().flush();\n";
+          code ~= q{
+            catch (Exception e) {
+              if (eventHandler) {
+                eventHandler.handlerError(callContext, qName, e);
+              }
+
+              auto x = new TApplicationException(to!string(e));
+              oprot.writeMessageBegin(
+                TMessage(methodName, TMessageType.EXCEPTION, seqid));
+              x.write(oprot);
+              oprot.writeMessageEnd();
+              oprot.getTransport().writeEnd();
+              oprot.getTransport().flush();
+              return;
+            }
+
+            if (eventHandler) eventHandler.preWrite(callContext, qName);
+
+            oprot.writeMessageBegin(TMessage(methodName,
+              TMessageType.REPLY, seqid));
+            result.write(oprot);
+            oprot.writeMessageEnd();
+            oprot.getTransport().writeEnd();
+            oprot.getTransport().flush();
+
+            if (eventHandler) eventHandler.postWrite(callContext, qName);
+          };
         } else {
-          // There is nothing really what we can do about unhandled exceptions
-          // in oneway methods as long as event handlers are not implemented –
-          // for now, just pass them on.
-          code ~= "} catch (Exception e) {\n";
-          code ~= "throw e;\n";
+          // For oneway methods, we obviously cannot notify the client of any
+          // exceptions, just call the event handler if one is set.
           code ~= "}\n";
+          code ~= q{
+            catch (Exception e) {
+              if (eventHandler) {
+                eventHandler.handlerError(callContext, qName, e);
+              }
+              return;
+            }
+
+            if (eventHandler) eventHandler.onewayComplete(callContext, qName);
+          };
         }
         code ~= "}\n";
       }
