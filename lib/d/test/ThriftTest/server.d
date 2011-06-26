@@ -32,7 +32,9 @@ import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.compact;
 import thrift.protocol.json;
+import thrift.server.base;
 import thrift.server.simple;
+import thrift.server.threaded;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
 import thrift.transport.base;
@@ -182,7 +184,8 @@ private:
 }
 
 enum ServerType {
-  simple
+  simple,
+  threaded
 }
 
 void main(string[] args) {
@@ -249,15 +252,19 @@ void main(string[] args) {
       break;
   }
 
+  TServer server;
   final switch (serverType) {
     case ServerType.simple:
-      auto server = new TSimpleServer(processor, serverSocket,
+      server = new TSimpleServer(processor, serverSocket,
         transportFactory, protocolFactory);
-
-      writefln("Starting the server on port %s...", port);
-      server.serve();
+      break;
+    case ServerType.threaded:
+      server = new TThreadedServer(processor, serverSocket,
+        transportFactory, protocolFactory);
       break;
   }
 
+  writefln("Starting %s server on port %s...", serverType, port);
+  server.serve();
   writeln("done.");
 }
