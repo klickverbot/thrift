@@ -28,7 +28,7 @@ d_protocolmodules = $(addprefix thrift/protocol/, base binary compact json \
 d_protocoldir = $(d_thriftdir)/protocol
 d_protocol_DATA = $(addprefix src/, $(addsuffix .d,$(d_protocolmodules)))
 
-d_servermodules = $(addprefix thrift/server/, base simple)
+d_servermodules = $(addprefix thrift/server/, base simple threaded)
 d_serverdir = $(d_thriftdir)/server
 d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
 
