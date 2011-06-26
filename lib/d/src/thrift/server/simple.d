@@ -59,12 +59,6 @@ class TSimpleServer : TServer {
   }
 
   override void serve() {
-    TTransport client;
-    TTransport inputTransport;
-    TTransport outputTransport;
-    TProtocol inputProtocol;
-    TProtocol outputProtocol;
-
     try {
       // Start the server listening
       serverTransport.listen();
@@ -75,8 +69,15 @@ class TSimpleServer : TServer {
 
     if (eventHandler) eventHandler.preServe();
 
-    // Fetch client from server
+    // While we didn't get notified to stop, just accept a client connection
+    // after the next and process it.
     while (!stop_) {
+      TTransport client;
+      TTransport inputTransport;
+      TTransport outputTransport;
+      TProtocol inputProtocol;
+      TProtocol outputProtocol;
+
       try {
         client = serverTransport.accept();
         scope(failure) client.close();
