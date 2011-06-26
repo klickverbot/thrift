@@ -493,7 +493,7 @@ AC_CONFIG_FILES([
   lib/d/test/serialization_benchmark/Makefile
   lib/d/test/ThriftTest/Makefile
   lib/erl/Makefile
-  lib/erl/src/Makefile
+  lib/erl/src/thrift.app.src
   lib/hs/Makefile
   lib/java/Makefile
   lib/js/test/Makefile
@@ -503,6 +503,7 @@ AC_CONFIG_FILES([
   lib/py/Makefile
   lib/rb/Makefile
   test/Makefile
+  test/cpp/Makefile
   test/hs/Makefile
   test/py/Makefile
   test/py.twisted/Makefile
