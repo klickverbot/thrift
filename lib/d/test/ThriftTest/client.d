@@ -343,7 +343,7 @@ void main(string[] args) {
     sw.stop();
 
     immutable tot = sw.peek().usecs;
-    if (trace) writefln("Total time: %s us", tot);
+    if (trace) writefln("Total time: %s us\n", tot);
 
     time_tot += tot;
     if (time_min == 0 || tot < time_min) {
@@ -357,7 +357,7 @@ void main(string[] args) {
     sw.reset();
   }
 
-  writeln("\nAll tests done.");
+  writeln("All tests done.");
 
   if (numTests > 1) {
     auto time_avg = time_tot / numTests;
