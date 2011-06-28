@@ -142,7 +142,7 @@ final class TMemoryBuffer : TBaseTransport {
   }
 
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    if (len >= writeOffset_ - readOffset_) {
+    if (len <= writeOffset_ - readOffset_) {
       return buffer_[readOffset_ .. writeOffset_];
     } else {
       return null;

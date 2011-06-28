@@ -113,7 +113,7 @@ final class TFramedTransport : TBaseTransport {
   }
 
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    if (len >= rBuf_.length) {
+    if (len <= rBuf_.length) {
       return rBuf_;
     } else {
       // Don't try attempting cross-frame borrows, trying that does not make
