@@ -413,8 +413,8 @@ class TSSLSocketFactory {
 
     if (format == "PEM") {
       if (SSL_CTX_use_certificate_chain_file(ctx_.get(), toStringz(path)) == 0) {
-        throw new TSSLException("SSL_CTX_use_certificate_chain_file: " ~
-          getSSLErrorMessage(getErrno()));
+        throw new TSSLException(`Could not load SSL server certificate ` ~
+          `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
@@ -431,15 +431,15 @@ class TSSLSocketFactory {
    */
   void loadPrivateKey(string path, string format = "PEM") {
     enforce(path !is null && format !is null, new TTransportException(
-      "loadCertificateChain: either <path> or <format> is NULL",
+      "loadPrivateKey: either <path> or <format> is NULL",
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
        if (SSL_CTX_use_PrivateKey_file(ctx_.get(), toStringz(path),
           SSL_FILETYPE_PEM) == 0)
         {
-        throw new TSSLException("SSL_CTX_use_certificate_chain_file: " ~
-          getSSLErrorMessage(getErrno()));
+        throw new TSSLException(`Could not load SSL private key from file "` ~
+          path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
@@ -458,8 +458,8 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (SSL_CTX_load_verify_locations(ctx_.get(), toStringz(path), null) == 0) {
-      throw new TSSLException("SSL_CTX_load_verify_locations: " ~
-        getSSLErrorMessage(getErrno()));
+      throw new TSSLException(`Could not load SSL trusted certificate list ` ~
+        `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
     }
   }
 
