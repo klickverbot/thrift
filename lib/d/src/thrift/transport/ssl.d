@@ -22,13 +22,14 @@
  */
 module thrift.transport.ssl;
 
+import core.exception : onOutOfMemoryError;
 import core.stdc.errno : getErrno, EINTR;
 import core.stdc.string : strerror;
 import core.sync.mutex : Mutex;
 import core.memory : GC;
 import core.stdc.config;
 import core.stdc.stdlib : free, malloc;
-import std.conv : to;
+import std.conv : emplace, to;
 import std.array : empty, front, popFront;
 import std.ctype : toupper;
 import std.exception : enforce;
@@ -593,11 +594,12 @@ private:
     }
 
     CRYPTO_dynlock_value* dynlockCreateCallback(const(char)* file, int line) {
-      auto value = cast(Mutex)malloc(Mutex.sizeof);
-      value = Mutex.init;
-      value.__ctor();
-      GC.addRoot(cast(void*)value);
-      return cast(CRYPTO_dynlock_value*)value;
+      enum size =  __traits(classInstanceSize, Mutex);
+      auto mem = malloc(size)[0 .. size];
+      if (!mem) onOutOfMemoryError();
+      GC.addRange(mem.ptr, size);
+      auto mutex = emplace!Mutex(mem);
+      return cast(CRYPTO_dynlock_value*)mutex;
     }
 
     void dynlockLockCallback(int mode, CRYPTO_dynlock_value* l,
@@ -614,7 +616,7 @@ private:
     void dynlockDestroyCallback(CRYPTO_dynlock_value* l,
       const(char)* file, int line)
     {
-      GC.removeRoot(l);
+      GC.removeRange(l);
       clear(cast(Mutex)l);
       free(l);
     }
