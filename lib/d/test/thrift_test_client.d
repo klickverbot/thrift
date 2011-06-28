@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module client;
+module thrift_test_client;
 
 import std.conv;
 import std.datetime;
@@ -38,7 +38,7 @@ import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
 
-import common;
+import thrift_test_common;
 import thrift.test.ThriftTest;
 import thrift.test.ThriftTest_types;
 

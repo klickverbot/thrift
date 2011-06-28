@@ -1,4 +1,17 @@
-module benchmark;
+/**
+ * An implementation of the mini serialization benchmark also available for
+ * C++ and Java.
+ *
+ * For meaningful results, you might want to make sure that
+ * the Thrift library is compiled with release build flags,
+ * e.g. by including the source files with the build instead
+ * of linking libthriftd:
+ *
+ * dmd -w -O -release -inline -I../../../../lib/d/src -Igen-d
+ * -ofserialization_benchmark $(find ../../src/thrift -name '*.d')
+ * gen-d/DebugProtoTest_types.d serialization_benchmark.d
+ */
+module serialization_benchmark;
 
 import std.datetime : AutoStart, StopWatch;
 import std.math : PI;
@@ -45,6 +58,9 @@ void main() {
 
     auto sw = StopWatch(AutoStart.yes);
     foreach (i; 0 .. ITERATIONS) {
+      // TODO: We copy the data every time here, implement a
+      // TMemoryReadingTransport which just operates on a slice of the
+      // original data.
       readBuf.write(data);
       ooe.read(prot);
     }

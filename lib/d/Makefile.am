@@ -17,7 +17,7 @@
 # under the License.
 #
 
-SUBDIRS = test/serialization_benchmark test/StressTest test/ThriftTest
+SUBDIRS = test
 
 d_thriftmodules = $(addprefix thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift

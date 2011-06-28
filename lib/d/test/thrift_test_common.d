@@ -1,4 +1,4 @@
-module common;
+module thrift_test_common;
 
 import std.stdio;
 import thrift.test.ThriftTest_types;

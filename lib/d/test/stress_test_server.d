@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+module stress_test_server;
 
 import std.getopt;
 import std.stdio;

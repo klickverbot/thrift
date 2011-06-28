@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module server;
+module thrift_test_server;
 
 import core.thread : dur, Thread;
 import std.algorithm;
@@ -43,7 +43,7 @@ import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.ssl;
 
-import common;
+import thrift_test_common;
 import thrift.test.ThriftTest_types;
 import thrift.test.ThriftTest;
 

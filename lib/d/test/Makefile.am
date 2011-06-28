@@ -17,7 +17,26 @@
 # under the License.
 #
 
+# General build flags
+
+d_test_flags = -w -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
+	-L-L$(top_builddir)/lib/d -L-lthriftd $(DMD_LIBDL_FLAGS)
+
+
+# Thrift compiler rules
+
 THRIFT = $(top_builddir)/compiler/cpp/thrift
+
+debug_proto_gen = $(addprefix gen-d/, DebugProtoTest_types.d)
+
+$(debug_proto_gen): $(top_srcdir)/test/DebugProtoTest.thrift
+	$(THRIFT) --gen d $<
+
+stress_test_gen = $(addprefix gen-d/thrift/test/stress/, Service.d \
+	StressTest_types.d)
+
+$(stress_test_gen): $(top_srcdir)/test/StressTest.thrift
+	$(THRIFT) --gen d $<
 
 thrift_test_gen = $(addprefix gen-d/thrift/test/, SecondService.d \
 	ThriftTest.d ThriftTest_constants.d ThriftTest_types.d)
@@ -25,16 +44,22 @@ thrift_test_gen = $(addprefix gen-d/thrift/test/, SecondService.d \
 $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 	$(THRIFT) --gen d $<
 
-d_test_flags = -w -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d \
-	-L-lthriftd $(DMD_LIBDL_FLAGS)
 
-check-local: client server
+# The actual test targets.
 
-client: client.d common.d $(thrift_test_gen)
-	$(DMD) $(d_test_flags) -Igen-d -ofclient $(thrift_test_gen) common.d client.d
+targets = serialization_benchmark stress_test_server \
+	thrift_test_client thrift_test_server
 
-server: server.d common.d $(thrift_test_gen)
-	$(DMD) $(d_test_flags) -Igen-d -ofserver $(thrift_test_gen) common.d server.d
+serialization_benchmark: %: %.d $(debug_proto_gen)
+	$(DMD) $(d_test_flags) -of$@ $^
+
+stress_test_server: %: %.d $(stress_test_gen)
+	$(DMD) $(d_test_flags) -of$@ $^
+
+thrift_test_client thrift_test_server: %: %.d thrift_test_common.d $(thrift_test_gen)
+	$(DMD) $(d_test_flags) -of$@ $^
+
+check-local: $(targets)
 
 clean-local:
-	$(RM) -rf gen-d client client.o server server.o
+	$(RM) -rf gen-d $(targets) $(addsuffix .o, $(targets))
