@@ -16,12 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift.server.simple;
+module thrift.server.threaded;
 
 // stderr is used for error messages until something more sophisticated is
 // implemented.
 import std.stdio : stderr, writeln;
 
+import core.thread;
 import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;
@@ -30,13 +31,9 @@ import thrift.server.transport.base;
 import thrift.transport.base;
 
 /**
- * The most basic server.
- *
- * It is single-threaded and runs a continuous loop of accepting a single
- * connection, processing requests on that connection until it closes, and
- * then repeating. It is a good example of how to extend the TServer interface.
+ * A simple threaded server which spawns a new thread per connection.
  */
-class TSimpleServer : TServer {
+class TThreadedServer : TServer {
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -59,25 +56,26 @@ class TSimpleServer : TServer {
   }
 
   override void serve() {
+    TTransport client;
+    TTransport inputTransport;
+    TTransport outputTransport;
+    TProtocol inputProtocol;
+    TProtocol outputProtocol;
+
     try {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writefln("TSimpleServer listen() failed: %s", ttx);
+      stderr.writefln("TThreadedServer listen() failed: %s", ttx);
       return;
     }
 
     if (eventHandler) eventHandler.preServe();
 
-    // While we didn't get notified to stop, just accept a client connection
-    // after the next and process it.
-    while (!stop_) {
-      TTransport client;
-      TTransport inputTransport;
-      TTransport outputTransport;
-      TProtocol inputProtocol;
-      TProtocol outputProtocol;
+    auto workerThreads = new ThreadGroup();
 
+    // Fetch client from server
+    while (!stop_) {
       try {
         client = serverTransport.accept();
         scope(failure) client.close();
@@ -101,53 +99,10 @@ class TSimpleServer : TServer {
         continue;
       }
 
-      Variant connectionContext;
-      if (eventHandler) {
-        connectionContext =
-          eventHandler.createContext(inputProtocol, outputProtocol);
-      }
-
-      try {
-        while (true) {
-          if (eventHandler) {
-            eventHandler.preProcess(connectionContext, client);
-          }
-
-          if (!processor.process(inputProtocol, outputProtocol, connectionContext) ||
-            !inputProtocol.getTransport().peek())
-          {
-            // Nothing more to process, close the connection.
-            break;
-          }
-        }
-      } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer client died: %s", ttx);
-      } catch (TException tx) {
-        stderr.writefln("TSimpleServer exception: %s", tx);
-      } catch (Exception e) {
-        stderr.writefln("TSimpleServer uncaught exception: %s", e);
-      }
-
-      if (eventHandler) {
-        eventHandler.deleteContext(connectionContext, inputProtocol,
-          outputProtocol);
-      }
-
-      try {
-        inputTransport.close();
-      } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer input close failed: %s", ttx);
-      }
-      try {
-        outputTransport.close();
-      } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer output close failed: %s", ttx);
-      }
-      try {
-        client.close();
-      } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer client close failed: %s", ttx);
-      }
+      auto worker = new WorkerThread(client, inputProtocol, outputProtocol,
+        processor, eventHandler);
+      workerThreads.add(worker);
+      worker.start();
     }
 
     if (stop_) {
@@ -156,6 +111,7 @@ class TSimpleServer : TServer {
       } catch (TTransportException ttx) {
         stderr.writefln("TServerTransport failed on close: %s", ttx);
       }
+      workerThreads.joinAll();
       stop_ = false;
     }
   }
@@ -167,4 +123,76 @@ class TSimpleServer : TServer {
 
 protected:
   bool stop_;
+}
+
+// The worker thread handling a client connection.
+private class WorkerThread : Thread {
+  this(TTransport client, TProtocol inputProtocol, TProtocol outputProtocol,
+    TProcessor processor, TServerEventHandler eventHandler)
+  {
+    client_ = client;
+    inputProtocol_ = inputProtocol;
+    outputProtocol_ = outputProtocol;
+    processor_ = processor;
+    eventHandler_ = eventHandler;
+
+    super(&run);
+  }
+
+  void run() {
+    Variant connectionContext;
+    if (eventHandler_) {
+      connectionContext =
+        eventHandler_.createContext(inputProtocol_, outputProtocol_);
+    }
+
+    try {
+      while (true) {
+        if (eventHandler_) {
+          eventHandler_.preProcess(connectionContext, client_);
+        }
+
+        if (!processor_.process(inputProtocol_, outputProtocol_, connectionContext) ||
+          !inputProtocol_.getTransport().peek())
+        {
+          // Nothing more to process, close the connection.
+          break;
+        }
+      }
+    } catch (TTransportException ttx) {
+      stderr.writefln("TThreadedServer client died: %s", ttx);
+    } catch (TException tx) {
+      stderr.writefln("TThreadedServer exception: %s", tx);
+    } catch (Exception e) {
+      stderr.writefln("TThreadedServer uncaught exception: %s", e);
+    }
+
+    if (eventHandler_) {
+      eventHandler_.deleteContext(connectionContext, inputProtocol_,
+        outputProtocol_);
+    }
+
+    try {
+      inputProtocol_.getTransport().close();
+    } catch (TTransportException ttx) {
+      stderr.writefln("TThreadedServer input close failed: %s", ttx);
+    }
+    try {
+      outputProtocol_.getTransport().close();
+    } catch (TTransportException ttx) {
+      stderr.writefln("TThreadedServer output close failed: %s", ttx);
+    }
+    try {
+      client_.close();
+    } catch (TTransportException ttx) {
+      stderr.writefln("TThreadedServer client close failed: %s", ttx);
+    }
+  }
+
+private:
+  TTransport client_;
+  TProtocol inputProtocol_;
+  TProtocol outputProtocol_;
+  TProcessor processor_;
+  TServerEventHandler eventHandler_;
 }

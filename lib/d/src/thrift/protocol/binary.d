@@ -18,85 +18,78 @@
  */
 module thrift.protocol.binary;
 
-import std.exception : enforce;
+import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
 
-class TBinaryProtocol : TProtocol {
-  this(TTransport trans, bool strictRead = false, bool strictWrite = true) {
-    super(trans);
+final class TBinaryProtocol(Transport = TTransport) if (
+  isTTransport!Transport
+) : TProtocol {
+  this(Transport trans, bool strictRead = false, bool strictWrite = true) {
+    trans_ = trans;
     strictRead_ = strictRead;
     strictWrite_ = strictWrite;
   }
+
+  Transport getTransport() {
+    return trans_;
+  }
+
+  void setReadLength(int value) {
+    if (value > 0) {
+      readLength_ = value;
+      checkReadLength_ = true;
+    } else {
+      checkReadLength_ = false;
+    }
+  }
+
+  void reset() {}
 
   /*
    * Writing methods.
    */
 
-  override void writeBool(bool b) {
+  void writeBool(bool b) {
     writeByte(b ? 1 : 0);
   }
 
-  override void writeByte(byte b) {
-    trans_.write((cast(ubyte*)&b)[0..1]);
+  void writeByte(byte b) {
+    trans_.write((cast(ubyte*)&b)[0 .. 1]);
   }
 
-  override void writeI16(short i16) {
+  void writeI16(short i16) {
     short net = hostToNet(i16);
-    trans_.write((cast(ubyte*)&net)[0..2]);
+    trans_.write((cast(ubyte*)&net)[0 .. 2]);
   }
 
-  override void writeI32(int i32) {
+  void writeI32(int i32) {
     int net = hostToNet(i32);
-    trans_.write((cast(ubyte*)&net)[0..4]);
+    trans_.write((cast(ubyte*)&net)[0 .. 4]);
   }
 
-  override void writeI64(long i64) {
+  void writeI64(long i64) {
     long net = hostToNet(i64);
-    trans_.write((cast(ubyte*)&net)[0..8]);
+    trans_.write((cast(ubyte*)&net)[0 .. 8]);
   }
 
-  override void writeDouble(double dub) {
-    ulong bits = hostToNet(*cast(ulong*)(&dub));
-    trans_.write((cast(ubyte*)&bits)[0..8]);
+  void writeDouble(double dub) {
+    static assert(double.sizeof == ulong.sizeof);
+    auto bits = hostToNet(*cast(ulong*)(&dub));
+    trans_.write((cast(ubyte*)&bits)[0 .. 8]);
   }
 
-  override void writeString(string str) {
-    auto data = cast(ubyte[])str;
-    writeI32(cast(int)data.length);
-    trans_.write(data);
+  void writeString(string str) {
+    writeBinary(cast(ubyte[])str);
   }
 
-  override void writeBinary(ubyte[] buf) {
+  void writeBinary(ubyte[] buf) {
+    assert(buf.length <= int.max);
     writeI32(cast(int)buf.length);
     trans_.write(buf);
   }
 
-  override void writeField(TField field, void delegate() writeContents) {
-    writeByte(field.type);
-    writeI16(field.id);
-
-    writeContents();
-  }
-
-  override void writeList(TList list, void delegate() writeContents) {
-    assert(list.size <= int.max);
-    writeByte(list.elemType);
-    writeI32(cast(int)list.size);
-
-    writeContents();
-  }
-
-  override void writeMap(TMap map, void delegate() writeContents) {
-    assert(map.size <= int.max);
-    writeByte(map.keyType);
-    writeByte(map.valueType);
-    writeI32(cast(int)map.size);
-
-    writeContents();
-  }
-
-  override void writeMessage(TMessage message, void delegate() writeContents) {
+  void writeMessageBegin(TMessage message) {
     if (strictWrite_) {
       int versn = VERSION_1 | message.type;
       writeI32(versn);
@@ -107,67 +100,89 @@ class TBinaryProtocol : TProtocol {
       writeByte(message.type);
       writeI32(message.seqid);
     }
+  }
+  void writeMessageEnd() {}
 
-    writeContents();
+  void writeStructBegin(TStruct tstruct) {}
+  void writeStructEnd() {}
+
+  void writeFieldBegin(TField field) {
+    writeByte(field.type);
+    writeI16(field.id);
+  }
+  void writeFieldEnd() {}
+
+  void writeFieldStop() {
+    writeByte(TType.STOP);
   }
 
-  override void writeSet(TSet set, void delegate() writeContents) {
+  void writeListBegin(TList list) {
+    assert(list.size <= int.max);
+    writeByte(list.elemType);
+    writeI32(cast(int)list.size);
+  }
+  void writeListEnd() {}
+
+  void writeMapBegin(TMap map) {
+    assert(map.size <= int.max);
+    writeByte(map.keyType);
+    writeByte(map.valueType);
+    writeI32(cast(int)map.size);
+  }
+  void writeMapEnd() {}
+
+  void writeSetBegin(TSet set) {
     assert(set.size <= int.max);
     writeByte(set.elemType);
     writeI32(cast(int)set.size);
-
-    writeContents();
   }
+  void writeSetEnd() {}
 
-  override void writeStruct(TStruct tstruct, void delegate() writeContents) {
-    writeContents();
-    writeByte(TType.STOP);
-  }
 
   /*
    * Reading methods.
    */
 
-  override bool readBool() {
+  bool readBool() {
     return readByte() != 0;
   }
 
-  override byte readByte() {
+  byte readByte() {
     ubyte[1] b;
     read(b);
     return cast(byte)b[0];
   }
 
-  override short readI16() {
+  short readI16() {
     IntBuf!short b;
     read(b.bytes);
     return netToHost(b.value);
   }
 
-  override int readI32() {
+  int readI32() {
     IntBuf!int b;
     read(b.bytes);
     return netToHost(b.value);
   }
 
-  override long readI64() {
+  long readI64() {
     IntBuf!long b;
     read(b.bytes);
     return netToHost(b.value);
   }
 
-  override double readDouble() {
+  double readDouble() {
     IntBuf!long b;
     read(b.bytes);
     b.value = netToHost(b.value);
     return *cast(double*)(&b.value);
   }
 
-  override string readString() {
+  string readString() {
     return readStringBody(readI32());
   }
 
-  override ubyte[] readBinary() {
+  ubyte[] readBinary() {
     int size = readI32();
     checkReadLength(size);
 
@@ -187,30 +202,14 @@ class TBinaryProtocol : TProtocol {
     }
   }
 
-  override TList readList(void delegate(TList) readContents) {
-    auto l = TList(cast(TType)readByte(), readI32());
-    enforce(l.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(l);
-    return l;
-  }
-
-  override TMap readMap(void delegate(TMap) readContents) {
-    auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
-    enforce(m.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(m);
-    return m;
-  }
-
-  override TMessage readMessage(void delegate(TMessage) readContents) {
+  TMessage readMessageBegin() {
     TMessage msg = void;
 
     int size = readI32();
     if (size < 0) {
       int versn = size & VERSION_MASK;
-      enforce(versn == VERSION_1, new TProtocolException(
-        TProtocolException.Type.BAD_VERSION, "Bad version in readMessage."));
+      if(versn != VERSION_1) throw new TProtocolException(
+        TProtocolException.Type.BAD_VERSION, "Bad version in readMessage.");
 
       msg.type = cast(TMessageType)(size & MESSAGE_TYPE_MASK);
       msg.name = readString();
@@ -226,37 +225,56 @@ class TBinaryProtocol : TProtocol {
       }
     }
 
-    readContents(msg);
-
     return msg;
   }
+  void readMessageEnd() {}
 
-  override TSet readSet(void delegate(TSet) readContents) {
+  TStruct readStructBegin() {
+    return TStruct();
+  }
+  void readStructEnd() {}
+
+  TField readFieldBegin() {
+    TField f = void;
+    f.name = null;
+    f.type = cast(TType)readByte();
+    if (f.type == TType.STOP) return f;
+    f.id = readI16();
+    return f;
+  }
+  void readFieldEnd() {}
+
+  TList readListBegin() {
+    auto l = TList(cast(TType)readByte(), readI32());
+
+    // FIXME: s.size is unsigned, always false.
+    if (l.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    return l;
+  }
+  void readListEnd() {}
+
+  TMap readMapBegin() {
+    auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
+
+    // FIXME: s.size is unsigned, always false.
+    if (m.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    return m;
+  }
+  void readMapEnd() {}
+
+  TSet readSetBegin() {
     auto s = TSet(cast(TType)readByte(), readI32());
-    enforce(s.size >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
-    readContents(s);
+
+    // FIXME: s.size is unsigned, always false.
+    if (s.size < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     return s;
   }
+  void readSetEnd() {}
 
-  override TStruct readStruct(void delegate(TField) readField) {
-    while (true) {
-      TField f;
-      f.type = cast(TType)readByte();
-      if (f.type == TType.STOP) {
-        return TStruct();
-      }
-      f.id = readI16();
-      readField(f);
-    }
-  }
-
-  void setReadLength(int value) {
-    readLength_ = value;
-    checkReadLength_ = true;
-  }
-
-protected:
+private:
   /**
    * Wraps trans_.readAll for length checking.
    */
@@ -286,13 +304,13 @@ protected:
   }
 
   void checkReadLength(int length) {
-    enforce(length >= 0,
-      new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE));
+    if (length < 0)
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
 
     if (checkReadLength_) {
       readLength_ -= length;
-      enforce(readLength_ >= 0,
-        new TProtocolException(TProtocolException.Type.SIZE_LIMIT));
+      if (readLength_ < 0)
+        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
     }
   }
 
@@ -305,71 +323,63 @@ protected:
 
   int readLength_;
   bool checkReadLength_;
+
+  Transport trans_;
 }
 
-class TBinaryProtocolFactory : TProtocolFactory {
+/**
+ * TBinaryProtocol construction helper to avoid having to explicitly specify
+ * the transport type (see D Bugzilla enhancement requet 6082).
+ */
+TBinaryProtocol!Transport createTBinaryProtocol(Transport)(Transport trans,
+  bool strictRead = false, bool strictWrite = true) if(isTTransport!Transport)
+{
+  return new TBinaryProtocol!Transport(trans, strictRead, strictWrite);
+}
+
+unittest {
+  import thrift.transport.memory;
+
+  // Check the message header format.
+  auto buf = new TMemoryBuffer;
+  auto binary = createTBinaryProtocol(buf);
+  binary.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
+
+  auto header = new ubyte[15];
+  buf.readAll(header);
+  assert(header == [
+    128, 1, 0, 1, // Version 1, TMessageType.CALL
+    0, 0, 0, 3, // Method name length
+    102, 111, 111, // Method name ("foo")
+    0, 0, 0, 0, // Sequence id
+  ]);
+}
+
+class TBinaryProtocolFactory(Transports...) if (
+  allSatisfy!(isTTransport, Transports)
+) : TProtocolFactory {
   this (bool strictRead = false, bool strictWrite = true, int readLength = 0) {
     strictRead_ = strictRead;
     strictWrite_ = strictWrite;
     readLength_ = readLength;
   }
 
-  TBinaryProtocol getProtocol(TTransport trans) const {
-    auto p = new TBinaryProtocol(trans, strictRead_, strictWrite_);
-    if (readLength_ != 0) {
-      p.setReadLength(readLength_);
+  TProtocol getProtocol(TTransport trans) const {
+    foreach (Transport; TypeTuple!(Transports, TTransport)) {
+      auto concreteTrans = cast(Transport)trans;
+      if (concreteTrans) {
+        auto p = new TBinaryProtocol!Transport(
+          concreteTrans, strictRead_, strictWrite_);
+        p.setReadLength(readLength_);
+        return p;
+      }
     }
-    return p;
+    throw new TProtocolException(
+      "Passed null transport to TBinaryProtocolFactoy");
   }
 
 protected:
   bool strictRead_;
   bool strictWrite_;
   int readLength_;
-}
-
-private {
-  union IntBuf(T) {
-    ubyte[T.sizeof] bytes;
-    T value;
-  }
-
-  version (BigEndian) {
-    T doNothing(T val) { return val; }
-    alias doNothing hostToNet;
-    alias doNothing netToHost;
-  } else {
-    import core.bitop : bswap;
-    import std.traits : isIntegral;
-
-    T byteSwap(T)(T t) pure nothrow @trusted if (isIntegral!T) {
-      static if (T.sizeof == 2) {
-        return cast(T)((t & 0xff) << 8) | cast(T)((t & 0xff00) >> 8);
-      } else static if (T.sizeof == 4) {
-        return cast(T)bswap(cast(uint)t);
-      } else static if (T.sizeof == 8) {
-        return cast(T)byteSwap(cast(uint)(t & 0xffffffff)) << 32 |
-          cast(T)bswap(cast(uint)(t >> 32));
-      } else static assert(false, "Type of size " ~ to!string(T.sizeof) ~ " not supported.");
-    }
-    alias byteSwap hostToNet;
-    alias byteSwap netToHost;
-  }
-
-  unittest {
-    IntBuf!short s;
-    s.bytes = [1, 2];
-    s.value = byteSwap(s.value);
-    assert(s.bytes == [2, 1]);
-
-    IntBuf!int i;
-    i.bytes = [1, 2, 3, 4];
-    i.value = byteSwap(i.value);
-    assert(i.bytes == [4, 3, 2, 1]);
-
-    IntBuf!long l;
-    l.bytes = [1, 2, 3, 4, 5, 6, 7, 8];
-    l.value = byteSwap(l.value);
-    assert(l.bytes == [8, 7, 6, 5, 4, 3, 2, 1]);
-  }
 }

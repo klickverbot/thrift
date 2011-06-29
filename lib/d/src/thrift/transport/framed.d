@@ -33,7 +33,7 @@ import thrift.transport.base;
  * data payload. The receiver on the other end then performs a single
  * »fixed-length« read to get the whole message off the wire.
  */
-class TFramedTransport : TBaseTransport {
+final class TFramedTransport : TBaseTransport {
   /**
    * Constructs a new framed transport.
    *
@@ -113,7 +113,7 @@ class TFramedTransport : TBaseTransport {
   }
 
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    if (len >= rBuf_.length) {
+    if (len <= rBuf_.length) {
       return rBuf_;
     } else {
       // Don't try attempting cross-frame borrows, trying that does not make

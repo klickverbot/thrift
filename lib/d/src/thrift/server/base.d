@@ -18,6 +18,7 @@
  */
 module thrift.server.base;
 
+import std.variant : Variant;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
@@ -25,7 +26,11 @@ import thrift.server.transport.base;
 import thrift.transport.base;
 
 /**
- * Base class for all thrift servers.
+ * Base class for all Thrift servers.
+ *
+ * By setting the eventHandler property to a TServerEventHandler
+ * implementation, custom code can be integrated into the processing pipeline,
+ * which can be used e.g. for gathering statistics.
  */
 class TServer {
   abstract void serve();
@@ -38,14 +43,15 @@ class TServer {
   TTransportFactory outputTransportFactory;
   TProtocolFactory inputProtocolFactory;
   TProtocolFactory outputProtocolFactory;
+  TServerEventHandler eventHandler;
 
 protected:
   this(TProcessor processor) {
     this.processor = processor;
     this.inputTransportFactory = new TTransportFactory();
     this.outputTransportFactory = new TTransportFactory();
-    this.inputProtocolFactory = new TBinaryProtocolFactory();
-    this.outputProtocolFactory = new TBinaryProtocolFactory();
+    this.inputProtocolFactory = new TBinaryProtocolFactory!();
+    this.outputProtocolFactory = new TBinaryProtocolFactory!();
   }
 
   this(TProcessor processor, TServerTransport serverTransport) {
@@ -82,4 +88,30 @@ protected:
     this.inputProtocolFactory = inputProtocolFactory;
     this.outputProtocolFactory = outputProtocolFactory;
   }
+}
+
+/**
+ * Handles events from a TServer core.
+ */
+interface TServerEventHandler {
+  /**
+   * Called before the server starts accepting connections.
+   */
+  void preServe();
+
+  /**
+   * Called when a new client has connected and processing is about to begin.
+   */
+  Variant createContext(TProtocol input, TProtocol output);
+
+  /**
+   * Called when request handling for a client has been finished – can be used
+   * to perform clean up work.
+   */
+  void deleteContext(Variant serverContext, TProtocol input, TProtocol output);
+
+  /**
+   * Called when the processor for a client call is about to be invoked.
+   */
+  void preProcess(Variant serverContext, TTransport transport);
 }

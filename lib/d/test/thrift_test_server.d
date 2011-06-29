@@ -16,18 +16,25 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module server;
+module thrift_test_server;
 
 import core.thread : dur, Thread;
 import std.algorithm;
+import std.exception : enforce;
 import std.getopt;
 import std.string;
 import std.stdio;
+import std.typetuple : TypeTuple, staticMap;
 import thrift.base;
 import thrift.codegen;
 import thrift.hashset;
+import thrift.protocol.base;
 import thrift.protocol.binary;
+import thrift.protocol.compact;
+import thrift.protocol.json;
+import thrift.server.base;
 import thrift.server.simple;
+import thrift.server.threaded;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
 import thrift.transport.base;
@@ -36,150 +43,108 @@ import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.ssl;
 
-import common;
+import thrift_test_common;
 import thrift.test.ThriftTest_types;
 import thrift.test.ThriftTest;
 
 class TestHandler : ThriftTest {
+  this(bool trace) {
+    trace_ = trace;
+  }
+
   override void testVoid() {
-    version (Trace) writeln("testVoid()");
+    if (trace_) writeln("testVoid()");
   }
 
   override string testString(string thing) {
-    version (Trace) writefln("testString(\"%s\")", thing);
+    if (trace_) writefln("testString(\"%s\")", thing);
     return thing;
   }
 
   override byte testByte(byte thing) {
-    version (Trace) writefln("testByte(%s)", thing);
+    if (trace_) writefln("testByte(%s)", thing);
     return thing;
   }
 
   override int testI32(int thing) {
-    version (Trace) writefln("testI32(%s)", thing);
+    if (trace_) writefln("testI32(%s)", thing);
     return thing;
   }
 
   override long testI64(long thing) {
-    version (Trace) writefln("testI64(%s)", thing);
+    if (trace_) writefln("testI64(%s)", thing);
     return thing;
   }
 
   override double testDouble(double thing) {
-    version (Trace) writefln("testDouble(%s)", thing);
+    if (trace_) writefln("testDouble(%s)", thing);
     return thing;
   }
 
   override Xtruct testStruct(Xtruct thing) {
-    version (Trace) writefln("testStruct({\"%s\", %s, %s, %s})",
+    if (trace_) writefln("testStruct({\"%s\", %s, %s, %s})",
       thing.string_thing, thing.byte_thing, thing.i32_thing, thing.i64_thing);
     return thing;
   }
 
   override Xtruct2 testNest(Xtruct2 nest) {
     auto thing = nest.struct_thing;
-    version (Trace) writefln("testNest({%s, {\"%s\", %s, %s, %s}, %s})",
+    if (trace_) writefln("testNest({%s, {\"%s\", %s, %s, %s}, %s})",
       nest.byte_thing, thing.string_thing, thing.byte_thing, thing.i32_thing,
       thing.i64_thing, nest.i32_thing);
     return nest;
   }
 
   override int[int] testMap(int[int] thing) {
-    version (Trace) writefln("testMap({%s})", thing);
+    if (trace_) writefln("testMap({%s})", thing);
     return thing;
   }
 
   override HashSet!int testSet(HashSet!int thing) {
-    version (Trace) writefln("testSet({%s})",
+    if (trace_) writefln("testSet({%s})",
       join(map!`to!string(a)`(thing[]), ", "));
     return thing;
   }
 
   override int[] testList(int[] thing) {
-    version (Trace) writefln("testList(%s)", thing);
+    if (trace_) writefln("testList(%s)", thing);
     return thing;
   }
 
   override Numberz testEnum(Numberz thing) {
-    version (Trace) writefln("testEnum(%s)", thing);
+    if (trace_) writefln("testEnum(%s)", thing);
     return thing;
   }
 
   override UserId testTypedef(UserId thing) {
-    version (Trace) writefln("testTypedef(%s)", thing);
+    if (trace_) writefln("testTypedef(%s)", thing);
+    return thing;
+  }
+
+  override string[string] testStringMap(string[string] thing) {
+    if (trace_) writefln("testStringMap(%s)", thing);
     return thing;
   }
 
   override int[int][int] testMapMap(int hello) {
-    version (Trace) writefln("testMapMap(%s)", hello);
-
-    int[int] pos;
-    int[int] neg;
-    for (int i = 1; i < 5; i++) {
-      pos[i] = i;
-      neg[-i] = -i;
-    }
-
-    int[int][int] result;
-    result[4] = pos;
-    result[-4] = neg;
-    return result;
+    if (trace_) writefln("testMapMap(%s)", hello);
+    return testMapMapReturn;
   }
 
   override Insanity[Numberz][UserId] testInsanity(Insanity argument) {
-    version (Trace) writeln("testInsanity()");
-
-    Insanity[Numberz][UserId] insane;
-
-    Xtruct hello;
-    hello.string_thing = "Hello2";
-    hello.byte_thing = 2;
-    hello.i32_thing = 2;
-    hello.i64_thing = 2;
-
-    Xtruct goodbye;
-    goodbye.string_thing = "Goodbye4";
-    goodbye.byte_thing = 4;
-    goodbye.i32_thing = 4;
-    goodbye.i64_thing = 4;
-
-    Insanity crazy;
-    crazy.userMap[Numberz.EIGHT] = 8;
-    crazy.xtructs ~= goodbye;
-
-    Insanity looney;
-    // The C++ TestServer also assigns these to crazy, but that is probably
-    // an oversight.
-    looney.userMap[Numberz.FIVE] = 5;
-    looney.xtructs ~= hello;
-
-    Insanity[Numberz] first_map;
-    first_map[Numberz.TWO] = crazy;
-    first_map[Numberz.THREE] = crazy;
-    insane[1] = first_map;
-
-    Insanity[Numberz] second_map;
-    second_map[Numberz.SIX] = looney;
-    insane[2] = second_map;
-
-    version (Trace) {
-      write("return = ");
-      writeInsanityReturn(insane);
-      writeln();
-    }
-
-    return insane;
+    if (trace_) writeln("testInsanity()");
+    return testInsanityReturn;
   }
 
   override Xtruct testMulti(byte arg0, int arg1, long arg2, string[short] arg3,
     Numberz arg4, UserId arg5)
   {
-    version (Trace) writeln("testMulti()");
+    if (trace_) writeln("testMulti()");
     return Xtruct("Hello2", arg0, arg1, arg2);
   }
 
   override void testException(string arg) {
-    version (Trace) writefln("testException(%s)", arg);
+    if (trace_) writefln("testException(%s)", arg);
     if (arg == "Xception") {
       auto e = new Xception();
       e.errorCode = 1001;
@@ -191,7 +156,7 @@ class TestHandler : ThriftTest {
   }
 
   override Xtruct testMultiException(string arg0, string arg1) {
-    version (Trace) writefln("testMultiException(%s, %s)", arg0, arg1);
+    if (trace_) writefln("testMultiException(%s, %s)", arg0, arg1);
 
     if (arg0 == "Xception") {
       auto e = new Xception();
@@ -209,33 +174,57 @@ class TestHandler : ThriftTest {
   }
 
   override void testOneway(int sleepFor) {
-    version (Trace) writefln("testOneway(%s): Sleeping...", sleepFor);
+    if (trace_) writefln("testOneway(%s): Sleeping...", sleepFor);
     Thread.sleep(dur!"seconds"(sleepFor));
-    version (Trace) writefln("testOneway(%s): done sleeping!", sleepFor);
+    if (trace_) writefln("testOneway(%s): done sleeping!", sleepFor);
   }
+
+private:
+  bool trace_;
 }
 
 enum ServerType {
-  simple
-}
-
-enum TransportType {
-  buffered,
-  framed,
-  http
+  simple,
+  threaded
 }
 
 void main(string[] args) {
   ushort port = 9090;
   ServerType serverType;
+  ProtocolType protocolType;
   TransportType transportType;
   bool ssl;
+  bool trace;
 
-  getopt(args, "port", &port, "server-type", &serverType, "ssl", &ssl,
-    "transport", &transportType);
+  getopt(args, "port", &port, "protocol", &protocolType, "server-type",
+    &serverType, "ssl", &ssl, "trace", &trace, "transport", &transportType);
 
-  auto protocolFactory = new TBinaryProtocolFactory();
-  auto processor = new TServiceProcessor!ThriftTest(new TestHandler());
+  // We don't need every last bit of performance here, so specifying the
+  // actual transport types is not really needed in this case, but this
+  // exercises the (template) code paths as well.
+  alias TypeTuple!(TBufferedTransport, TFramedTransport, TServerHttpTransport)
+    AvailableTransports;
+
+  TProtocolFactory protocolFactory;
+  final switch (protocolType) {
+    case ProtocolType.binary:
+      protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
+      break;
+    case ProtocolType.compact:
+      protocolFactory = new TCompactProtocolFactory!AvailableTransports;
+      break;
+    case ProtocolType.json:
+      protocolFactory = new TJsonProtocolFactory!AvailableTransports;
+      break;
+  }
+
+  auto processor = new TServiceProcessor!(
+    ThriftTest,
+    TypeTuple!(
+      staticMap!(TBinaryProtocol, AvailableTransports),
+      staticMap!(TCompactProtocol, AvailableTransports)
+    )
+  )(new TestHandler(trace));
 
   TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;
@@ -263,15 +252,19 @@ void main(string[] args) {
       break;
   }
 
+  TServer server;
   final switch (serverType) {
     case ServerType.simple:
-      auto server = new TSimpleServer(processor, serverSocket,
+      server = new TSimpleServer(processor, serverSocket,
         transportFactory, protocolFactory);
-
-      writefln("Starting the server on port %s...", port);
-      server.serve();
+      break;
+    case ServerType.threaded:
+      server = new TThreadedServer(processor, serverSocket,
+        transportFactory, protocolFactory);
       break;
   }
 
+  writefln("Starting %s server on port %s...", serverType, port);
+  server.serve();
   writeln("done.");
 }

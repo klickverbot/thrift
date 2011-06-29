@@ -83,6 +83,15 @@ final class HashSet(E) {
     return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
   }
 
+  override bool opEquals(Object other) const {
+    auto rhs = cast(const(HashSet))other;
+    if (rhs) {
+      return aa_ == rhs.aa_;
+    }
+
+    return super.opEquals(other);
+  }
+
 private:
   alias void[0] Void;
   Void[immutable(E)] aa_;

@@ -1,7 +1,8 @@
 Thrift D Software Library
+========================
 
 License
-=======
+-------
 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements. See the NOTICE file
@@ -21,7 +22,7 @@ specific language governing permissions and limitations
 under the License.
 
 Testing
-=======
+-------
 
 D support in Thrift is covered by two sets of tests: first,
 the unit test blocks contained in the D source files, and
@@ -40,3 +41,16 @@ invoke the compiler by running the following in the src/
 directory (PowerShell syntax):
 
 dmd -ofunittest -unittest -w $(dir -r -filter '*.d' -name)
+
+If you want to run the test clients/servers in OpenSSL
+mode, you have to provide »server-private-key.pem« and
+»server-certificate.pem« files in the directory the server
+executable resides in, and a »trusted-ca-certificate.pem«
+file for the client. The easiest way is to just use OpenSSL
+to generate a self signed server certificate (be sure to
+specify »localhost« as common name, the other fields are
+irrelevant for this application):
+
+openssl req -x509 -nodes -newkey rsa:2048 -keyout
+  server-private-key.pem -out server-certificate.pem
+cat server-certificate.pem > trusted-ca-certificate.pem

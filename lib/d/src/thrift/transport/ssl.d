@@ -22,13 +22,14 @@
  */
 module thrift.transport.ssl;
 
+import core.exception : onOutOfMemoryError;
 import core.stdc.errno : getErrno, EINTR;
 import core.stdc.string : strerror;
 import core.sync.mutex : Mutex;
 import core.memory : GC;
 import core.stdc.config;
 import core.stdc.stdlib : free, malloc;
-import std.conv : to;
+import std.conv : emplace, to;
 import std.array : empty, front, popFront;
 import std.ctype : toupper;
 import std.exception : enforce;
@@ -51,7 +52,7 @@ import thrift.util.openssl.x509v3;
 /**
  * OpenSSL implementation for SSL socket interface.
  */
-class TSSLSocket : TSocket {
+final class TSSLSocket : TSocket {
   override bool isOpen() @property {
     if (ssl_ is null || !super.isOpen()) return false;
 
@@ -148,7 +149,7 @@ class TSSLSocket : TSocket {
     return serverSide_;
   }
 
-  /// Ditto.
+  /// Ditto
   void serverSide(bool value) @property {
     serverSide_ = value;
   }
@@ -413,8 +414,8 @@ class TSSLSocketFactory {
 
     if (format == "PEM") {
       if (SSL_CTX_use_certificate_chain_file(ctx_.get(), toStringz(path)) == 0) {
-        throw new TSSLException("SSL_CTX_use_certificate_chain_file: " ~
-          getSSLErrorMessage(getErrno()));
+        throw new TSSLException(`Could not load SSL server certificate ` ~
+          `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
@@ -431,15 +432,15 @@ class TSSLSocketFactory {
    */
   void loadPrivateKey(string path, string format = "PEM") {
     enforce(path !is null && format !is null, new TTransportException(
-      "loadCertificateChain: either <path> or <format> is NULL",
+      "loadPrivateKey: either <path> or <format> is NULL",
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
        if (SSL_CTX_use_PrivateKey_file(ctx_.get(), toStringz(path),
           SSL_FILETYPE_PEM) == 0)
         {
-        throw new TSSLException("SSL_CTX_use_certificate_chain_file: " ~
-          getSSLErrorMessage(getErrno()));
+        throw new TSSLException(`Could not load SSL private key from file "` ~
+          path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
@@ -458,8 +459,8 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (SSL_CTX_load_verify_locations(ctx_.get(), toStringz(path), null) == 0) {
-      throw new TSSLException("SSL_CTX_load_verify_locations: " ~
-        getSSLErrorMessage(getErrno()));
+      throw new TSSLException(`Could not load SSL trusted certificate list ` ~
+        `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
     }
   }
 
@@ -593,11 +594,12 @@ private:
     }
 
     CRYPTO_dynlock_value* dynlockCreateCallback(const(char)* file, int line) {
-      auto value = cast(Mutex)malloc(Mutex.sizeof);
-      value = Mutex.init;
-      value.__ctor();
-      GC.addRoot(cast(void*)value);
-      return cast(CRYPTO_dynlock_value*)value;
+      enum size =  __traits(classInstanceSize, Mutex);
+      auto mem = malloc(size)[0 .. size];
+      if (!mem) onOutOfMemoryError();
+      GC.addRange(mem.ptr, size);
+      auto mutex = emplace!Mutex(mem);
+      return cast(CRYPTO_dynlock_value*)mutex;
     }
 
     void dynlockLockCallback(int mode, CRYPTO_dynlock_value* l,
@@ -614,7 +616,7 @@ private:
     void dynlockDestroyCallback(CRYPTO_dynlock_value* l,
       const(char)* file, int line)
     {
-      GC.removeRoot(l);
+      GC.removeRange(l);
       clear(cast(Mutex)l);
       free(l);
     }
