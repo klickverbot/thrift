@@ -296,10 +296,15 @@ private:
       socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
       socket_.setOption(lvlSock, SocketOption.SNDTIMEO, sendTimeout_);
       socket_.setOption(lvlSock, SocketOption.RCVTIMEO, recvTimeout_);
-      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
     } catch (SocketException e) {
       stderr.writefln("Could not set socket option: %s", e);
     }
+
+    // Just try to disable Nagle's algorithm – this will fail if we are passed
+    // in a non-TCP socket via the Socket-accepting constructor.
+    try {
+      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
+    } catch (SocketException e) {}
   }
 
   void setTimeout(SocketOption type, Duration value) {
