@@ -113,16 +113,20 @@ final class TFileReaderTransport : TBaseTransport {
       }
     }
 
-    // read as much of the current event as possible
     auto len = buf.length;
     auto remaining = currentEvent_.length - currentEventPos_;
+
     if (remaining <= len) {
+      // If less than the requested length is available, read as much as
+      // possible.
       buf[0 .. remaining] = currentEvent_[currentEventPos_ .. $];
       currentEvent_ = null;
+      currentEventPos_ = 0;
       return remaining;
     }
 
-    // read as much as possible
+    // There will still be data left in the buffer after reading, pass out len
+    // bytes.
     buf[] = currentEvent_[currentEventPos_ .. currentEventPos_ + len];
     currentEventPos_ += len;
     return len;
@@ -493,6 +497,7 @@ private:
         // successful point and punt on the error.
         readState_.resetState(readState_.lastDispatchPos_);
         currentEvent_ = null;
+        currentEventPos_ = 0;
 
         throw new TTransportException("File corrupted at offset: " ~
           to!string(offset_ + readState_.lastDispatchPos_),
