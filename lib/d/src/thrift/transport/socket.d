@@ -38,19 +38,21 @@ private {
   }
 
   version (Win32) {
-    import std.c.windows.winsock : WSAGetLastError;
+    import std.c.windows.winsock : WSAGetLastError, WSAEINTR;
     import std.windows.syserror : sysErrorString;
   } else {
-    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET;
+    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR;
     import core.stdc.string : strerror;
   }
 
   version (Win32) {
     alias WSAGetLastError getSocketErrno;
+    enum INTERRUPTED_ERRNO = WSAEINTR;
     // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
     enum TIMEOUT_ERRNO = 10060;
   } else {
     alias getErrno getSocketErrno;
+    alias EINTR INTERRUPTED_ERRNO;
 
     // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
     // set (undocumentedly) in out of ressource conditions; adapt the code
@@ -161,24 +163,41 @@ class TSocket : TBaseTransport {
   }
 
   override size_t read(ubyte[] buf) {
-    // TODO: Implement EAGAIN detection, etc.
+    typeof(getSocketErrno()) errno;
+    ushort tries;
+    while (tries++ <= maxRecvRetries_) {
+      auto r = socket_.receive(cast(void[])buf);
 
-    auto r = socket_.receive(cast(void[])buf);
-    if (r == -1) {
-      auto errno = getSocketErrno();
+      // If recv went fine, immediately return.
+      if (r >= 0) return r;
+
+      // Something went wrong, find out how to handle it.
+      errno = getSocketErrno();
+
+      // TODO: Handle EAGAIN like C++ does.
+
+      if (errno == INTERRUPTED_ERRNO) {
+        // If the syscall was interrupted, just try again.
+        continue;
+      }
+
       static if (connresetOnPeerShutdown) {
+        // See top comment.
         if (errno == ECONNRESET) {
           return 0;
         }
       }
-      if (errno == TIMEOUT_ERRNO) {
-        throw new TTransportException(TTransportException.Type.TIMED_OUT);
-      } else {
-        throw new TTransportException("Receiving from socket failed: " ~
-          socketErrnoString(errno), TTransportException.Type.UNKNOWN);
-      }
+
+      // Not an error which is handled in a special way, just leave the loop.
+      break;
     }
-    return r;
+
+    if (errno == TIMEOUT_ERRNO) {
+      throw new TTransportException(TTransportException.Type.TIMED_OUT);
+    } else {
+      throw new TTransportException("Receiving from socket failed: " ~
+        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+    }
   }
 
   override void write(in ubyte[] buf) {
@@ -186,6 +205,7 @@ class TSocket : TBaseTransport {
     if (r == -1) {
       auto errno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
+        // See top comment.
         if (errno == ECONNRESET) {
           close();
           return;
@@ -260,7 +280,7 @@ class TSocket : TBaseTransport {
 
   /**
    * Maximum number of retries for receiving from socket on read() in case of
-   * EAGAIN.
+   * EAGAIN/EINTR.
    */
   ushort maxRecvRetries() @property const {
     return maxRecvRetries_;
