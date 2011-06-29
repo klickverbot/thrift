@@ -885,12 +885,23 @@ private {
 
       if (hasIOError) continue;
 
-      if (forceFlush || shutdownRequested ||
-        cast(Duration)flushTimer.peek > maxFlushInterval ||
-        unflushedByteCount > maxFlushBytes
-      ) {
+      bool flush;
+      if (forceFlush || shutdownRequested || unflushedByteCount > maxFlushBytes) {
+        flush = true;
+      } else if (cast(Duration)flushTimer.peek > maxFlushInterval) {
+        if (unflushedByteCount == 0) {
+          // If the flush timer is due, but no data has been written, don't
+          // needlessly fsync, but do reset the timer.
+          flushTimer.reset();
+        } else {
+          flush = true;
+        }
+      }
+
+      if (flush) {
         file.flush();
         flushTimer.reset();
+        unflushedByteCount = 0;
         if (forceFlush) send(owner, FlushMessage(), thisTid());
       }
     }
