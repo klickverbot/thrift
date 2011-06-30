@@ -340,6 +340,10 @@ private:
         offset_ += readState_.bufferLen_;
 
         try {
+          // Need to clear eof flag before reading, otherwise tailing a file
+          // does not work.
+          file_.clearerr();
+
           auto usedBuf = file_.rawRead(readBuffer_);
           readState_.bufferLen_ = usedBuf.length;
         } catch (Exception e) {
