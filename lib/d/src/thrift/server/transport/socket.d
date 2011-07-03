@@ -179,8 +179,11 @@ protected:
   override TTransport acceptImpl() {
     assert(serverSocket_, "Called accept() on non-listening TServerSocket.");
 
-    enum maxEintrs = 5;
-    uint numEintrs = 0;
+    // EINTR needs to be handled manually and we can tolerate a certain
+    // number.
+    enum MAX_EINTRS = 5;
+
+    uint numEintrs;
 
     while (true) {
       auto set = new SocketSet(2);
@@ -193,9 +196,7 @@ protected:
 
       if (ret < 0) {
         // error cases
-        if (errno == EINTR && (numEintrs++ < maxEintrs)) {
-          // EINTR needs to be handled manually and we can tolerate
-          // a certain number
+        if (errno == EINTR && (numEintrs++ < MAX_EINTRS)) {
           continue;
         }
         throw new TTransportException("Unknown error on Socket.select()",

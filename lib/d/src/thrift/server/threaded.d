@@ -20,7 +20,7 @@ module thrift.server.threaded;
 
 // stderr is used for error messages until something more sophisticated is
 // implemented.
-import std.stdio : stderr, writeln;
+import std.stdio : stderr;
 
 import core.thread;
 import thrift.base;

@@ -20,7 +20,7 @@ module thrift.server.simple;
 
 // stderr is used for error messages until something more sophisticated is
 // implemented.
-import std.stdio : stderr, writeln;
+import std.stdio : stderr;
 
 import thrift.base;
 import thrift.protocol.base;
