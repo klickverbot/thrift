@@ -1050,17 +1050,22 @@ template TServiceProcessor(Interface, Protocols...) if (
 
             writeException(new TApplicationException(
               TApplicationException.Type.INVALID_MESSAGE_TYPE));
-          } else if (auto dg = msg.name in processMap_) {
-            (*dg)(msg.seqid, iprot, oprot, context);
-          } else {
+            return false;
+          }
+
+          auto dg = msg.name in processMap_;
+          if (!dg) {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
             iprot.getTransport().readEnd();
 
             writeException(new TApplicationException("Invalid method name: '" ~
               msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE));
+
+            return false;
           }
 
+          (*dg)(msg.seqid, iprot, oprot, context);
           return true;
         }
 
