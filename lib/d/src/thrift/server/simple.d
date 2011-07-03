@@ -63,7 +63,7 @@ class TSimpleServer : TServer {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writefln("TSimpleServer listen() failed: %s", ttx);
+      stderr.writefln("TSimpleServer: listen() failed: %s", ttx);
       return;
     }
 
@@ -90,16 +90,18 @@ class TSimpleServer : TServer {
 
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
-      } catch (TTransportException ttx) {
-        stderr.writefln("TServerTransport died on accept: %s", ttx);
-        continue;
-      } catch (TException tx) {
-        stderr.writefln("Some kind of accept exception: %s", tx);
-        continue;
-      } catch (Exception e) {
-        stderr.writefln("Some kind of accept exception: %s", e);
-        continue;
-      }
+      }   catch (TTransportException ttx) {
+          if (!stop_) stderr.writefln(
+            "TSimpleServer: TServerTransport died on accept: %s", ttx);
+          continue;
+        } catch (TException tx) {
+          stderr.writefln("TSimpleServer: Caught TException on accept: %s", tx);
+          continue;
+        } catch (Exception e) {
+          stderr.writefln(
+            "TSimpleServer: Unknown exception on accept, stopping: %s", e);
+          break;
+        }
 
       Variant connectionContext;
       if (eventHandler) {
@@ -121,11 +123,9 @@ class TSimpleServer : TServer {
           }
         }
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer client died: %s", ttx);
-      } catch (TException tx) {
-        stderr.writefln("TSimpleServer exception: %s", tx);
+        stderr.writefln("TSimpleServer: Client died: %s", ttx);
       } catch (Exception e) {
-        stderr.writefln("TSimpleServer uncaught exception: %s", e);
+        stderr.writefln("TSimpleServer: Uncaught exception: %s", e);
       }
 
       if (eventHandler) {
@@ -136,17 +136,17 @@ class TSimpleServer : TServer {
       try {
         inputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer input close failed: %s", ttx);
+        stderr.writefln("TSimpleServer: Input close failed: %s", ttx);
       }
       try {
         outputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer output close failed: %s", ttx);
+        stderr.writefln("TSimpleServer: Output close failed: %s", ttx);
       }
       try {
         client.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer client close failed: %s", ttx);
+        stderr.writefln("TSimpleServer: Client close failed: %s", ttx);
       }
     }
 
@@ -154,7 +154,8 @@ class TSimpleServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TServerTransport failed on close: %s", ttx);
+        stderr.writefln(
+          "TSimpleServer: TServerTransport failed on close: %s", ttx);
       }
       stop_ = false;
     }
