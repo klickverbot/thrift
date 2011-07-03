@@ -53,10 +53,10 @@ targets = serialization_benchmark stress_test_server \
 serialization_benchmark: %: %.d $(debug_proto_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
-stress_test_server: %: %.d $(stress_test_gen)
+stress_test_server: %: %.d test_utils.d $(stress_test_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
-thrift_test_client thrift_test_server: %: %.d thrift_test_common.d $(thrift_test_gen)
+thrift_test_client thrift_test_server: %: %.d thrift_test_common.d test_utils.d $(thrift_test_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
 transport_test: %: %.d
