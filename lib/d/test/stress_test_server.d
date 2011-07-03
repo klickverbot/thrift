@@ -65,7 +65,7 @@ void main(string[] args) {
   auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
     transportFactory, protocolFactory);
 
-  writefln("Starting %s server on port %s...", serverType, port);
+  writefln("Starting %s StressTest server on port %s...", serverType, port);
   server.serve();
   writeln("done.");
 }
