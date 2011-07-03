@@ -186,7 +186,7 @@ void main(string[] args) {
   ushort port = 9090;
   ServerType serverType;
   ProtocolType protocolType;
-  size_t taskPoolSize;
+  size_t taskPoolSize = totalCPUs;
   TransportType transportType;
   bool ssl;
   bool trace;

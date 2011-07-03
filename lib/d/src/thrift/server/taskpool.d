@@ -20,10 +20,11 @@ module thrift.server.taskpool;
 
 // stderr is used for error messages until something more sophisticated is
 // implemented.
-import std.stdio : stderr, writeln;
+import std.stdio : stderr;
 
 import core.sync.condition;
 import core.sync.mutex;
+import std.exception : enforce;
 import std.parallelism;
 import thrift.base;
 import thrift.protocol.base;
@@ -158,6 +159,7 @@ class TTaskPoolServer : TServer {
    * queue. If this happens, serve() will never return.
    */
   void setTaskPool(TaskPool pool) {
+    enforce(pool.size > 0, "Cannot use a task pool with no worker threads.");
     taskPool_ = pool;
   }
 
