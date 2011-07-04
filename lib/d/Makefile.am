@@ -54,10 +54,17 @@ d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)
 	$(DMD) -oflibthriftd -w -lib $(d_sources)
 
-all-local: libthriftd.a
+docs: $(d_sources)
+	$(DMD) -D -c -o- -Isrc -Dddocs $(d_thrift_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/protocol $(d_protocol_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/server $(d_server_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/server/transport $(d_servertransport_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/transport $(d_transport_DATA)
+
+all-local: libthriftd.a docs
 
 clean-local:
-	$(RM) -rf libthriftd.a unittest
+	$(RM) -rf docs libthriftd.a unittest
 
 lib_LIBRARIES = libthriftd.a
 
