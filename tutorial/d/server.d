@@ -33,6 +33,10 @@ import share.shared_types;
 import tutorial.Calculator;
 import tutorial.tutorial_types;
 
+/**
+ * The actual implementation of the Calculator interface that is called by
+ * the server to answer the requests.
+ */
 class CalculatorHandler : Calculator {
   void ping() {
     writeln("ping()");
@@ -95,16 +99,15 @@ protected:
 }
 
 void main() {
-  auto protocolFactory = new TBinaryProtocolFactory();
-  auto handler = new CalculatorHandler();
-  auto processor = new TServiceProcessor!Calculator(handler);
+  auto protocolFactory = new TBinaryProtocolFactory!();
+  auto processor = new TServiceProcessor!Calculator(new CalculatorHandler);
   auto serverTransport = new TServerSocket(9090);
-  auto transportFactory = new TBufferedTransportFactory();
+  auto transportFactory = new TBufferedTransportFactory;
 
   auto server = new TSimpleServer(
     processor, serverTransport, transportFactory, protocolFactory);
 
-  writeln("Starting the server...");
+  writeln("Starting the server on port 9090...");
   server.serve();
   writeln("done.");
 }
