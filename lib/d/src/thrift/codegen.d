@@ -31,6 +31,14 @@
  * reduced and as a result, the code also can be optimized better. If
  * performance is not a concern or the actual protocol type is not known at
  * compile time, these parameters can just be left at their defaults.
+ *
+ * Some code generation templates take account of the optional TVerboseCodegen
+ * version declaration, which causes warning messages to be emitted if no
+ * metadata for a field/method has been found and the default behavior is
+ * used instead. If this version is not defined, the templates just silently
+ * behave like the Thrift compiler does in this situation, i.e. automatically
+ * assign negative ids (starting at -1) for fields and assume
+ * TReq.OPT_IN_REQ_OUT as requirement level.
  */
 module thrift.codegen;
 
