@@ -1328,9 +1328,9 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
 
 /**
  * TClient construction helper to avoid having to explicitly specify
- * the protocol types, i.e. to allow the the constructor being called with
- * IFTI (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082,
- * D Bugzilla enhancement requet 6082)).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
   is(Interface _ == interface) && isTProtocol!Prot
@@ -1358,7 +1358,7 @@ TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
  * interface BaseInterface, this class is also derived from
  * TServiceProcessor!BaseInterface.
  *
- * The additional Protocols template tuple parameter can be used to specify
+ * The optional Protocols template tuple parameter can be used to specify
  * one or more TProtocol implementations to specifically generate code for. If
  * the actual types of the protocols passed to process() at runtime match one
  * of the items from the list, the optimized code paths are taken, otherwise,

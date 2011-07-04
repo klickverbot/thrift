@@ -21,27 +21,37 @@ module thrift.server.transport.base;
 import thrift.transport.base;
 
 /**
- * Provides an interface for servers to listen for connections and create
- * TTransports for client communication.
+ * An interface enabling servers to listen for incoming client connections and
+ * to create TTransports for them.
  */
 abstract class TServerTransport {
+  /**
+   * Starts listening for server connections.
+   *
+   * As usual, does not block.
+   */
   abstract void listen();
 
   /**
-   * Accepts a client connection and returns an opened TTransport for it.
+   * Accepts a client connection and returns an opened TTransport for it,
+   * never returning null.
    *
-   * Never returns null.
+   * Like your average accept() call, blocks until a client connection is
+   * available.
    *
    * Throws: TTransportException if accepting failed.
    */
   final TTransport accept() {
     auto transport = acceptImpl();
     if (transport is null) {
-      throw new TTransportException("accept() may not return NULL");
+      throw new TTransportException("accept() may not return null.");
     }
     return transport;
   }
 
+  /**
+   * Closes the server transport, causing it to stop listening.
+   */
   abstract void close();
 
   /**

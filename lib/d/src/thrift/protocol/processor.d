@@ -18,7 +18,7 @@
  */
 module thrift.protocol.processor;
 
-// Use selective import once DMD @@BUG@@ 314 is fixed.
+// Use selective import once DMD @@BUG314@@ is fixed.
 import std.variant /+ : Variant +/;
 import thrift.protocol.base;
 
@@ -35,11 +35,13 @@ import thrift.protocol.base;
  * handling process, which can be used e.g. for gathering statistics.
  */
 interface TProcessor {
+  ///
   bool process(TProtocol iprot, TProtocol oprot, Variant connectionContext) in {
     assert(iprot);
     assert(oprot);
   }
 
+  ///
   final bool process(TProtocol prot, Variant connectionContext) {
     return process(prot, prot, connectionContext);
   }

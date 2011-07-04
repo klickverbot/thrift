@@ -396,7 +396,7 @@ private:
     trans_.write(buf[0 .. wsize]);
   }
 
-  /**
+  /*
    * Write an i64 as a varint. Results in 1-10 bytes on the wire.
    */
   void writeVarint64(ulong n) {
@@ -416,7 +416,7 @@ private:
     trans_.write(buf[0 .. wsize]);
   }
 
-  /**
+  /*
    * Convert l into a zigzag long. This allows negative numbers to be
    * represented compactly as a varint.
    */
@@ -424,7 +424,7 @@ private:
     return (l << 1) ^ (l >> 63);
   }
 
-  /**
+  /*
    * Convert n into a zigzag int. This allows negative numbers to be
    * represented compactly as a varint.
    */
@@ -513,14 +513,14 @@ private:
     }
   }
 
-  /**
+  /*
    * Convert from zigzag int to int.
    */
   int zigzagToI32(uint n) {
     return (n >> 1) ^ -(n & 1);
   }
 
-  /**
+  /*
    * Convert from zigzag long to long.
    */
   long zigzagToI64(ulong n) {
@@ -558,7 +558,7 @@ private:
     }
   }
 
-  /**
+  /*
    * Wraps trans_.readAll for length checking.
    */
   void read(ubyte[] buf) {
@@ -601,7 +601,9 @@ private:
 
 /**
  * TCompactProtocol construction helper to avoid having to explicitly specify
- * the transport type (see D Bugzilla enhancement requet 6082).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans)
   if(isTTransport!Transport)
@@ -647,6 +649,16 @@ unittest {
   ]);
 }
 
+/**
+ * TProtocolFactory creating a TCompactProtocol instance for passed in
+ * transports.
+ *
+ * The optional Transports template tuple parameter can be used to specify
+ * one or more TTransport implementations to specifically instantiate
+ * TCompactProtocol for. If the actual transport types encountered at
+ * runtime match one of the transports in the list, a specialized protocol
+ * instance is created. Otherwise, a generic TTransport version is used.
+ */
 class TCompactProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
@@ -664,7 +676,7 @@ class TCompactProtocolFactory(Transports...) if (
       }
     }
     throw new TProtocolException(
-      "Passed null transport to TBinaryProtocolFactoy");
+      "Passed null transport to TCompactProtocolFactory.");
   }
 
 protected:

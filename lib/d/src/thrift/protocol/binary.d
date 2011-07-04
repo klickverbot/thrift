@@ -22,9 +22,22 @@ import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
 
+/**
+ * TProtocol implementation of the Binary Thrift protocol.
+ */
 final class TBinaryProtocol(Transport = TTransport) if (
   isTTransport!Transport
 ) : TProtocol {
+
+  /**
+   * Constructs a new instance.
+   *
+   * Params:
+   *   trans = The transport to use.
+   *   strictRead = If false, old clients which did not include the protocol
+   *     version are tolerated.
+   *   strictWrite = Whether to include the protocol version in the header.
+   */
   this(Transport trans, bool strictRead = false, bool strictWrite = true) {
     trans_ = trans;
     strictRead_ = strictRead;
@@ -275,7 +288,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
   void readSetEnd() {}
 
 private:
-  /**
+  /*
    * Wraps trans_.readAll for length checking.
    */
   void read(ubyte[] buf) {
@@ -329,7 +342,9 @@ private:
 
 /**
  * TBinaryProtocol construction helper to avoid having to explicitly specify
- * the transport type (see D Bugzilla enhancement requet 6082).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TBinaryProtocol!Transport createTBinaryProtocol(Transport)(Transport trans,
   bool strictRead = false, bool strictWrite = true) if(isTTransport!Transport)
@@ -355,9 +370,20 @@ unittest {
   ]);
 }
 
+/**
+ * TProtocolFactory creating a TBinaryProtocol instance for passed in
+ * transports.
+ *
+ * The optional Transports template tuple parameter can be used to specify
+ * one or more TTransport implementations to specifically instantiate
+ * TBinaryProtocol for. If the actual transport types encountered at
+ * runtime match one of the transports in the list, a specialized protocol
+ * instance is created. Otherwise, a generic TTransport version is used.
+ */
 class TBinaryProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
+  ///
   this (bool strictRead = false, bool strictWrite = true, int readLength = 0) {
     strictRead_ = strictRead;
     strictWrite_ = strictWrite;
@@ -375,7 +401,7 @@ class TBinaryProtocolFactory(Transports...) if (
       }
     }
     throw new TProtocolException(
-      "Passed null transport to TBinaryProtocolFactoy");
+      "Passed null transport to TBinaryProtocolFactoy.");
   }
 
 protected:

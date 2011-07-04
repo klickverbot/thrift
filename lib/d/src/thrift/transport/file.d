@@ -16,6 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
+/**
+ * Transports for reading from/writing to Thrift »log files«.
+ *
+ * These transports are not »stupid« sources and sinks just reading and
+ * writing bytes from a file verbatim, but organize the contents in the form
+ * of so-called »events«, which refers to the data written between two flush()
+ * calls.
+ *
+ * Chunking is supported, events are guaranteed to never span chunk boundaries.
+ * As a consequence, an event can never be larger than the chunk size. The
+ * chunk size used is not saved with the file, so care has to be taken to make
+ * sure the same chunk size is used for reading and writing.
+ */
 module thrift.transport.file;
 
 import core.thread : Thread;
@@ -40,8 +54,8 @@ version (BigEndian) {
 }
 
 /**
- * A transport used to write files. It can never be read from, calling read()
- * throws.
+ * A transport used to read log files. It can never be written to, calling
+ * write() throws.
  *
  * Contrary to the C++ design, explicitly opening the transport/file before
  * using is necessary to allow manually closing the file without relying on the
@@ -249,7 +263,7 @@ final class TFileReaderTransport : TBaseTransport {
   /// ditto
   enum DEFAULT_READ_TIMEOUT = dur!"msecs"(500);
 
-  /*
+  /**
    * Read buffer size, in bytes.
    *
    * Defaults to 1 MiB.
@@ -563,8 +577,8 @@ private:
 }
 
 /**
- * A transport used to write files. It can never be read from, calling read()
- * throws.
+ * A transport used to write log files. It can never be read from, calling
+ * read() throws.
  *
  * Contrary to the C++ design, explicitly opening the transport/file before
  * using is necessary to allow manually closing the file without relying on the

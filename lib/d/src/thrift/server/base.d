@@ -33,17 +33,26 @@ import thrift.transport.base;
  * which can be used e.g. for gathering statistics.
  */
 class TServer {
+  /**
+   * Starts serving.
+   *
+   * Blocks until the server finishes, i.e. stop() has been called or a
+   * problem occured.
+   */
   abstract void serve();
 
+  /**
+   * Signals the server to shut down.
+   */
   void stop() {}
 
-  TProcessor processor;
-  TServerTransport serverTransport;
-  TTransportFactory inputTransportFactory;
-  TTransportFactory outputTransportFactory;
-  TProtocolFactory inputProtocolFactory;
-  TProtocolFactory outputProtocolFactory;
-  TServerEventHandler eventHandler;
+  TProcessor processor; ///
+  TServerTransport serverTransport; ///
+  TTransportFactory inputTransportFactory; ///
+  TTransportFactory outputTransportFactory; ///
+  TProtocolFactory inputProtocolFactory; ///
+  TProtocolFactory outputProtocolFactory; ///
+  TServerEventHandler eventHandler; ///
 
 protected:
   this(TProcessor processor) {

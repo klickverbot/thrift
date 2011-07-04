@@ -38,6 +38,14 @@ import thrift.transport.socket;
  * only for the same reason.
  */
 class TServerSocket : TServerTransport {
+  /**
+   * Constructs a new instance.
+   *
+   * Params:
+   *   port = The TCP port to listen at (host is always 0.0.0.0).
+   *   sendTimeout = The socket sending timeout.
+   *   recvTimout = The socket receiving timeout.
+   */
   this(ushort port, Duration sendTimeout = dur!"hnsecs"(0),
     Duration recvTimeout = dur!"hnsecs"(0))
   {
@@ -46,26 +54,32 @@ class TServerSocket : TServerTransport {
     recvTimeout_ = recvTimeout;
   }
 
+  /// The socket sending timeout, zero to block infinitely.
   void sendTimeout(Duration sendTimeout) @property {
     sendTimeout_ = sendTimeout;
   }
 
+  /// The socket receiving timeout, zero to block infinitely.
   void recvTimeout(Duration recvTimeout) @property {
     recvTimeout_ = recvTimeout;
   }
 
+  /// The maximum number of listening retries if it fails.
   void retryLimit(int retryLimit) @property {
     retryLimit_ = retryLimit;
   }
 
+  /// The delay between a listening attempt failing and retrying it.
   void retryDelay(Duration retryDelay) @property {
     retryDelay_ = retryDelay;
   }
 
+  /// The size of the TCP send buffer, in bytes.
   void tcpSendBuffer(int tcpSendBuffer) @property {
     tcpSendBuffer_ = tcpSendBuffer;
   }
 
+  /// The size of the TCP receiving buffer, in bytes.
   void tcpRecvBuffer(int tcpRecvBuffer) @property {
     tcpRecvBuffer_ = tcpRecvBuffer;
   }
@@ -208,12 +222,12 @@ protected:
           try {
             auto result = intRecvSocket_.receive(buf);
             if (result == Socket.ERROR) {
-              stderr.writefln("TServerSocket.acceptImpl(): Error receiving" ~
-                " interrupt message: %s", strerror(errno));
+              stderr.writefln("TServerSocket.acceptImpl(): Error receiving " ~
+                "interrupt message: %s", strerror(errno));
             }
           } catch (SocketException e) {
-            stderr.writefln("TServerSocket.acceptImpl(): Error receiving" ~
-              " interrupt message: %s", e);
+            stderr.writefln("TServerSocket.acceptImpl(): Error receiving " ~
+              "interrupt message: %s", e);
           }
           throw new TTransportException(TTransportException.Type.INTERRUPTED);
         }

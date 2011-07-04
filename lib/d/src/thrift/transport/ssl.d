@@ -155,7 +155,7 @@ final class TSSLSocket : TSocket {
   }
 
   /**
-   * TAccessManager to use.
+   * The access manager to use.
    */
   void accessManager(TAccessManager value) @property {
     accessManager_ = value;
@@ -352,9 +352,10 @@ class TSSLSocketFactory {
   }
 
   /**
-   * Create an instance of TSSLSocket with the given socket.
+   * Create an SSL socket wrapping an existing std.socket.Socket.
    *
-   * @param socket An existing socket.
+   * Params:
+   *   socket = An existing socket.
    */
   TSSLSocket createSocket(Socket socket) {
     auto result = new TSSLSocket(ctx_, socket);
@@ -365,8 +366,9 @@ class TSSLSocketFactory {
    /**
    * Create an instance of TSSLSocket.
    *
-   * @param host  Remote host to be connected to
-   * @param port  Remote port to be connected to
+   * Params:
+   *   host = Remote host to connect to.
+   *   port = Remote port to connect to.
    */
   TSSLSocket createSocket(string host, ushort port) {
     auto result = new TSSLSocket(ctx_, host, port);
@@ -376,6 +378,9 @@ class TSSLSocketFactory {
 
   /**
    * Ciphers to be used in SSL handshake process.
+   *
+   * The string must be in the colon-delimited OpenSSL notation described in
+   * ciphers(1), for example: "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH".
    */
   void ciphers(string enable) @property {
     auto rc = SSL_CTX_set_cipher_list(ctx_.get(), toStringz(enable));
@@ -475,21 +480,13 @@ class TSSLSocketFactory {
   }
 
   /**
-   * Override default OpenSSL password callback with getPassword().
-   */
-  void overrideDefaultPasswordCallback() {
-    SSL_CTX_set_default_passwd_cb(ctx_.get(), &passwordCallback);
-    SSL_CTX_set_default_passwd_cb_userdata(ctx_.get(), cast(void*)this);
-  }
-
-  /**
    * Whether to use client or server side SSL handshake protocol.
    */
   bool serverSide() @property const {
     return serverSide_;
   }
 
-  /// Ditto.
+  /// Ditto
   void serverSide(bool value) @property {
     serverSide_ = value;
   }
@@ -501,7 +498,7 @@ class TSSLSocketFactory {
     return accessManager_;
   }
 
-  /// Ditto.
+  /// Ditto
   void accessManager(TAccessManager value) @property {
     accessManager_ = value;
   }
@@ -518,6 +515,15 @@ protected:
     assert(result.length < size);
   } body {
     return "";
+  }
+
+  /**
+   * Notifies OpenSSL to use getPassword() instead of the default password
+   * callback with getPassword().
+   */
+  void overrideDefaultPasswordCallback() {
+    SSL_CTX_set_default_passwd_cb(ctx_.get(), &passwordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(ctx_.get(), cast(void*)this);
   }
 
   SSLContext ctx_;
@@ -682,6 +688,11 @@ class TAccessManager {
   }
 }
 
+
+/**
+ * Default access manager implementation, which just checks the host name
+ * of the connection against the certificate.
+ */
 class TDefaultClientAccessManager : TAccessManager {
   override Decision verify(InternetAddress sa) {
     return Decision.SKIP;
@@ -740,7 +751,11 @@ private {
   }
 }
 
+/**
+ * SSL-level exception.
+ */
 class TSSLException : TTransportException {
+  ///
   this(string msg, string file = __FILE__, size_t line = __LINE__,
     Throwable next = null)
   {

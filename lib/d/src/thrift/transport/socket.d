@@ -149,21 +149,21 @@ class TSocket : TBaseTransport {
     ubyte buf;
     auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
     if (r == -1) {
-      auto errno = getSocketErrno();
+      auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
-        if (errno == ECONNRESET) {
+        if (lastErrno == ECONNRESET) {
           close();
           return false;
         }
       }
       throw new TTransportException("Peeking into socket failed: " ~
-        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
     }
     return (r > 0);
   }
 
   override size_t read(ubyte[] buf) {
-    typeof(getSocketErrno()) errno;
+    typeof(getSocketErrno()) lastErrno;
     ushort tries;
     while (tries++ <= maxRecvRetries_) {
       auto r = socket_.receive(cast(void[])buf);
@@ -172,18 +172,18 @@ class TSocket : TBaseTransport {
       if (r >= 0) return r;
 
       // Something went wrong, find out how to handle it.
-      errno = getSocketErrno();
+      lastErrno = getSocketErrno();
 
       // TODO: Handle EAGAIN like C++ does.
 
-      if (errno == INTERRUPTED_ERRNO) {
+      if (lastErrno == INTERRUPTED_ERRNO) {
         // If the syscall was interrupted, just try again.
         continue;
       }
 
       static if (connresetOnPeerShutdown) {
         // See top comment.
-        if (errno == ECONNRESET) {
+        if (lastErrno == ECONNRESET) {
           return 0;
         }
       }
@@ -192,30 +192,30 @@ class TSocket : TBaseTransport {
       break;
     }
 
-    if (errno == TIMEOUT_ERRNO) {
+    if (lastErrno == TIMEOUT_ERRNO) {
       throw new TTransportException(TTransportException.Type.TIMED_OUT);
     } else {
       throw new TTransportException("Receiving from socket failed: " ~
-        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
     }
   }
 
   override void write(in ubyte[] buf) {
     auto r = socket_.send(buf);
     if (r == -1) {
-      auto errno = getSocketErrno();
+      auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         // See top comment.
-        if (errno == ECONNRESET) {
+        if (lastErrno == ECONNRESET) {
           close();
           return;
         }
       }
-      if (errno == TIMEOUT_ERRNO) {
+      if (lastErrno == TIMEOUT_ERRNO) {
         throw new TTransportException(TTransportException.Type.TIMED_OUT);
       } else {
         throw new TTransportException("Receiving from socket failed: " ~
-          socketErrnoString(errno), TTransportException.Type.UNKNOWN);
+          socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
       }
     }
   }
@@ -252,27 +252,34 @@ class TSocket : TBaseTransport {
     return peerPort_;
   }
 
+  /// The host to connect to.
   string host() @property {
     return host_;
   }
 
+  /// The port to connect to.
   ushort port() @property {
     return port_;
   }
 
+  /// The socket send timeout.
   Duration sendTimeout() const @property {
     return sendTimeout_;
   }
 
+  /// Ditto
   void sendTimeout(Duration value) @property {
     sendTimeout_ = value;
     setTimeout(SocketOption.SNDTIMEO, value);
   }
 
+  /// The socket receiving timeout. Values smaller than 500 ms are not
+  /// supported on Windows.
   Duration recvTimeout() const @property {
     return recvTimeout_;
   }
 
+  /// Ditto
   void recvTimeout(Duration value) @property {
     recvTimeout_ = value;
     setTimeout(SocketOption.RCVTIMEO, value);
@@ -286,11 +293,12 @@ class TSocket : TBaseTransport {
     return maxRecvRetries_;
   }
 
-  /// ditto
+  /// Ditto
   void maxRecvRetries(ushort value) @property {
     maxRecvRetries_ = value;
   }
 
+  /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
 protected:

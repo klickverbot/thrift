@@ -24,7 +24,7 @@ import std.algorithm : min;
 import thrift.transport.base;
 
 /**
- * A tranpsort that simply reads from and writes to an in-memory buffer. Every
+ * A transport that simply reads from and writes to an in-memory buffer. Every
  * time you call write on it, the data is simply placed into a buffer, and
  * every time you call read, data is consumed from that buffer.
  *
@@ -39,7 +39,7 @@ final class TMemoryBuffer : TBaseTransport {
 
   /**
    * Constructs a new memory transport with an empty internal buffer,
-   * reserving space for capacity items in advance.
+   * reserving space for capacity bytes in advance.
    *
    * If the amount of data which will be written to the buffer is already
    * known on construction, this can better performance over the default
@@ -97,15 +97,6 @@ final class TMemoryBuffer : TBaseTransport {
     return true;
   }
 
-  /**
-   * Tests whether there is more data to read or if the remote side is
-   * still open.
-   *
-   * By default this is true whenever the transport is open, but
-   * implementations should add logic to test for this condition where
-   * possible (e.g. on a socket). This is used by a server to check if it
-   * should listen for another request.
-   */
   override bool peek() {
     return writeOffset_ - readOffset_ > 0;
   }

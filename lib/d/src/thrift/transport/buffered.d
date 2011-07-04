@@ -18,7 +18,7 @@
  */
 
 /**
- * Crude port of the C++ buffered transport.
+ * Crude port of the C++ Buffered transport.
  *
  * TODO: Implement this in ideomatic D.
  */
@@ -141,6 +141,13 @@ protected:
   ubyte* wBound_;
 }
 
+/**
+ * Buffered transport.
+ *
+ * For reads it will read more data than is requested and will serve future
+ * data out of a local buffer. For writes, data is stored to an in memory
+ * buffer before being written/flushed out.
+ */
 final class TBufferedTransport : TBufferBase {
   enum int DEFAULT_BUFFER_SIZE = 512;
 
@@ -203,6 +210,7 @@ final class TBufferedTransport : TBufferBase {
     transport_.close();
   }
 
+  /// Returns the wrapped transport.
   TTransport underlyingTransport() @property {
     return transport_;
   }
@@ -286,7 +294,7 @@ protected:
     wBase_ = wBuf_.ptr + newBuf.length;
   }
 
-  /**
+  /*
    * The following behavior is currently implemented by TBufferedTransport,
    * but that may change in a future version:
    * 1/ If len is at most rBufSize_, borrow will never return NULL.
@@ -314,6 +322,6 @@ protected:
 }
 
 /**
- * Wraps passed in transports in a TBufferedTransports.
+ * Wraps given transports into TBufferedTransports.
  */
 alias TWrapperTransportFactory!TBufferedTransport TBufferedTransportFactory;

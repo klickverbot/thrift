@@ -44,6 +44,9 @@ final class TFramedTransport : TBaseTransport {
     transport_ = transport;
   }
 
+  /**
+   * Returns the wrapped transport.
+   */
   TTransport underlyingTransport() @property {
     return transport_;
   }
@@ -168,6 +171,9 @@ private:
   ubyte[] wBuf_;
 }
 
+/**
+ * Wraps given transports into TFramedTransports.
+ */
 alias TWrapperTransportFactory!TFramedTransport TFramedTransportFactory;
 
 version (unittest) {

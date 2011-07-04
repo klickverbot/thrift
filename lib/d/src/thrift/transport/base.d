@@ -257,7 +257,7 @@ class TBaseTransport : TTransport {
   }
 
   override size_t readEnd() {
-    // default behaviour is to do nothing
+    // Do nothing by default, not needed by all implementations.
     return 0;
   }
 
@@ -267,15 +267,16 @@ class TBaseTransport : TTransport {
   }
 
   override size_t writeEnd() {
-    // default behaviour is to do nothing
+    // Do nothing by default, not needed by all implementations.
     return 0;
   }
 
   override void flush() {
-    // default behaviour is to do nothing
+    // Do nothing by default, not needed by all implementations.
   }
 
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
+    // borrow() is allowed to fail anyway, so just return null.
     return null;
   }
 
@@ -289,9 +290,9 @@ protected:
 }
 
 /**
- * Generic factory class to make an input and output transport out of a
- * source transport. Commonly used inside servers to make input and output
- * streams out of raw clients.
+ * Makes a TTransport given a source transport. This is commonly used inside
+ * server implementations to wrap the raw client connections into e.g. a
+ * buffered or compressed transport.
  */
 class TTransportFactory {
   /**
@@ -316,21 +317,25 @@ template TWrapperTransportFactory(T) if (
   }
 }
 
+/**
+ * Transport-level exception.
+ */
 class TTransportException : TException {
   /**
    * Error codes for the various types of exceptions.
    */
   enum Type {
-    UNKNOWN,
-    NOT_OPEN,
-    TIMED_OUT,
-    END_OF_FILE,
-    INTERRUPTED,
-    BAD_ARGS,
-    CORRUPTED_DATA,
-    INTERNAL_ERROR
+    UNKNOWN, ///
+    NOT_OPEN, ///
+    TIMED_OUT, ///
+    END_OF_FILE, ///
+    INTERRUPTED, ///
+    BAD_ARGS, ///
+    CORRUPTED_DATA, ///
+    INTERNAL_ERROR ///
   }
 
+  ///
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
     string msgForType(Type type) {
       switch (type) {
@@ -348,12 +353,14 @@ class TTransportException : TException {
     this(msgForType(type), type, file, line, next);
   }
 
+  ///
   this(string msg, string file = __FILE__, size_t line = __LINE__,
     Throwable next = null)
   {
     this(msg, Type.UNKNOWN, file, line, next);
   }
 
+  ///
   this(string msg, Type type, string file = __FILE__, size_t line = __LINE__,
     Throwable next = null)
   {
@@ -361,18 +368,19 @@ class TTransportException : TException {
     type_ = type;
   }
 
+  ///
   this(string msg, Type type, int errno, string file = __FILE__,
     size_t line = __LINE__, Throwable next = null)
   {
     this(text(": ", strerror(errno)), type, file, line, next);
   }
 
+  ///
   Type type() const nothrow @property {
     return type_;
   }
 
 protected:
-  /** Error code */
   Type type_;
 }
 

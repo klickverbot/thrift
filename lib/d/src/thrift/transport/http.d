@@ -21,8 +21,8 @@
  * HTTP tranpsort implementation, modelled after the C++ one.
  *
  * Unfortunately, libcurl is quite heavyweight and supports only client-side
- * applications. All we have here is a VERY basic HTTP/1.1 client which
- * supports HTTP 100 Continue, chunked transfer encoding, keepalive, etc.
+ * applications. This is an implementation of the basic HTTP/1.1 parts
+ * supporting HTTP 100 Continue, chunked transfer encoding, keepalive, etc.
  */
 module thrift.transport.http;
 
@@ -37,6 +37,9 @@ import thrift.transport.base;
 import thrift.transport.memory;
 import thrift.transport.socket;
 
+/**
+ * Base class for both client- and server-side HTTP transports.
+ */
 abstract class THttpTransport : TBaseTransport {
   this(TTransport transport) {
     transport_ = transport;
@@ -67,7 +70,6 @@ abstract class THttpTransport : TBaseTransport {
     if (!readBuffer_.peek()) {
       readBuffer_.reset();
 
-      // Get more data!
       refill();
 
       if (readHeaders_) {
@@ -107,12 +109,11 @@ abstract class THttpTransport : TBaseTransport {
     auto data = writeBuffer_.getContents();
     string header = getHeader(data.length);
 
-    // Write the header, then the data, then flush
     transport_.write(cast(const(ubyte)[]) header);
     transport_.write(data);
     transport_.flush();
 
-    // Reset the buffer and header variables
+    // Reset the buffer and header variables.
     writeBuffer_.reset();
     readHeaders_ = true;
   }
@@ -134,7 +135,7 @@ protected:
       return;
     }
 
-    static bool compToLower(ubyte a, ubyte b){
+    static bool compToLower(ubyte a, ubyte b) {
       return a == tolower(cast(char)b);
     }
 
@@ -301,7 +302,7 @@ final class TClientHttpTransport : THttpTransport {
    * transport.
    *
    * Params:
-   *   transport = The underlying transport.
+   *   transport = The underlying transport used for the actual I/O.
    *   host = The HTTP host string.
    *   path = The HTTP path string.
    */
@@ -312,11 +313,11 @@ final class TClientHttpTransport : THttpTransport {
   }
 
   /**
-   * Constructs a client http transport using a TSocket connecting to the
-   * specified host and port.
+   * Convenience overload for constructing a client HTTP transport using a
+   * TSocket connecting to the specified host and port.
    *
    * Params:
-   *   host = The server to connect to, also used as HTTP host string..
+   *   host = The server to connect to, also used as HTTP host string.
    *   port = The port to connect to.
    *   path = The HTTP path string.
    */
@@ -371,6 +372,12 @@ private:
  * HTTP server transport.
  */
 final class TServerHttpTransport : THttpTransport {
+  /**
+   * Constructs a new instance.
+   *
+   * Param:
+   *   transport = The underlying transport used for the actual I/O.
+   */
   this(TTransport transport) {
     super(transport);
   }
