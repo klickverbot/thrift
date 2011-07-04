@@ -844,7 +844,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         "Services cannot be derived from more than one parent.");
 
       string code = "class TClient : TClient!(BaseTypeTuple!(Interface)[0], " ~
-        "IProt, OProt), Interface {\n";
+        "InputProtocol, OutputProtocol), Interface {\n";
       code ~= q{
         this(IProt iprot, OProt oprot) {
           super(iprot, oprot);
