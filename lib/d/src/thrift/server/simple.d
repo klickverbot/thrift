@@ -115,10 +115,11 @@ class TSimpleServer : TServer {
             eventHandler.preProcess(connectionContext, client);
           }
 
-          if (!processor.process(inputProtocol, outputProtocol, connectionContext) ||
-            !inputProtocol.getTransport().peek())
-          {
-            // Nothing more to process, close the connection.
+          if (!processor.process(inputProtocol, outputProtocol,
+            connectionContext) || !inputProtocol.transport.peek()
+          ) {
+            // Something went fundamentlly wrong or there is nothing more to
+            // process, close the connection.
             break;
           }
         }

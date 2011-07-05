@@ -155,10 +155,11 @@ private class WorkerThread : Thread {
           eventHandler_.preProcess(connectionContext, client_);
         }
 
-        if (!processor_.process(inputProtocol_, outputProtocol_, connectionContext) ||
-          !inputProtocol_.getTransport().peek())
-        {
-          // Nothing more to process, close the connection.
+        if (!processor_.process(inputProtocol_, outputProtocol_,
+          connectionContext) || !inputProtocol_.transport.peek()
+        ) {
+          // Something went fundamentlly wrong or there is nothing more to
+          // process, close the connection.
           break;
         }
       }
@@ -174,12 +175,12 @@ private class WorkerThread : Thread {
     }
 
     try {
-      inputProtocol_.getTransport().close();
+      inputProtocol_.transport.close();
     } catch (TTransportException ttx) {
       stderr.writefln("TThreadedServer: Input close failed: %s", ttx);
     }
     try {
-      outputProtocol_.getTransport().close();
+      outputProtocol_.transport.close();
     } catch (TTransportException ttx) {
       stderr.writefln("TThreadedServer: Output close failed: %s", ttx);
     }

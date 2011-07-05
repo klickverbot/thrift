@@ -35,7 +35,7 @@ final class TCompactProtocol(Transport = TTransport) if (
     trans_ = trans;
   }
 
-  Transport getTransport() {
+  Transport transport() @property {
     return trans_;
   }
 

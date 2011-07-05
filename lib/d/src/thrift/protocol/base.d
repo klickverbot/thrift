@@ -115,8 +115,8 @@ struct TStruct {
  * looking ahead character by character for a close tag).
  */
 interface TProtocol {
-  /// Returns the underlying transport used by the protocol.
-  TTransport getTransport();
+  /// The underlying transport used by the protocol.
+  TTransport transport() @property;
 
   /*
    * Writing methods.

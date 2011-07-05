@@ -114,7 +114,7 @@ void main(string[] args) {
     sw.start();
 
     try {
-      protocol.getTransport().open();
+      protocol.transport.open();
     } catch (TTransportException ttx) {
       writef("Connect failed: %s", ttx.msg);
       if (ttx.next !is null) {
@@ -352,7 +352,7 @@ void main(string[] args) {
     if (tot > time_max) {
       time_max = tot;
     }
-    protocol.getTransport().close();
+    protocol.transport.close();
 
     sw.reset();
   }

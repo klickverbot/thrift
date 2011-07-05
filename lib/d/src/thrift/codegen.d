@@ -1267,7 +1267,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
           "`, TMessageType.CALL, ++seqid_));\n";
         code ~= "args.write(oprot_);\n";
         code ~= "oprot_.writeMessageEnd();\n";
-        code ~= "oprot_.getTransport().flush();\n";
+        code ~= "oprot_.transport.flush();\n";
 
         // If this is not a oneway method, generate the recieving code.
         if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
@@ -1284,18 +1284,18 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             auto msg = iprot_.readMessageBegin();
             scope (exit) {
               iprot_.readMessageEnd();
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
             }
 
             if (msg.type == TMessageType.EXCEPTION) {
               auto x = new TApplicationException(null);
               x.read(iprot_);
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
               throw x;
             }
             if (msg.type != TMessageType.REPLY) {
               skip(iprot_, TType.STRUCT);
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
             }
             if (msg.seqid != seqid_) {
               throw new TApplicationException(
@@ -1400,14 +1400,14 @@ template TServiceProcessor(Interface, Protocols...) if (
               msg.seqid));
             e.write(oprot);
             oprot.writeMessageEnd();
-            oprot.getTransport().writeEnd();
-            oprot.getTransport().flush();
+            oprot.transport.writeEnd();
+            oprot.transport.flush();
           }
 
           if (msg.type != TMessageType.CALL && msg.type != TMessageType.ONEWAY) {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
-            iprot.getTransport().readEnd();
+            iprot.transport.readEnd();
 
             writeException(new TApplicationException(
               TApplicationException.Type.INVALID_MESSAGE_TYPE));
@@ -1418,7 +1418,7 @@ template TServiceProcessor(Interface, Protocols...) if (
           if (!dg) {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
-            iprot.getTransport().readEnd();
+            iprot.transport.readEnd();
 
             writeException(new TApplicationException("Invalid method name: '" ~
               msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE));
@@ -1519,7 +1519,7 @@ template TServiceProcessor(Interface, Protocols...) if (
 
           args.read(iprot);
           iprot.readMessageEnd();
-          iprot.getTransport().readEnd();
+          iprot.transport.readEnd();
 
           if (eventHandler) eventHandler.postRead(callContext, qName);
         };
@@ -1564,8 +1564,8 @@ template TServiceProcessor(Interface, Protocols...) if (
                 TMessage(methodName, TMessageType.EXCEPTION, seqid));
               x.write(oprot);
               oprot.writeMessageEnd();
-              oprot.getTransport().writeEnd();
-              oprot.getTransport().flush();
+              oprot.transport.writeEnd();
+              oprot.transport.flush();
               return;
             }
 
@@ -1575,8 +1575,8 @@ template TServiceProcessor(Interface, Protocols...) if (
               TMessageType.REPLY, seqid));
             result.write(oprot);
             oprot.writeMessageEnd();
-            oprot.getTransport().writeEnd();
-            oprot.getTransport().flush();
+            oprot.transport.writeEnd();
+            oprot.transport.flush();
 
             if (eventHandler) eventHandler.postWrite(callContext, qName);
           };

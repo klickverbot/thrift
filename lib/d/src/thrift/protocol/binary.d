@@ -44,7 +44,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
     strictWrite_ = strictWrite;
   }
 
-  Transport getTransport() {
+  Transport transport() @property {
     return trans_;
   }
 

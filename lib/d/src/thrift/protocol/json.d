@@ -44,7 +44,7 @@ final class TJsonProtocol(Transport = TTransport) if (
     reader_ = new LookaheadReader(trans);
   }
 
-  Transport getTransport() {
+  Transport transport() @property {
     return trans_;
   }
 
