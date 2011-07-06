@@ -18,6 +18,7 @@ import std.math : PI;
 import std.stdio;
 import thrift.protocol.binary;
 import thrift.transport.memory;
+import thrift.transport.range;
 import DebugProtoTest_types;
 
 void main() {
@@ -37,8 +38,8 @@ void main() {
     ooe.zomg_unicode = "\xd7\n\a\t";
     ooe.base64 = "\1\2\3\255";
 
-    auto sw = StopWatch(AutoStart.yes);
     auto prot = createTBinaryProtocol(buf);
+    auto sw = StopWatch(AutoStart.yes);
     foreach (i; 0 .. ITERATIONS) {
       buf.reset(120);
       ooe.write(prot);
@@ -52,16 +53,13 @@ void main() {
   auto data = buf.getContents();
 
   {
-    auto readBuf = new TMemoryBuffer();
+    auto readBuf = createTInputRangeTransport(data);
     auto prot = createTBinaryProtocol(readBuf);
     auto ooe = OneOfEach();
 
     auto sw = StopWatch(AutoStart.yes);
     foreach (i; 0 .. ITERATIONS) {
-      // TODO: We copy the data every time here, implement a
-      // TMemoryReadingTransport which just operates on a slice of the
-      // original data.
-      readBuf.write(data);
+      readBuf.reset(data);
       ooe.read(prot);
     }
     sw.stop();
