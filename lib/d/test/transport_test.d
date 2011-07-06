@@ -40,18 +40,21 @@ import std.random : rndGen, uniform, unpredictableSeed;
 import std.socket;
 import std.stdio;
 import std.string;
+import std.typetuple;
 import thrift.transport.base;
 import thrift.transport.buffered;
 import thrift.transport.framed;
 import thrift.transport.file;
+import thrift.transport.http;
 import thrift.transport.memory;
 import thrift.transport.socket;
 import thrift.transport.zlib;
 
-/**************************************************************************
+
+/*
  * Size generation helpers – used to be able to run the same testing code
  * with both constant and random total/chunk sizes.
- **************************************************************************/
+ */
 
 interface SizeGenerator {
   size_t nextSize();
@@ -102,9 +105,10 @@ private:
   size_t max_;
 }
 
-/**************************************************************************
+
+/*
  * Classes to set up coupled transports
- **************************************************************************/
+ */
 
 /**
  * Helper class to represent a coupled pair of transports.
@@ -128,19 +132,6 @@ template isCoupledTransports(T) {
 }
 
 /**
- * Coupled TMemoryBuffers.
- */
-class CoupledMemoryBuffers : CoupledTransports!TMemoryBuffer {
-  this() {
-    buf = new TMemoryBuffer;
-    input = buf;
-    output = buf;
-  }
-
-  TMemoryBuffer buf;
-}
-
-/**
  * Helper template class for creating coupled transports that wrap
  * another transport.
  */
@@ -161,23 +152,22 @@ private:
   InnerCoupledTransports inner_;
 }
 
-/**
- * Coupled TBufferedTransports.
- */
-alias Curry!(CoupledWrapperTransports, TBufferedTransport) CoupledBufferedTransportsT;
-alias CoupledBufferedTransportsT!CoupledMemoryBuffers CoupledBufferedTransports;
+alias Curry!(CoupledWrapperTransports, TBufferedTransport) CoupledBufferedTransports;
+alias Curry!(CoupledWrapperTransports, TFramedTransport) CoupledFramedTransports;
+alias Curry!(CoupledWrapperTransports, TZlibTransport) CoupledZlibTransports;
 
 /**
- * Coupled TFramedTransports.
+ * Coupled TMemoryBuffers.
  */
-alias Curry!(CoupledWrapperTransports, TFramedTransport) CoupledFramedTransportsT;
-alias CoupledFramedTransportsT!CoupledMemoryBuffers CoupledFramedTransports;
+class CoupledMemoryBuffers : CoupledTransports!TMemoryBuffer {
+  this() {
+    buf = new TMemoryBuffer;
+    input = buf;
+    output = buf;
+  }
 
-/**
- * Coupled TZlibTransports.
- */
-alias Curry!(CoupledWrapperTransports, TZlibTransport) CoupledZlibTransportsT;
-alias CoupledZlibTransportsT!CoupledMemoryBuffers CoupledZlibTransports;
+  TMemoryBuffer buf;
+}
 
 /**
  * Coupled TSockets.
@@ -224,19 +214,14 @@ private:
   string fileName_;
 }
 
-/**************************************************************************
+
+/*
  * Alarm handling code for use in tests that check the transport blocking
  * semantics.
  *
- * If the transport ends up blocking, we don't want to hang forever.  We use
- * SIGALRM to fire schedule signal to wake up and try to write data so the
- * transport will unblock.
- *
- * It isn't really the safest thing in the world to be mucking around with
- * complicated global data structures in a signal handler.  It should probably
- * be okay though, since we know the main thread should always be blocked in a
- * read() request when the signal handler is running.
- **************************************************************************/
+ * If the timeout expires, we will write additional data to the transport in
+ * the SIGALRM handler to unblock it.
+ */
 
 struct TriggerInfo {
   this(Duration timeout, TTransport transport, size_t writeLength) {
@@ -330,9 +315,10 @@ void setTrigger(Duration timeout, TTransport transport, size_t writeLen) {
   addTrigger(timeout, transport, writeLen);
 }
 
-/**************************************************************************
+
+/*
  * Test functions
- **************************************************************************/
+ */
 
 /**
  * Test interleaved write and read calls.
@@ -676,6 +662,15 @@ SizeGenerator getGenerator(T)(T t) {
   }
 }
 
+template WrappedTransports(T) if (isCoupledTransports!T) {
+  alias TypeTuple!(
+    T,
+    CoupledBufferedTransports!T,
+    CoupledFramedTransports!T,
+    CoupledZlibTransports!T
+  ) WrappedTransports;
+}
+
 void testRw(C, R, S)(
   size_t totalSize,
   R wSize,
@@ -699,29 +694,22 @@ void testRw(C, R, S, T, U)(
   is(typeof(getGenerator(rSize))) && is(typeof(getGenerator(wChunkSize))) &&
   is(typeof(getGenerator(rChunkSize)))
 ) {
-  auto wSizeGen = getGenerator(wSize);
-  auto rSizeGen = getGenerator(rSize);
-  auto wChunkSizeGen = getGenerator(wChunkSize);
-  auto rChunkSizeGen = getGenerator(rChunkSize);
-
-  doRwTest!(C)(totalSize, wSizeGen, rSizeGen, wChunkSizeGen,
-    rChunkSizeGen, maxOutstanding);
-
-  doRwTest!(CoupledBufferedTransportsT!C)(totalSize, wSizeGen, rSizeGen,
-    wChunkSizeGen, rChunkSizeGen, maxOutstanding);
-
-  doRwTest!(CoupledFramedTransportsT!C)(totalSize, wSizeGen, rSizeGen,
-    wChunkSizeGen, rChunkSizeGen, maxOutstanding);
-
-  doRwTest!(CoupledZlibTransportsT!C)(totalSize, wSizeGen, rSizeGen,
-    wChunkSizeGen, rChunkSizeGen, maxOutstanding);
+  foreach (T; WrappedTransports!C) {
+    doRwTest!T(
+      totalSize,
+      getGenerator(wSize),
+      getGenerator(rSize),
+      getGenerator(wChunkSize),
+      getGenerator(rChunkSize),
+      maxOutstanding
+    );
+  }
 }
 
 void testBlocking(C)() if (isCoupledTransports!C) {
-  doBlockingTest!C();
-  doBlockingTest!(CoupledBufferedTransportsT!C)();
-  doBlockingTest!(CoupledFramedTransportsT!C)();
-  doBlockingTest!(CoupledZlibTransportsT!C)();
+  foreach (T; WrappedTransports!C) {
+    doBlockingTest!T();
+  }
 }
 
 // A quick hack, for the sake of brevity…
