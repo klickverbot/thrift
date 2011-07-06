@@ -152,31 +152,31 @@ final class TBinaryProtocol(Transport = TTransport) if (
   }
 
   byte readByte() {
-    ubyte[1] b;
+    ubyte[1] b = void;
     trans_.readAll(b);
     return cast(byte)b[0];
   }
 
   short readI16() {
-    IntBuf!short b;
+    IntBuf!short b = void;
     trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   int readI32() {
-    IntBuf!int b;
+    IntBuf!int b = void;
     trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   long readI64() {
-    IntBuf!long b;
+    IntBuf!long b = void;
     trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   double readDouble() {
-    IntBuf!long b;
+    IntBuf!long b = void;
     trans_.readAll(b.bytes);
     b.value = netToHost(b.value);
     return *cast(double*)(&b.value);

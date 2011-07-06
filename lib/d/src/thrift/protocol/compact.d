@@ -182,7 +182,7 @@ final class TCompactProtocol(Transport = TTransport) if (
   }
 
   double readDouble() {
-    IntBuf!long b;
+    IntBuf!long b = void;
     trans_.readAll(b.bytes);
     b.value = leToHost(b.value);
     return *cast(double*)(&b.value);
@@ -281,7 +281,7 @@ final class TCompactProtocol(Transport = TTransport) if (
   TList readListBegin() {
     auto sizeAndType = readByte();
 
-    int lsize = (sizeAndType >> 4) & 0x0f;
+    auto lsize = (sizeAndType >> 4) & 0x0f;
     if (lsize == 15) {
       lsize = readVarint32();
     }
@@ -300,9 +300,9 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   TMap readMapBegin() {
     TMap m = void;
-    ubyte kvType;
 
     auto size = readVarint32();
+    ubyte kvType;
     if (size != 0) {
       kvType = readByte();
     }
@@ -323,12 +323,8 @@ final class TCompactProtocol(Transport = TTransport) if (
   TSet readSetBegin() {
     TSet s = void;
 
-    ubyte size_and_type;
-    int lsize;
-
     auto sizeAndType = readByte();
-
-    lsize = (sizeAndType >> 4) & 0x0f;
+    auto lsize = (sizeAndType >> 4) & 0x0f;
     if (lsize == 15) {
       lsize = readVarint32();
     }
