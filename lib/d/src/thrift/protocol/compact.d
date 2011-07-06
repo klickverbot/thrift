@@ -334,7 +334,7 @@ final class TCompactProtocol(Transport = TTransport) if (
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
 
-    s.elemType = getTType(cast(CType)(size_and_type & 0x0f));
+    s.elemType = getTType(cast(CType)(sizeAndType & 0x0f));
     s.size = cast(size_t)lsize;
 
     return s;
