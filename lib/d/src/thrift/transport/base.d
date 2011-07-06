@@ -22,7 +22,7 @@ import core.stdc.string : strerror;
 import std.conv : text;
 import thrift.base;
 
-/***
+/**
  * Generic interface for a method of transporting data. A TTransport may be
  * capable of either reading or writing, but not necessarily both.
  */

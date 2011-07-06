@@ -347,7 +347,7 @@ private:
  * enhancement requet 6082)).
  */
 TBinaryProtocol!Transport createTBinaryProtocol(Transport)(Transport trans,
-  bool strictRead = false, bool strictWrite = true) if(isTTransport!Transport)
+  bool strictRead = false, bool strictWrite = true) if (isTTransport!Transport)
 {
   return new TBinaryProtocol!Transport(trans, strictRead, strictWrite);
 }

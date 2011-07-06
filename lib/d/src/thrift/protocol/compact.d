@@ -606,7 +606,7 @@ private:
  * enhancement requet 6082)).
  */
 TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans)
-  if(isTTransport!Transport)
+  if (isTTransport!Transport)
 {
   return new TCompactProtocol!Transport(trans);
 }

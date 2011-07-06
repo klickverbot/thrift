@@ -702,7 +702,7 @@ private:
  * enhancement requet 6082)).
  */
 TJsonProtocol!Transport createTJsonProtocol(Transport)(Transport trans)
-  if(isTTransport!Transport)
+  if (isTTransport!Transport)
 {
   return new TJsonProtocol!Transport(trans);
 }
