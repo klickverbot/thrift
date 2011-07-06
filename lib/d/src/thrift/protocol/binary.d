@@ -48,15 +48,6 @@ final class TBinaryProtocol(Transport = TTransport) if (
     return trans_;
   }
 
-  void setReadLength(int value) {
-    if (value > 0) {
-      readLength_ = value;
-      checkReadLength_ = true;
-    } else {
-      checkReadLength_ = false;
-    }
-  }
-
   void reset() {}
 
   /*
@@ -162,57 +153,41 @@ final class TBinaryProtocol(Transport = TTransport) if (
 
   byte readByte() {
     ubyte[1] b;
-    read(b);
+    trans_.readAll(b);
     return cast(byte)b[0];
   }
 
   short readI16() {
     IntBuf!short b;
-    read(b.bytes);
+    trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   int readI32() {
     IntBuf!int b;
-    read(b.bytes);
+    trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   long readI64() {
     IntBuf!long b;
-    read(b.bytes);
+    trans_.readAll(b.bytes);
     return netToHost(b.value);
   }
 
   double readDouble() {
     IntBuf!long b;
-    read(b.bytes);
+    trans_.readAll(b.bytes);
     b.value = netToHost(b.value);
     return *cast(double*)(&b.value);
   }
 
   string readString() {
-    return readStringBody(readI32());
+    return cast(string)readBinary();
   }
 
   ubyte[] readBinary() {
-    int size = readI32();
-    checkReadLength(size);
-
-    if (size == 0) {
-      return null;
-    }
-
-    // TODO: Does borrowing actually buy us anything at all here?
-    if (auto borrowBuf = trans_.borrow(null, size)) {
-      auto buf = borrowBuf[0..size].dup;
-      trans_.consume(size);
-      return buf;
-    } else {
-      auto buf = new ubyte[size];
-      trans_.readAll(buf);
-      return buf;
-    }
+    return readBinaryBody(readSize());
   }
 
   TMessage readMessageBegin() {
@@ -221,18 +196,24 @@ final class TBinaryProtocol(Transport = TTransport) if (
     int size = readI32();
     if (size < 0) {
       int versn = size & VERSION_MASK;
-      if(versn != VERSION_1) throw new TProtocolException(
-        TProtocolException.Type.BAD_VERSION, "Bad version in readMessage.");
+      if (versn != VERSION_1) {
+        throw new TProtocolException("Bad protocol version.",
+          TProtocolException.Type.BAD_VERSION);
+      }
 
       msg.type = cast(TMessageType)(size & MESSAGE_TYPE_MASK);
       msg.name = readString();
       msg.seqid = readI32();
     } else {
       if (strictRead_) {
-        throw new TProtocolException(TProtocolException.Type.BAD_VERSION,
-          "Missing version in readMessage, old client?");
+        throw new TProtocolException(
+          "Protocol version missing, old client?",
+          TProtocolException.Type.BAD_VERSION);
       } else {
-        msg.name = readStringBody(size);
+        if (size < 0) {
+          throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+        }
+        msg.name = cast(string)readBinaryBody(size);
         msg.type = cast(TMessageType)(readByte());
         msg.seqid = readI32();
       }
@@ -258,73 +239,37 @@ final class TBinaryProtocol(Transport = TTransport) if (
   void readFieldEnd() {}
 
   TList readListBegin() {
-    auto l = TList(cast(TType)readByte(), readI32());
-
-    // FIXME: s.size is unsigned, always false.
-    if (l.size < 0)
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    return l;
+    return TList(cast(TType)readByte(), readSize());
   }
   void readListEnd() {}
 
   TMap readMapBegin() {
-    auto m = TMap(cast(TType)readByte(), cast(TType)readByte(), readI32());
-
-    // FIXME: s.size is unsigned, always false.
-    if (m.size < 0)
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    return m;
+    return TMap(cast(TType)readByte(), cast(TType)readByte(), readSize());
   }
   void readMapEnd() {}
 
   TSet readSetBegin() {
-    auto s = TSet(cast(TType)readByte(), readI32());
-
-    // FIXME: s.size is unsigned, always false.
-    if (s.size < 0)
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    return s;
+    return TSet(cast(TType)readByte(), readSize());
   }
   void readSetEnd() {}
 
 private:
-  /*
-   * Wraps trans_.readAll for length checking.
-   */
-  void read(ubyte[] buf) {
-    assert(buf.length < int.max);
-    checkReadLength(cast(int)buf.length);
-    trans_.readAll(buf);
-  }
-
-  string readStringBody(int size) {
-    checkReadLength(size);
-
+  ubyte[] readBinaryBody(int size) {
     if (size == 0) {
       return null;
     }
 
-    // TODO: Does borrowing actually buy us anything at all here?
-    if (auto borrowBuf = trans_.borrow(null, size)) {
-      auto str = cast(string)borrowBuf[0..size].idup;
-      trans_.consume(size);
-      return str;
-    } else {
-      auto buf = new ubyte[size];
-      trans_.readAll(buf);
-      return cast(string)buf;
-    }
+    auto buf = new ubyte[size];
+    trans_.readAll(buf);
+    return buf;
   }
 
-  void checkReadLength(int length) {
-    if (length < 0)
+  int readSize() {
+    auto size = readI32();
+    if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-
-    if (checkReadLength_) {
-      readLength_ -= length;
-      if (readLength_ < 0)
-        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
     }
+    return size;
   }
 
   enum MESSAGE_TYPE_MASK = 0x000000ff;
@@ -333,9 +278,6 @@ private:
 
   bool strictRead_;
   bool strictWrite_;
-
-  int readLength_;
-  bool checkReadLength_;
 
   Transport trans_;
 }
@@ -384,20 +326,17 @@ class TBinaryProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
   ///
-  this (bool strictRead = false, bool strictWrite = true, int readLength = 0) {
+  this (bool strictRead = false, bool strictWrite = true) {
     strictRead_ = strictRead;
     strictWrite_ = strictWrite;
-    readLength_ = readLength;
   }
 
   TProtocol getProtocol(TTransport trans) const {
     foreach (Transport; TypeTuple!(Transports, TTransport)) {
       auto concreteTrans = cast(Transport)trans;
       if (concreteTrans) {
-        auto p = new TBinaryProtocol!Transport(
-          concreteTrans, strictRead_, strictWrite_);
-        p.setReadLength(readLength_);
-        return p;
+        return new TBinaryProtocol!Transport(concreteTrans,
+          strictRead_, strictWrite_);
       }
     }
     throw new TProtocolException(
@@ -407,5 +346,4 @@ class TBinaryProtocolFactory(Transports...) if (
 protected:
   bool strictRead_;
   bool strictWrite_;
-  int readLength_;
 }

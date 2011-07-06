@@ -39,15 +39,6 @@ final class TCompactProtocol(Transport = TTransport) if (
     return trans_;
   }
 
-  void setReadLength(int value) {
-    if (value > 0) {
-      readLength_ = value;
-      checkReadLength_ = true;
-    } else {
-      checkReadLength_ = false;
-    }
-  }
-
   void reset() {
     lastFieldId_ = 0;
     fieldIdStack_ = null;
@@ -174,7 +165,7 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   byte readByte() {
     ubyte[1] b = void;
-    read(b);
+    trans_.readAll(b);
     return cast(byte)b[0];
   }
 
@@ -192,7 +183,7 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   double readDouble() {
     IntBuf!long b;
-    read(b.bytes);
+    trans_.readAll(b.bytes);
     b.value = leToHost(b.value);
     return *cast(double*)(&b.value);
   }
@@ -203,11 +194,13 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   ubyte[] readBinary() {
     auto size = readVarint32();
-    import std.stdio;
-    checkReadLength(size);
-    if (size == 0) return null;
+    if (size < 0) {
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    }
+    if (size == 0) {
+      return null;
+    }
 
-    // There might be room for optimization here.
     auto buf = new ubyte[size];
     trans_.readAll(buf);
     return buf;
@@ -309,16 +302,17 @@ final class TCompactProtocol(Transport = TTransport) if (
     TMap m = void;
     ubyte kvType;
 
-    m.size = readVarint32();
-    if (m.size != 0) {
+    auto size = readVarint32();
+    if (size != 0) {
       kvType = readByte();
     }
 
     // FIXME: m.size is unsigned, always false.
-    if (m.size < 0) {
+    if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
 
+    m.size = size;
     m.keyType = getTType(cast(CType)(kvType >> 4));
     m.valueType = getTType(cast(CType)(kvType & 0xf));
 
@@ -495,7 +489,7 @@ private:
       // Slow path.
       while (true) {
         ubyte[1] bite;
-        read(bite);
+        trans_.readAll(bite);
         ++rsize;
 
         val |= cast(ulong)(bite[0] & 0x7f) << shift;
@@ -558,26 +552,6 @@ private:
     }
   }
 
-  /*
-   * Wraps trans_.readAll for length checking.
-   */
-  void read(ubyte[] buf) {
-    assert(buf.length < int.max);
-    checkReadLength(cast(int)buf.length);
-    trans_.readAll(buf);
-  }
-
-  void checkReadLength(int length) {
-    if (length < 0)
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-
-    if (checkReadLength_) {
-      readLength_ -= length;
-      if (readLength_ < 0)
-        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
-    }
-  }
-
   enum PROTOCOL_ID = 0x82;
   enum VERSION_N = 1;
   enum VERSION_MASK = 0b0001_1111;
@@ -589,9 +563,6 @@ private:
   short lastFieldId_;
 
   TField booleanField_;
-
-  int readLength_;
-  bool checkReadLength_;
 
   bool hasBoolValue_;
   bool boolValue_;
@@ -662,23 +633,14 @@ unittest {
 class TCompactProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
-  this (int readLength = 0) {
-    readLength_ = readLength;
-  }
-
   TProtocol getProtocol(TTransport trans) const {
     foreach (Transport; TypeTuple!(Transports, TTransport)) {
       auto concreteTrans = cast(Transport)trans;
       if (concreteTrans) {
-        auto p = new TCompactProtocol!Transport(concreteTrans);
-        p.setReadLength(readLength_);
-        return p;
+        return new TCompactProtocol!Transport(concreteTrans);
       }
     }
     throw new TProtocolException(
       "Passed null transport to TCompactProtocolFactory.");
   }
-
-protected:
-  int readLength_;
 }
