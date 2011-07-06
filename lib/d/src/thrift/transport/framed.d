@@ -126,7 +126,9 @@ final class TFramedTransport : TBaseTransport {
   }
 
   override void consume(size_t len) {
-    rBuf_ = rBuf_[len..$];
+    enforce(len <= rBuf_.length, new TTransportException(
+      "Invalid consume length", TTransportException.Type.BAD_ARGS));
+    rBuf_ = rBuf_[len .. $];
   }
 
 private:
