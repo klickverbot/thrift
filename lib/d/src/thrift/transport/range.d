@@ -22,7 +22,7 @@
  */
 module thrift.transport.range;
 
-import std.array;
+import std.array : empty;
 import std.range;
 import std.traits : Unqual;
 import thrift.transport.base;
@@ -66,15 +66,39 @@ final class TInputRangeTransport(R) if (
 
   override size_t read(ubyte[] buf) {
     auto data = data_.take(buf.length);
-    buf.put(data);
-
     auto bytes = data.length;
-    data_.popFrontN(bytes);
+
+    static if (is(typeof(R.init[1 .. 2]) : const(ubyte)[])) {
+      // put() is currently unnecessarily slow if both ranges are sliceable.
+      buf[0 .. bytes] = data[];
+      data_ = data_[bytes .. $];
+    } else {
+      buf.put(data);
+    }
+
     return bytes;
   }
 
+  /**
+   * Shortcut version of readAll() for slicable ranges.
+   *
+   * Because readAll() is typically a very hot path during deserialization,
+   * using this over TBaseTransport.readAll() gives us a nice increase in
+   * speed due to the reduced amount of indirections.
+   */
+  override void readAll(ubyte[] buf) {
+    static if (is(typeof(R.init[1 .. 2]) : const(ubyte)[])) {
+      if (buf.length <= data_.length) {
+        buf[] = data_[0 .. buf.length];
+        data_ = data_[buf.length .. $];
+        return;
+      }
+    }
+    super.readAll(buf);
+  }
+
   override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    static if (is(Range : const(ubyte)[])) {
+    static if (is(R : const(ubyte)[])) {
       // Can only borrow if our data type is actually an ubyte array.
       if (len <= data_.length) {
         return data_;
@@ -84,9 +108,11 @@ final class TInputRangeTransport(R) if (
   }
 
   override void consume(size_t len) {
-    static if (is(Range : const(ubyte)[])) {
-      enforce(len <= data_.length, new TTransportException(
-        "Invalid consume length", TTransportException.Type.BAD_ARGS));
+    static if (is(R : const(ubyte)[])) {
+      if (len > data_.length) {
+        throw new TTransportException("Invalid consume length",
+          TTransportException.Type.BAD_ARGS);
+      }
       data_ = data_[len .. $];
     } else {
       super.consume(len);

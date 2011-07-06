@@ -21,6 +21,7 @@ module thrift.transport.memory;
 import core.exception : onOutOfMemoryError;
 import core.stdc.stdlib : free, realloc;
 import std.algorithm : min;
+import std.conv : text;
 import thrift.transport.base;
 
 /**
@@ -116,6 +117,23 @@ final class TMemoryBuffer : TBaseTransport {
     buf[0 .. size] = buffer_[readOffset_ .. readOffset_ + size];
     readOffset_ += size;
     return size;
+  }
+
+  /**
+   * Shortcut version of readAll() – using this over TBaseTransport.readAll()
+   * can give us a nice speed increase because gives us a nice speed increase
+   * because it is typically a very hot path during deserialization.
+   */
+  override void readAll(ubyte[] buf) {
+    auto available = writeOffset_ - readOffset_;
+    if (buf.length > available) {
+      throw new TTransportException(text("Cannot readAll() ", buf.length,
+        " bytes of data because only ", available, " bytes are available."),
+        TTransportException.Type.END_OF_FILE);
+    }
+
+    buf[] = buffer_[readOffset_ .. readOffset_ + buf.length];
+    readOffset_ += buf.length;
   }
 
   override void write(in ubyte[] buf) {
