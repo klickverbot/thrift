@@ -18,6 +18,7 @@
  */
 module thrift.protocol.binary;
 
+import std.array : uninitializedArray;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
@@ -259,7 +260,7 @@ private:
       return null;
     }
 
-    auto buf = new ubyte[size];
+    auto buf = uninitializedArray!(ubyte[])(size);
     trans_.readAll(buf);
     return buf;
   }
