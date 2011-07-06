@@ -46,6 +46,7 @@ import thrift.transport.framed;
 import thrift.transport.file;
 import thrift.transport.memory;
 import thrift.transport.socket;
+import thrift.transport.zlib;
 
 /**************************************************************************
  * Size generation helpers – used to be able to run the same testing code
@@ -171,6 +172,12 @@ alias CoupledBufferedTransportsT!CoupledMemoryBuffers CoupledBufferedTransports;
  */
 alias Curry!(CoupledWrapperTransports, TFramedTransport) CoupledFramedTransportsT;
 alias CoupledFramedTransportsT!CoupledMemoryBuffers CoupledFramedTransports;
+
+/**
+ * Coupled TZlibTransports.
+ */
+alias Curry!(CoupledWrapperTransports, TZlibTransport) CoupledZlibTransportsT;
+alias CoupledZlibTransportsT!CoupledMemoryBuffers CoupledZlibTransports;
 
 /**
  * Coupled TSockets.
@@ -705,12 +712,16 @@ void testRw(C, R, S, T, U)(
 
   doRwTest!(CoupledFramedTransportsT!C)(totalSize, wSizeGen, rSizeGen,
     wChunkSizeGen, rChunkSizeGen, maxOutstanding);
+
+  doRwTest!(CoupledZlibTransportsT!C)(totalSize, wSizeGen, rSizeGen,
+    wChunkSizeGen, rChunkSizeGen, maxOutstanding);
 }
 
 void testBlocking(C)() if (isCoupledTransports!C) {
   doBlockingTest!C();
   doBlockingTest!(CoupledBufferedTransportsT!C)();
   doBlockingTest!(CoupledFramedTransportsT!C)();
+  doBlockingTest!(CoupledZlibTransportsT!C)();
 }
 
 // A quick hack, for the sake of brevity…
