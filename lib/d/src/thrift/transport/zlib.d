@@ -72,13 +72,13 @@ final class TZlibTransport : TBaseTransport {
     rstream_.next_in = crbuf_.ptr;
     rstream_.avail_in  = 0;
     rstream_.next_out = urbuf_.ptr;
-    rstream_.avail_out = urbuf_.length;
+    rstream_.avail_out = to!uint(urbuf_.length);
 
     wstream_ = new z_stream;
     wstream_.next_in = uwbuf_.ptr;
     wstream_.avail_in = 0;
     wstream_.next_out = cwbuf_.ptr;
-    wstream_.avail_out = crbuf_.length;
+    wstream_.avail_out = to!uint(crbuf_.length);
 
     zlibEnforce(inflateInit(rstream_), rstream_);
     scope (failure) {
@@ -143,7 +143,7 @@ final class TZlibTransport : TBaseTransport {
 
       // Refill our buffer by reading more data through zlib.
       rstream_.next_out = urbuf_.ptr;
-      rstream_.avail_out = urbuf_.length;
+      rstream_.avail_out = to!uint(urbuf_.length);
       urpos_ = 0;
 
       if (!readFromZlib()) {
@@ -223,10 +223,8 @@ final class TZlibTransport : TBaseTransport {
       "verifyChecksum() called before end of zlib stream",
       TTransportException.Type.CORRUPTED_DATA));
 
-    // Reset the rstream fields, in case avail_out is 0.
-    // (Since readAvail() is 0, we know there is no unread data in urbuf_)
-    rstream_.next_out  = urbuf_.ptr;
-    rstream_.avail_out = urbuf_.length;
+    rstream_.next_out = urbuf_.ptr;
+    rstream_.avail_out = to!uint(urbuf_.length);
     urpos_ = 0;
 
     // readFromZlib() will throw an exception if the checksum is bad.
@@ -256,7 +254,7 @@ private:
       auto got = transport_.read(crbuf_);
       if (got == 0) return false;
       rstream_.next_in = crbuf_.ptr;
-      rstream_.avail_in = got;
+      rstream_.avail_in = to!uint(got);
     }
 
     // We have some compressed data now, uncompress it.
@@ -275,18 +273,18 @@ private:
     flushToZlib(uwbuf_[0 .. uwpos_], type);
     uwpos_ = 0;
 
-    // write all available data from zlib to the transport
+    // Write all compressed data to the transport.
     transport_.write(cwbuf_[0 .. $ - wstream_.avail_out]);
     wstream_.next_out = cwbuf_.ptr;
-    wstream_.avail_out = cwbuf_.length;
+    wstream_.avail_out = to!uint(cwbuf_.length);
 
-    // flush the transport
+    // Flush the transport.
     transport_.flush();
   }
 
   void flushToZlib(in ubyte[] buf, int type) {
     wstream_.next_in = cast(ubyte*)buf.ptr; // zlib only reads, cast is safe.
-    wstream_.avail_in = buf.length;
+    wstream_.avail_in = to!uint(buf.length);
 
     while (true) {
       if (type == Z_NO_FLUSH && wstream_.avail_in == 0) {
@@ -297,7 +295,7 @@ private:
         // cwbuf has been exhausted by zlib, flush to the underlying transport.
         transport_.write(cwbuf_);
         wstream_.next_out = cwbuf_.ptr;
-        wstream_.avail_out = cwbuf_.length;
+        wstream_.avail_out = to!uint(cwbuf_.length);
       }
 
       auto zlib_result = deflate(wstream_, type);
