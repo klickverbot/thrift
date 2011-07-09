@@ -427,7 +427,7 @@ private:
 /*
  * Helpers potentially useful for more than one protocol implementation.
  */
-package {
+public {
   union IntBuf(T) {
     ubyte[T.sizeof] bytes;
     T value;
