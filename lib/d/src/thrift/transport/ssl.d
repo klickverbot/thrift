@@ -35,19 +35,19 @@ import std.ctype : toupper;
 import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
+import thrift.c.openssl.asn1;
+import thrift.c.openssl.bio;
+import thrift.c.openssl.crypto;
+import thrift.c.openssl.err;
+import thrift.c.openssl.objects;
+import thrift.c.openssl.rand;
+import thrift.c.openssl.safestack;
+import thrift.c.openssl.ssl;
+import thrift.c.openssl.x509;
+import thrift.c.openssl.x509_vfy;
+import thrift.c.openssl.x509v3;
 import thrift.transport.base;
 import thrift.transport.socket;
-import thrift.util.openssl.asn1;
-import thrift.util.openssl.bio;
-import thrift.util.openssl.crypto;
-import thrift.util.openssl.err;
-import thrift.util.openssl.objects;
-import thrift.util.openssl.rand;
-import thrift.util.openssl.safestack;
-import thrift.util.openssl.ssl;
-import thrift.util.openssl.x509;
-import thrift.util.openssl.x509_vfy;
-import thrift.util.openssl.x509v3;
 
 /**
  * OpenSSL implementation for SSL socket interface.

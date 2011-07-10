@@ -1,13 +1,13 @@
-module thrift.util.openssl.ssl;
+module thrift.c.openssl.ssl;
 
 import core.stdc.config;
-import thrift.util.openssl.bio;
-import thrift.util.openssl.loader;
-import thrift.util.openssl.x509;
-import thrift.util.openssl.x509_vfy;
+import thrift.c.openssl.bio;
+import thrift.c.openssl.loader;
+import thrift.c.openssl.x509;
+import thrift.c.openssl.x509_vfy;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.ssl, Library.ssl)();
+  bindFunctions!(thrift.c.openssl.ssl, Library.ssl)();
 }
 
 c_long SSL_CTX_set_mode(SSL_CTX* ctx, c_long op) {

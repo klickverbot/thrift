@@ -1,10 +1,10 @@
-module thrift.util.openssl.bio;
+module thrift.c.openssl.bio;
 
 import core.stdc.config;
-import thrift.util.openssl.loader;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.bio)();
+  bindFunctions!(thrift.c.openssl.bio)();
 }
 
 __gshared:

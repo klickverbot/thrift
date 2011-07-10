@@ -2,13 +2,13 @@
  * libevent event.h interface (still included with libevent2, but called
  * »compat«).
  */
-module thrift.util.event.event;
+module thrift.c.event.event;
 
 import core.sys.posix.sys.time;
-import thrift.util.event.loader;
+import thrift.c.event.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.event.event)();
+  bindFunctions!(thrift.c.event.event)();
 }
 
 version (Windows) {

@@ -1,10 +1,10 @@
-module thrift.util.openssl.x509v3;
+module thrift.c.openssl.x509v3;
 
-import thrift.util.openssl.loader;
-import thrift.util.openssl.asn1;
+import thrift.c.openssl.loader;
+import thrift.c.openssl.asn1;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.x509v3)();
+  bindFunctions!(thrift.c.openssl.x509v3)();
 }
 
 __gshared:

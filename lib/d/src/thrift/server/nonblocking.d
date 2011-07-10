@@ -44,6 +44,8 @@ import std.parallelism : TaskPool, task;
 import std.socket;
 import std.stdio : stdout, stderr; // No proper logging support yet.
 import thrift.base;
+import thrift.c.event.event;
+import thrift.c.event.event_compat;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
@@ -53,8 +55,6 @@ import thrift.transport.base;
 import thrift.transport.memory;
 import thrift.transport.range;
 import thrift.transport.socket;
-import thrift.util.event.event;
-import thrift.util.event.event_compat;
 
 /**
  * Possible actions taken on new incoming connections when the server is

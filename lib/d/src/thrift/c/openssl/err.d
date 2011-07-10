@@ -1,10 +1,10 @@
-module thrift.util.openssl.err;
+module thrift.c.openssl.err;
 
 import core.stdc.config;
-import thrift.util.openssl.loader;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.err)();
+  bindFunctions!(thrift.c.openssl.err)();
 }
 
 __gshared:

@@ -43,22 +43,22 @@ d_transportmodules = $(addprefix thrift/transport/, base buffered file \
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
-d_utilmodules = $(addprefix thrift/util/, loader)
-d_utildir = $(d_thriftdir)/util
-d_util_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
+d_cmodules = $(addprefix thrift/c/, loader)
+d_cdir = $(d_thriftdir)/c
+d_c_DATA = $(addprefix src/, $(addsuffix .d,$(d_cmodules)))
 
-d_eventmodules = $(addprefix thrift/util/event/, event event_compat loader)
-d_eventdir = $(d_thriftdir)/util/event
-d_event_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
+d_eventmodules = $(addprefix thrift/c/event/, event event_compat loader)
+d_eventdir = $(d_thriftdir)/c/event
+d_event_DATA = $(addprefix src/, $(addsuffix .d,$(d_eventmodules)))
 
-d_opensslmodules = $(addprefix thrift/util/openssl/, asn1 bio crypto err \
+d_opensslmodules = $(addprefix thrift/c/openssl/, asn1 bio crypto err \
 	loader objects rand safestack ssl stack x509 x509_vfy x509v3)
-d_openssldir = $(d_thriftdir)/util/openssl
+d_openssldir = $(d_thriftdir)/c/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
 
-d_modules = $(d_eventmodules) $(d_thriftmodules) $(d_protocolmodules) \
-	$(d_servermodules) $(d_opensslmodules) $(d_servertransportmodules) \
-	$(d_transportmodules) $(d_utilmodules)
+d_modules = $(d_thriftmodules) $(d_protocolmodules) \
+	$(d_servermodules) $(d_servertransportmodules) $(d_transportmodules) \
+	$(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)

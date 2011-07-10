@@ -1,9 +1,9 @@
-module thrift.util.openssl.loader;
+module thrift.c.openssl.loader;
 
 import std.conv : to;
 import std.string : toStringz;
 import std.traits : isFunctionPointer;
-import thrift.util.loader;
+import thrift.c.loader;
 
 enum Library {
   crypto,

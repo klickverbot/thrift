@@ -1,9 +1,9 @@
-module thrift.util.openssl.rand;
+module thrift.c.openssl.rand;
 
-import thrift.util.openssl.loader;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.rand)();
+  bindFunctions!(thrift.c.openssl.rand)();
 }
 
 __gshared:

@@ -2,13 +2,13 @@
  * libevent1 event.h interface (still included with libevent2, but called
  * »compat«).
  */
-module thrift.util.event.event_compat;
+module thrift.c.event.event_compat;
 
-import thrift.util.event.event;
-import thrift.util.event.loader;
+import thrift.c.event.event;
+import thrift.c.event.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.event.event_compat)();
+  bindFunctions!(thrift.c.event.event_compat)();
 }
 
 __gshared:

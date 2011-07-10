@@ -7,7 +7,7 @@
  *
  * License: Public Domain (Boost Software License 1.0 where not applicable).
  */
-module thrift.util.loader;
+module thrift.c.loader;
 
 import std.conv : to;
 import std.string : toStringz;

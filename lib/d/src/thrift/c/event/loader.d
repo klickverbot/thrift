@@ -1,7 +1,7 @@
-module thrift.util.event.loader;
+module thrift.c.event.loader;
 
 import std.traits : isFunctionPointer;
-import thrift.util.loader;
+import thrift.c.loader;
 
 void bindFunctions(alias Module)() {
   foreach (m; __traits(derivedMembers, Module)) {
