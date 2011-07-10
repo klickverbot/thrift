@@ -99,7 +99,11 @@ class TNonblockingServer : TServer {
       inputProtocolFactory, outputProtocolFactory);
     port_ = port;
     this.taskPool = taskPool;
-    if (taskPool) stdout.writefln("Using task pool with size: %s", taskPool.size);
+
+    if (taskPool) {
+      stdout.writefln("TNonblockingServer: Using task pool with size: %s",
+        taskPool.size);
+    }
 
     connectionStackLimit = DEFAULT_CONNECTION_STACK_LIMIT;
     maxActiveProcessors = DEFAULT_MAX_ACTIVE_PROCESSORS;
@@ -284,7 +288,8 @@ private:
         clientSocket = listenSocket_.accept();
       } catch (SocketAcceptException e) {
         if (!(e.errorCode == EWOULDBLOCK || e.errorCode == EAGAIN)) {
-          stderr.writefln("TNonblockingServer: error accepting conection: %s", e);
+          stderr.writefln("TNonblockingServer.handleEvent(): Error " ~
+            "accepting conection: %s", e);
         }
         break;
       }
@@ -303,7 +308,8 @@ private:
       try {
         clientSocket.blocking = false;
       } catch (SocketException e) {
-        stderr.writefln("Couldn't set client socket to non-blocking mode: %s", e);
+        stderr.writefln("TNonblockingServer.handleEvent(): Couldn't set " ~
+          "client socket to non-blocking mode: %s", e);
         clientSocket.close();
         return;
       }
@@ -369,7 +375,7 @@ private:
     eventBase_ = base;
 
     // Print some libevent stats
-    stdout.writefln("libevent version %s, using method %s",
+    stdout.writefln("TNonblockingServer: libevent version %s, using method %s",
       to!string(event_get_version()), to!string(event_get_method()));
 
     // Register the server event
@@ -378,8 +384,8 @@ private:
     event_base_set(eventBase_, &listenEvent_);
 
     // Add the event and start up the server
-    if (-1 == event_add(&listenEvent_, null)) {
-      throw new TException("TNonblockingServer.serve(): coult not event_add");
+    if (event_add(&listenEvent_, null) == -1) {
+      throw new TException("event_add for the listening socket event failed.");
     }
     if (taskPool) {
       // Create an event to be notified when a task finishes
@@ -390,8 +396,8 @@ private:
       event_base_set(eventBase_, &completionEvent_);
 
       // Add the event and start up the server
-      if (-1 == event_add(&completionEvent_, null)) {
-        throw new TException("TNonblockingServer.serve(): notification event_add fail");
+      if (event_add(&completionEvent_, null) == -1) {
+        throw new TException("event_add for the notification socket failed.");
       }
     }
   }
@@ -423,7 +429,7 @@ private:
 
         // TODO: Windows.
         if (!(errno == EWOULDBLOCK || errno == EAGAIN)) {
-          stderr.writefln("TNonblockingServer.taskCompletionCallback: read " ~
+          stderr.writefln("TNonblockingServer.taskCompletionCallback(): read " ~
             "failed, resources will be leaked: %s", socketErrnoString(errno));
         }
       }
@@ -434,8 +440,9 @@ private:
     }
 
     if (bytesRead > 0) {
-      stderr.writefln("Connection.taskHandler: Unexpected partial read " ~
-        "(%s bytes instead of %s)", bytesRead, Connection.sizeof);
+      stderr.writefln("TNonblockingServer.taskCompletionCallback(): " ~
+        "Unexpected partial read (%s bytes instead of %s)",
+        bytesRead, Connection.sizeof);
     }
   }
 
