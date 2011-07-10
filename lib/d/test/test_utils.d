@@ -26,26 +26,41 @@ import std.parallelism : TaskPool, totalCPUs;
 import thrift.protocol.base;
 import thrift.protocol.processor;
 import thrift.server.base;
+import thrift.server.nonblocking;
 import thrift.server.simple;
 import thrift.server.taskpool;
 import thrift.server.threaded;
-import thrift.server.transport.base;
+import thrift.server.transport.socket;
 import thrift.transport.base;
+import thrift.transport.buffered;
+import thrift.transport.framed;
+import thrift.transport.http;
 
+// This is a likely victim of @@BUG4744@@ when used with command argument
+// parsing.
 enum ServerType {
   simple,
+  nonblocking,
+  pooledNonblocking,
   taskpool,
   threaded
 }
 
 TServer createServer(ServerType type, size_t taskPoolSize,
-  TProcessor processor, TServerTransport serverTransport,
+  TProcessor processor, TServerSocket serverTransport,
   TTransportFactory transportFactory, TProtocolFactory protocolFactory)
 {
   final switch (type) {
     case ServerType.simple:
       return new TSimpleServer(processor, serverTransport,
         transportFactory, protocolFactory);
+    case ServerType.nonblocking:
+      return new TNonblockingServer(processor, serverTransport.port,
+        transportFactory, protocolFactory);
+    case ServerType.pooledNonblocking:
+      auto tp = new TaskPool(taskPoolSize);
+      return new TNonblockingServer(processor, serverTransport.port,
+        transportFactory, protocolFactory, tp);
     case ServerType.taskpool:
       auto tps = new TTaskPoolServer(processor, serverTransport,
         transportFactory, protocolFactory);
@@ -54,5 +69,25 @@ TServer createServer(ServerType type, size_t taskPoolSize,
     case ServerType.threaded:
       return new TThreadedServer(processor, serverTransport,
         transportFactory, protocolFactory);
+  }
+}
+
+enum TransportType {
+  buffered,
+  framed,
+  http,
+  raw
+}
+
+TTransportFactory createTransportFactory(TransportType type) {
+  final switch (type) {
+    case TransportType.buffered:
+      return new TBufferedTransportFactory;
+    case TransportType.framed:
+      return new TFramedTransportFactory;
+    case TransportType.http:
+      return new TServerHttpTransportFactory;
+    case TransportType.raw:
+      return new TTransportFactory;
   }
 }

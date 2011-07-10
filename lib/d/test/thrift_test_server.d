@@ -235,18 +235,7 @@ void main(string[] args) {
     serverSocket = new TServerSocket(port);
   }
 
-  TTransportFactory transportFactory;
-  final switch (transportType) {
-    case TransportType.buffered:
-      transportFactory = new TBufferedTransportFactory;
-      break;
-    case TransportType.framed:
-      transportFactory = new TFramedTransportFactory;
-      break;
-    case TransportType.http:
-      transportFactory = new TServerHttpTransportFactory;
-      break;
-  }
+  auto transportFactory = createTransportFactory(transportType);
 
   auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
     transportFactory, protocolFactory);

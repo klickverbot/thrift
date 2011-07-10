@@ -9,12 +9,6 @@ enum ProtocolType {
   json
 }
 
-enum TransportType {
-  buffered,
-  framed,
-  http
-}
-
 void writeInsanityReturn(in Insanity[Numberz][UserId] insane) {
   write("{");
   foreach(key1, value1; insane) {

@@ -37,6 +37,7 @@ import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
+import test_utils;
 
 import thrift_test_common;
 import thrift.test.ThriftTest;
@@ -100,6 +101,9 @@ void main(string[] args) {
     case TransportType.http:
       protocol = createProtocol(
         new TClientHttpTransport(socket, host, "/service"), protocolType);
+      break;
+    case TransportType.raw:
+      protocol = createProtocol(socket, protocolType);
       break;
   }
 
