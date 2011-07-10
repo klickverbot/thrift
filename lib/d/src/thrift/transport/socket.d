@@ -18,6 +18,7 @@
  */
 module thrift.transport.socket;
 
+import core.thread : Thread;
 import core.time : Duration;
 import std.array : empty;
 import std.conv : to;
@@ -41,7 +42,7 @@ private {
     import std.c.windows.winsock : WSAGetLastError, WSAEINTR;
     import std.windows.syserror : sysErrorString;
   } else {
-    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR;
+    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR, EWOULDBLOCK;
     import core.stdc.string : strerror;
   }
 
@@ -201,23 +202,50 @@ class TSocket : TBaseTransport {
   }
 
   override void write(in ubyte[] buf) {
-    auto r = socket_.send(buf);
-    if (r == -1) {
-      auto lastErrno = getSocketErrno();
-      static if (connresetOnPeerShutdown) {
-        // See top comment.
-        if (lastErrno == ECONNRESET) {
-          close();
-          return;
-        }
+    size_t sent;
+    while (sent < buf.length) {
+      auto b = writePart(buf[sent .. $]);
+      if (b == 0) {
+        // Couldn't send due to lack of system resources, wait a bit and try
+        // again.
+        Thread.sleep(dur!"usecs"(50));
       }
-      if (lastErrno == TIMEOUT_ERRNO) {
-        throw new TTransportException(TTransportException.Type.TIMED_OUT);
-      } else {
-        throw new TTransportException("Receiving from socket failed: " ~
-          socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
-      }
+      sent += b;
     }
+    assert(sent == buf.length);
+  }
+
+  /**
+   * Writes as much data to the socket as there can be in a single OS call.
+   *
+   * Params:
+   *   buf = Data to write.
+   *
+   * Returns: The actual number of bytes written. Never more than buf.length.
+   */
+  size_t writePart(in ubyte[] buf) out (written) {
+    assert(written <= buf.length, "More data written than tried to?!");
+  } body {
+    assert(isOpen, "Called writePart() on non-open socket!");
+
+    auto r = socket_.send(buf);
+    if (r < 0) {
+      auto lastErrno = getSocketErrno();
+
+      // TODO: Windows.
+      if (lastErrno == EWOULDBLOCK || lastErrno == EAGAIN) {
+        // Not an exceptional error per se – even with blocking sockets,
+        // EAGAIN apparently is returned sometimes on out-of-resource
+        // conditions (see the C++ implementation for details). Also, this
+        // allows using TSocket with non-blocking sockets e.g. in
+        // TNonblockingServer.
+        return 0;
+      }
+
+      throw new TTransportException("Receiving from socket failed: " ~
+        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
+    }
+    return r;
   }
 
   /**
@@ -301,11 +329,17 @@ class TSocket : TBaseTransport {
   /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
-protected:
+  /**
+   * Returns the OS handle of the underlying socket.
+   *
+   * Should not usually be used directly, but access to it can be necessary
+   * to interface with C libraries.
+   */
   typeof(socket_.handle()) socketHandle() @property {
     return socket_.handle();
   }
 
+protected:
   InternetAddress peerAddress() @property {
     if (!peerAddress_) {
       peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
