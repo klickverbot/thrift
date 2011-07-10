@@ -807,7 +807,7 @@ private {
         case SocketState.RECV_FRAME_SIZE:
           // If some bytes have already been read, they have been kept in
           // readWant_.
-          int frameSize = readWant_;
+          auto frameSize = readWant_;
 
           try {
             // Read from the socket
@@ -825,7 +825,6 @@ private {
             stderr.writefln(
               "Connection.workSocket(): Failed to read frame size %s", te);
             close();
-
             return;
           }
 
@@ -1006,11 +1005,16 @@ private {
     /// Application state
     ConnectionState connState_;
 
-    /// How much data needed to read
-    size_t readWant_;
+    /// The size of the frame to read. If still in READ_FRAME_SIZE state, some
+    /// of the bytes might not have been written, and the value might still be
+    /// in network byte order. An int (not a size_t) because the frame size on
+    /// the wire is specified as one.
+    int readWant_;
 
-    /// Where in the read buffer are we
-    size_t readBufferPos_;
+    /// The position in the read buffer, i.e. the number of payload bytes
+    /// already received from the socket in READ_REQUEST state, resp. the
+    /// number of size bytes in READ_FRAME_SIZE state.
+    uint readBufferPos_;
 
     /// Read buffer
     ubyte* readBuffer_;
