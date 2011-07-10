@@ -65,7 +65,7 @@ class TServerSocket : TServerTransport {
   }
 
   /// The maximum number of listening retries if it fails.
-  void retryLimit(int retryLimit) @property {
+  void retryLimit(ushort retryLimit) @property {
     retryLimit_ = retryLimit;
   }
 
@@ -94,79 +94,8 @@ class TServerSocket : TServerTransport {
         to!string(e), TTransportException.Type.NOT_OPEN);
     }
 
-    try {
-      serverSocket_ = new Socket(AddressFamily.INET, SocketType.STREAM,
-        ProtocolType.TCP);
-    } catch (SocketException e) {
-      throw new TTransportException("Could not create accepting socket: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
-    }
-
-    alias SocketOptionLevel.SOCKET lvlSock;
-
-    // Set reusaddress to prevent 2MSL delay on accept.
-    try {
-      serverSocket_.setOption(lvlSock, SocketOption.REUSEADDR, true);
-    } catch (SocketException e) {
-      throw new TTransportException("Could not set REUSEADDR socket option: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
-    }
-
-    // Set TCP buffer sizes.
-    if (tcpSendBuffer_ > 0) {
-      try {
-        serverSocket_.setOption(lvlSock, SocketOption.SNDBUF, tcpSendBuffer_);
-      } catch (SocketException e) {
-        throw new TTransportException("Could not set socket send buffer size: " ~
-          to!string(e), TTransportException.Type.NOT_OPEN);
-      }
-    }
-
-    if (tcpRecvBuffer_ > 0) {
-      try {
-        serverSocket_.setOption(lvlSock, SocketOption.RCVBUF, tcpRecvBuffer_);
-      } catch (SocketException e) {
-        throw new TTransportException("Could not set receive send buffer size: " ~
-          to!string(e), TTransportException.Type.NOT_OPEN);
-      }
-    }
-
-    // Turn linger off, don't want to block on calls to close.
-    try {
-      serverSocket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
-    } catch (SocketException e) {
-      throw new TTransportException("Could not disable socket linger: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
-    }
-
-    // Set TCP_NODELAY. Do not fail hard as root privileges might be required
-    // on Linux to set the option.
-    try {
-      serverSocket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY,
-        true);
-    } catch (SocketException e) {
-      throw new TTransportException("Could not disable Nagle's algorithm: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
-    }
-
-    auto localAddr = new InternetAddress("0.0.0.0", port_);
-
-    int retries;
-    while (true) {
-      try {
-        serverSocket_.bind(localAddr);
-        break;
-      } catch (SocketException) {}
-      retries++;
-      if (retries < retryLimit_) {
-        Thread.sleep(retryDelay_);
-      } else {
-        throw new TTransportException("Could not bind.",
-          TTransportException.Type.NOT_OPEN);
-      }
-    }
-
-    serverSocket_.listen(acceptBacklog_);
+    serverSocket_ = makeSocketAndListen(port_, ACCEPT_BACKLOG, retryLimit_,
+      retryDelay_, tcpSendBuffer_, tcpRecvBuffer_);
   }
 
   override void close() {
@@ -188,6 +117,9 @@ class TServerSocket : TServerTransport {
     // select() call.
     intSendSocket_.send(cast(void[])[0]);
   }
+
+  /// Number of connections listen() backlogs.
+  enum ACCEPT_BACKLOG = 1024;
 
 protected:
   override TTransport acceptImpl() {
@@ -259,17 +191,99 @@ protected:
 
 private:
   ushort port_;
-  int acceptBacklog_ = 1024;
   Duration sendTimeout_;
   Duration recvTimeout_;
-  int retryLimit_;
+  ushort retryLimit_;
   Duration retryDelay_;
-  int tcpSendBuffer_;
-  int tcpRecvBuffer_;
+  uint tcpSendBuffer_;
+  uint tcpRecvBuffer_;
 
   Socket serverSocket_;
   Socket intRecvSocket_;
   Socket intSendSocket_;
+}
+
+Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
+  Duration retryDelay, uint tcpSendBuffer = 0, uint tcpRecvBuffer = 0
+) {
+  Socket socket;
+  try {
+    socket = new Socket(AddressFamily.INET, SocketType.STREAM,
+      ProtocolType.TCP);
+  } catch (SocketException e) {
+    throw new TTransportException("Could not create accepting socket: " ~
+      to!string(e), TTransportException.Type.NOT_OPEN);
+  }
+
+  alias SocketOptionLevel.SOCKET lvlSock;
+
+  // Prevent 2 maximum segement lifetime delay on accept.
+  try {
+    socket.setOption(lvlSock, SocketOption.REUSEADDR, true);
+  } catch (SocketException e) {
+    throw new TTransportException("Could not set REUSEADDR socket option: " ~
+      to!string(e), TTransportException.Type.NOT_OPEN);
+  }
+
+  // Set TCP buffer sizes.
+  if (tcpSendBuffer > 0) {
+    try {
+      socket.setOption(lvlSock, SocketOption.SNDBUF, tcpSendBuffer);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not set socket send buffer size: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
+  }
+
+  if (tcpRecvBuffer > 0) {
+    try {
+      socket.setOption(lvlSock, SocketOption.RCVBUF, tcpRecvBuffer);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not set receive send buffer size: " ~
+        to!string(e), TTransportException.Type.NOT_OPEN);
+    }
+  }
+
+  // Turn linger off to avoid blocking on socket close.
+  try {
+    socket.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+  } catch (SocketException e) {
+    throw new TTransportException("Could not disable socket linger: " ~
+      to!string(e), TTransportException.Type.NOT_OPEN);
+  }
+
+  // Set TCP_NODELAY. Do not fail hard as root privileges might be required
+  // on Linux to set the option.
+  try {
+    socket.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY,
+      true);
+  } catch (SocketException e) {
+    throw new TTransportException("Could not disable Nagle's algorithm: " ~
+      to!string(e), TTransportException.Type.NOT_OPEN);
+  }
+
+  // TODO: Find IPv6 address once std.socket is no longer IPv4-only.
+  auto localAddr = new InternetAddress("0.0.0.0", port);
+
+  ushort retries;
+  while (true) {
+    try {
+      socket.bind(localAddr);
+      break;
+    } catch (SocketException) {}
+
+    // If bind() worked, we breaked outside the loop above.
+    retries++;
+    if (retries < retryLimit) {
+      Thread.sleep(retryDelay);
+    } else {
+      throw new TTransportException("Could not bind.",
+        TTransportException.Type.NOT_OPEN);
+    }
+  }
+
+  socket.listen(backlog);
+  return socket;
 }
 
 unittest {
