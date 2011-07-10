@@ -54,6 +54,11 @@ class TServerSocket : TServerTransport {
     recvTimeout_ = recvTimeout;
   }
 
+  /// The port the server socket listens at.
+  ushort port() const @property {
+    return port_;
+  }
+
   /// The socket sending timeout, zero to block infinitely.
   void sendTimeout(Duration sendTimeout) @property {
     sendTimeout_ = sendTimeout;
