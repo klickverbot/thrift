@@ -499,9 +499,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
-    // static if clause should not be necessary.
-    static if (fieldMetaData) foreach (field; fieldMetaData) {
+    foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -680,9 +678,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   // passed struct type.
   mixin({
     string code = "";
-    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
-    // static if clause should not be necessary.
-    static if (fieldMetaData) foreach (field; fieldMetaData) {
+    foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
     return code;
@@ -1021,9 +1017,7 @@ template TResultStruct(Interface, string methodName) {
     static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
       auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
       if (!meta.empty) {
-        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-        // on empty exception arrays.
-        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+        foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
           fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
             ", TReq.OPTIONAL)";
@@ -1102,9 +1096,7 @@ template TPresultStruct(Interface, string methodName) {
     static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
       auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
       if (!meta.empty) {
-        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-        // on empty exception arrays.
-        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+        foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
           fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
             ", TReq.OPTIONAL)";
@@ -1307,9 +1299,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
           };
 
           if (methodMetaFound) {
-            // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-            // on empty exception arrays.
-            if (!methodMeta.exceptions.empty) foreach (e; methodMeta.exceptions) {
+            foreach (e; methodMeta.exceptions) {
               code ~= "if (result.isSet!`" ~ e.name ~ "`) throw result." ~
                 e.name ~ ";\n";
             }
@@ -1543,9 +1533,7 @@ template TServiceProcessor(Interface, Protocols...) if (
 
         // If this is not a oneway method, generate the recieving code.
         if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
-          // DMD @@BUG@@: The second if condition should not be necessary, but
-          // otherwise DMD ICEs on empty exception arrays.
-          if (methodMetaFound && !methodMeta.exceptions.empty) {
+          if (methodMetaFound) {
             foreach (e; methodMeta.exceptions) {
               code ~= "} catch (Interface." ~ e.type ~ " " ~ e.name ~ ") {\n";
               code ~= "result.set!`" ~ e.name ~ "`(" ~ e.name ~ ");\n";
