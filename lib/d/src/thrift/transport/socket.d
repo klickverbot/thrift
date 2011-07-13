@@ -56,7 +56,7 @@ private {
     alias EINTR INTERRUPTED_ERRNO;
 
     // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
-    // set (undocumentedly) in out of ressource conditions; adapt the code
+    // set (undocumentedly) in out of resource conditions; adapt the code
     // accordingly.
     alias EAGAIN TIMEOUT_ERRNO;
   }
@@ -204,7 +204,7 @@ class TSocket : TBaseTransport {
   override void write(in ubyte[] buf) {
     size_t sent;
     while (sent < buf.length) {
-      auto b = writePart(buf[sent .. $]);
+      auto b = writeSome(buf[sent .. $]);
       if (b == 0) {
         // Couldn't send due to lack of system resources, wait a bit and try
         // again.
@@ -223,10 +223,10 @@ class TSocket : TBaseTransport {
    *
    * Returns: The actual number of bytes written. Never more than buf.length.
    */
-  size_t writePart(in ubyte[] buf) out (written) {
+  size_t writeSome(in ubyte[] buf) out (written) {
     assert(written <= buf.length, "More data written than tried to?!");
   } body {
-    assert(isOpen, "Called writePart() on non-open socket!");
+    assert(isOpen, "Called writeSome() on non-open socket!");
 
     auto r = socket_.send(buf);
     if (r < 0) {

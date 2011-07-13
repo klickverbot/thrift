@@ -900,7 +900,7 @@ private {
 
           size_t bytesSent;
           try {
-            bytesSent = socket_.writePart(writeBuffer_[writeBufferPos_ .. $]);
+            bytesSent = socket_.writeSome(writeBuffer_[writeBufferPos_ .. $]);
           } catch (TTransportException te) {
             stderr.writefln("Connection.workSocket(): %s ", te);
             close();
