@@ -121,11 +121,8 @@ class TSocket : TBaseTransport {
     enforce(port_ != 0, new TTransportException(
       TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
 
-    if (socket_ is null) {
-      socket_ = new TcpSocket(AddressFamily.INET);
-      setSocketOpts();
-    }
-
+    socket_ = new TcpSocket(AddressFamily.INET);
+    setSocketOpts();
     try {
       socket_.connect(new InternetAddress(host_, port_));
     } catch (SocketException e) {
