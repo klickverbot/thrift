@@ -43,6 +43,10 @@ d_transportmodules = $(addprefix thrift/transport/, base buffered file \
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
+d_utilmodules = $(addprefix thrift/util/, socket)
+d_utildir = $(d_thriftdir)/util
+d_util_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
+
 d_cmodules = $(addprefix thrift/c/, loader)
 d_cdir = $(d_thriftdir)/c
 d_c_DATA = $(addprefix src/, $(addsuffix .d,$(d_cmodules)))
@@ -58,7 +62,7 @@ d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
 
 d_modules = $(d_thriftmodules) $(d_protocolmodules) \
 	$(d_servermodules) $(d_servertransportmodules) $(d_transportmodules) \
-	$(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
+	$(d_utilmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)

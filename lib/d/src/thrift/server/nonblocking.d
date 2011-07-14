@@ -55,6 +55,7 @@ import thrift.transport.base;
 import thrift.transport.memory;
 import thrift.transport.range;
 import thrift.transport.socket;
+import thrift.util.socket;
 
 /**
  * Possible actions taken on new incoming connections when the server is
@@ -374,28 +375,27 @@ private:
     assert(!eventBase_);
     eventBase_ = base;
 
-    // Print some libevent stats
+    // Log the libevent version and backend used.
     stdout.writefln("TNonblockingServer: libevent version %s, using method %s",
       to!string(event_get_version()), to!string(event_get_method()));
 
-    // Register the server event
+    // Register the event for the listening socket.
     event_set(&listenEvent_, listenSocket_.handle, EV_READ | EV_PERSIST,
       &handleEventCallback, cast(void*)this);
+
     event_base_set(eventBase_, &listenEvent_);
 
-    // Add the event and start up the server
     if (event_add(&listenEvent_, null) == -1) {
       throw new TException("event_add for the listening socket event failed.");
     }
+
     if (taskPool) {
-      // Create an event to be notified when a task finishes
+      // Register an event for the task completion notification socket.
       event_set(&completionEvent_, completionReceiveSocket_.handle,
         EV_READ | EV_PERSIST, &taskCompletionCallback, cast(void*)this);
 
-      // Attach to the base
       event_base_set(eventBase_, &completionEvent_);
 
-      // Add the event and start up the server
       if (event_add(&completionEvent_, null) == -1) {
         throw new TException("event_add for the notification socket failed.");
       }
@@ -1090,20 +1090,4 @@ void processRequest(Connection connection) {
   }
 
   connection.notifyServer();
-}
-
-private {
-  version (Win32) {
-    alias WSAGetLastError getSocketErrno;
-  } else {
-    alias getErrno getSocketErrno;
-  }
-
-  string socketErrnoString(uint errno) {
-    version (Win32) {
-      return sysErrorString(errno);
-    } else {
-      return to!string(strerror(errno));
-    }
-  }
 }

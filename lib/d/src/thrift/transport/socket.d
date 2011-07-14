@@ -18,6 +18,7 @@
  */
 module thrift.transport.socket;
 
+import core.stdc.errno : EPIPE, ENOTCONN;
 import core.thread : Thread;
 import core.time : Duration;
 import std.array : empty;
@@ -26,49 +27,7 @@ import std.exception : enforce;
 import std.socket;
 import std.stdio : stderr; // No proper logging support yet.
 import thrift.transport.base;
-
-private {
-  // FreeBSD and OS X return -1 and set ECONNRESET if socket was closed by
-  // the other side, we need to check for that before throwing an exception.
-  version (FreeBSD) {
-    enum connresetOnPeerShutdown = true;
-  } else version (OSX) {
-    enum connresetOnPeerShutdown = true;
-  } else {
-    enum connresetOnPeerShutdown = false;
-  }
-
-  version (Win32) {
-    import std.c.windows.winsock : WSAGetLastError, WSAEINTR;
-    import std.windows.syserror : sysErrorString;
-  } else {
-    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR, EWOULDBLOCK;
-    import core.stdc.string : strerror;
-  }
-
-  version (Win32) {
-    alias WSAGetLastError getSocketErrno;
-    enum INTERRUPTED_ERRNO = WSAEINTR;
-    // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
-    enum TIMEOUT_ERRNO = 10060;
-  } else {
-    alias getErrno getSocketErrno;
-    alias EINTR INTERRUPTED_ERRNO;
-
-    // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
-    // set (undocumentedly) in out of resource conditions; adapt the code
-    // accordingly.
-    alias EAGAIN TIMEOUT_ERRNO;
-  }
-
-  string socketErrnoString(uint errno) {
-    version (Win32) {
-      return sysErrorString(errno);
-    } else {
-      return to!string(strerror(errno));
-    }
-  }
-}
+import thrift.util.socket;
 
 /**
  * Socket implementation of the TTransport interface.
@@ -94,8 +53,8 @@ class TSocket : TBaseTransport {
    * on the given port.
    *
    * Params:
-   *   host = Remote host
-   *   port = Remote port
+   *   host = Remote host.
+   *   port = Remote port.
    */
   this(string host, ushort port) {
     host_ = host;
@@ -145,7 +104,7 @@ class TSocket : TBaseTransport {
     if (!isOpen) return false;
 
     ubyte buf;
-    auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
+    auto r = socket_.receive((&buf)[0 .. 1], SocketFlags.PEEK);
     if (r == -1) {
       auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
@@ -220,16 +179,20 @@ class TSocket : TBaseTransport {
    *
    * Returns: The actual number of bytes written. Never more than buf.length.
    */
-  size_t writeSome(in ubyte[] buf) out (written) {
+  size_t writeSome(in ubyte[] buf) in {
+    assert(isOpen, "Called writeSome() on non-open socket!");
+  } out (written) {
     assert(written <= buf.length, "More data written than tried to?!");
   } body {
-    assert(isOpen, "Called writeSome() on non-open socket!");
-
     auto r = socket_.send(buf);
+
+    // Everything went well, just return the number of bytes written.
+    if (r > 0) return r;
+
+    // Handle error conditions. TODO: Windows.
     if (r < 0) {
       auto lastErrno = getSocketErrno();
 
-      // TODO: Windows.
       if (lastErrno == EWOULDBLOCK || lastErrno == EAGAIN) {
         // Not an exceptional error per se – even with blocking sockets,
         // EAGAIN apparently is returned sometimes on out-of-resource
@@ -239,10 +202,19 @@ class TSocket : TBaseTransport {
         return 0;
       }
 
-      throw new TTransportException("Receiving from socket failed: " ~
-        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
+      auto type = TTransportException.Type.UNKNOWN;
+      if (lastErrno == EPIPE || lastErrno == ECONNRESET || lastErrno == ENOTCONN) {
+        type = TTransportException.Type.NOT_OPEN;
+        close();
+      }
+
+      throw new TTransportException("Sending to socket failed: " ~
+        socketErrnoString(lastErrno), type);
     }
-    return r;
+
+    // send() should never return 0.
+    throw new TTransportException("Sending to socket failed (0 bytes written).",
+      TTransportException.Type.UNKNOWN);
   }
 
   /**
@@ -277,12 +249,18 @@ class TSocket : TBaseTransport {
     return peerPort_;
   }
 
-  /// The host to connect to.
+  /**
+   * The host the socket is connected to or will connect to. Null if an
+   * already connected socket was used to construct the object.
+   */
   string host() @property {
     return host_;
   }
 
-  /// The port to connect to.
+  /**
+   * The port the socket is connected to or will connect to. Zero if an
+   * already connected socket was used to construct the object.
+   */
   ushort port() @property {
     return port_;
   }
