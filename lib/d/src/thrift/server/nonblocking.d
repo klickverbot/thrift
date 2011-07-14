@@ -55,6 +55,7 @@ import thrift.transport.base;
 import thrift.transport.memory;
 import thrift.transport.range;
 import thrift.transport.socket;
+import thrift.util.endian;
 import thrift.util.socket;
 
 /**

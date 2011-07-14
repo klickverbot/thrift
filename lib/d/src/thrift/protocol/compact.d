@@ -22,6 +22,7 @@ import std.array : uninitializedArray;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
+import thrift.util.endian;
 
 /**
  * D implementation of the Compact protocol.

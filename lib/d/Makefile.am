@@ -43,7 +43,7 @@ d_transportmodules = $(addprefix thrift/transport/, base buffered file \
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
-d_utilmodules = $(addprefix thrift/util/, socket)
+d_utilmodules = $(addprefix thrift/util/, endian socket)
 d_utildir = $(d_thriftdir)/util
 d_util_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
 
