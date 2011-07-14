@@ -43,12 +43,16 @@ interface TTransport {
   /**
    * Opens the transport for communications.
    *
+   * If the transport is already open, nothing happens.
+   *
    * Throws: TTransportException if opening fails.
    */
   void open();
 
   /**
    * Closes the transport.
+   *
+   * If the transport is not open, nothing happens.
    *
    * Throws: TTransportException if closing fails.
    */
@@ -311,7 +315,7 @@ template TWrapperTransportFactory(T) if (
   is(T : TTransport) && __traits(compiles, new T(TTransport.init))
 ) {
   class TWrapperTransportFactory : TTransportFactory {
-    override TTransport getTransport(TTransport trans) {
+    override T getTransport(TTransport trans) {
       return new T(trans);
     }
   }
