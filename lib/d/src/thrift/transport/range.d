@@ -29,6 +29,10 @@ import thrift.transport.base;
 
 /**
  * Adapts an ubyte input range for reading via the TTransport interface.
+ *
+ * The case where R is a plain ubyte[] is reasonably optimized, so a possible
+ * use case for TInputRangeTransport would be to deserialize some data held in
+ * a memory buffer.
  */
 final class TInputRangeTransport(R) if (
   isInputRange!(Unqual!R) && is(ElementType!R : const(ubyte))
