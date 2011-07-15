@@ -49,10 +49,12 @@ import std.exception : enforce;
 import std.traits;
 import std.typetuple : allSatisfy, TypeTuple;
 import std.variant : Variant;
+import thrift.async.base;
 import thrift.base;
 import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.processor;
+import thrift.transport.base;
 
 /*
  * Thrift struct/service meta data, which is used to store information from
@@ -1194,6 +1196,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         static if (isTProtocol!OutputProtocol) {
           alias OutputProtocol OProt;
         } else {
+          static assert(is(OutputProtocol == void));
           alias InputProtocol OProt;
         }
 
@@ -1315,6 +1318,123 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             };
           }
         }
+        code ~= "}\n";
+      }
+    }
+
+    code ~= "}\n";
+    return code;
+  }());
+}
+
+/**
+ * Asynchronous Thrift service client, which just like TClient implements an
+ * interface by calling a server, but instead of synchronously invoking the
+ * methods, it returns the result as a TFuture and uses a TAsyncManager to
+ * perform the actual work.
+ */
+template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
+  is(Interface _ == interface) && isTProtocol!InputProtocol &&
+  (isTProtocol!OutputProtocol || is(OutputProtocol == void))
+) {
+  mixin({
+    static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
+      static assert(BaseInterfaces.length == 1,
+        "Services cannot be derived from more than one parent.");
+
+      string code = "class TAsyncClient : TAsyncClient!(BaseTypeTuple!(" ~
+        "Interface)[0], InputProtocol, OutputProtocol) {\n";
+      code ~= q{
+        this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf) {
+          this(trans, tf, tf, pf, pf);
+        }
+
+        this(TAsyncTransport trans, TTransportFactory itf,
+          TTransportFactory otf, TProtocolFactory ipf, TProtocolFactory opf
+        ) {
+          super(trans, itf, otf, ipf, opf);
+          client_ = new typeof(client_)(iprot_, oprot_);
+        }
+
+        private TClient!(Interface, IProt, OProt) client_;
+      };
+    } else {
+      string code = "class TAsyncClient {";
+      code ~= q{
+        alias InputProtocol IProt;
+        static if (isTProtocol!OutputProtocol) {
+          alias OutputProtocol OProt;
+        } else {
+          static assert(is(OutputProtocol == void));
+          alias InputProtocol OProt;
+        }
+
+        this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf) {
+          this(trans, tf, tf, pf, pf);
+        }
+
+        this(TAsyncTransport trans, TTransportFactory itf,
+          TTransportFactory otf, TProtocolFactory ipf, TProtocolFactory opf
+        ) {
+          asyncTransport_ = trans;
+
+          auto iprot = ipf.getProtocol(itf.getTransport(trans));
+          iprot_ = cast(IProt)iprot;
+          enforce(iprot_, new TException(text("Input protocol not of the " ~
+            "specified concrete type (", IProt.stringof, ").")));
+
+          auto oprot = opf.getProtocol(otf.getTransport(trans));
+          oprot_ = cast(OProt)oprot;
+          enforce(oprot_, new TException(text("Output protocol not of the " ~
+            "specified concrete type (", OProt.stringof, ").")));
+
+          client_ = new typeof(client_)(iprot_, oprot_);
+        }
+
+        protected TAsyncTransport asyncTransport_;
+        protected IProt iprot_;
+        protected OProt oprot_;
+        private TClient!(Interface, IProt, OProt) client_;
+      };
+    }
+
+    foreach (methodName; __traits(derivedMembers, Interface)) {
+      static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
+        string[] paramList;
+        string[] paramNames;
+        foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+          immutable paramName = "param" ~ to!string(i + 1);
+          paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+            to!string(i) ~ "] " ~ paramName;
+          paramNames ~= paramName;
+        }
+
+        code ~= "TFuture!(ReturnType!(Interface." ~ methodName ~ ")) " ~
+          methodName ~ "(" ~ ctfeJoin(paramList) ~ ") {\n";
+
+        // Create the future instance that will repesent the result.
+        code ~= "auto future = new typeof(return);\n";
+
+        // Prepare work item that executes the TClient method call.
+        code ~= "auto work = TAsyncWorkItem(asyncTransport_, {\n";
+        code ~= "try {\n";
+        code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
+          ") == void)) {\n";
+        code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
+        code ~= "future.complete();\n";
+        code ~= "} else {\n";
+        code ~= "auto result = client_." ~ methodName ~ "(" ~
+          ctfeJoin(paramNames) ~ ");\n";
+        code ~= "future.complete(result);\n";
+        code ~= "}\n";
+        code ~= "} catch (Exception e) {\n";
+        code ~= "future.fail(e);\n";
+        code ~= "}\n";
+        code ~= "});\n";
+
+        // Enqueue the work item and immediately return the future.
+        code ~= "asyncTransport_.asyncManager.execute(work);\n";
+        code ~= "return future;\n";
         code ~= "}\n";
       }
     }

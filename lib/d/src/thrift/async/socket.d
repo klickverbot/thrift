@@ -16,36 +16,54 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift.transport.socket;
+module thrift.async.socket;
 
 import core.stdc.errno : EPIPE, ENOTCONN;
-import core.thread : Thread;
+import core.thread : Fiber;
 import core.time : Duration;
 import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;
 import std.socket;
 import std.stdio : stderr; // No proper logging support yet.
+import thrift.async.base;
 import thrift.transport.base;
+import thrift.util.endian;
 import thrift.util.socket;
 
+version (Windows) {
+  import std.c.windows.winsock : connect, sockaddr, sockaddr_in;
+} else version (Posix) {
+  import core.sys.posix.netinet.in_ : sockaddr_in;
+  import core.sys.posix.sys.socket : connect, sockaddr;
+} else static assert(0, "Don't know connect/sockaddr_in on this platform.");
+
 /**
- * Socket implementation of the TTransport interface.
+ * Non-blocking socket implementation of the TTransport interface.
  *
- * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
- * sockets or IPv6) are currently supported.
+ * Whenever a socket operation would block, TAsyncSocket registers a callback
+ * with the specified TAsyncIOService and yields.
+ *
+ * As for thrift.transport.socket, due to the limitations of std.socket, only
+ * TCP/IPv4 sockets (i.e. no Unix sockets or IPv6) are currently supported.
+ *
+ * TODO: Implement timeouts.
  */
-class TSocket : TBaseTransport {
+class TAsyncSocket : TBaseTransport, TAsyncTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
    * Params:
-   *   socket = Already created, connected socket object.
+   *   asyncManager = The TAsyncManager to use for non-blocking I/O.
+   *   socket = Already created, connected socket object. Will be switched to
+   *     non-blocking mode if it isn't already.
    */
-  this(Socket socket) {
+  this(TAsyncManager asyncManager, Socket socket) {
+    asyncManager_ = asyncManager;
+
     socket_ = socket;
+    socket_.blocking = false;
     setSocketOpts();
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -56,10 +74,15 @@ class TSocket : TBaseTransport {
    *   host = Remote host.
    *   port = Remote port.
    */
-  this(string host, ushort port) {
+  this(TAsyncManager asyncManager, string host, ushort port) {
+    asyncManager_ = asyncManager;
+
     host_ = host;
     port_ = port;
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
+  }
+
+  override TAsyncManager asyncManager() @property {
+    return asyncManager_;
   }
 
   /**
@@ -70,7 +93,9 @@ class TSocket : TBaseTransport {
   }
 
   /**
-   * Connects the socket.
+   * Asynchronously connects the socket.
+   *
+   *
    */
   override void open() {
     if (isOpen) return;
@@ -81,17 +106,58 @@ class TSocket : TBaseTransport {
       TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
 
     socket_ = new TcpSocket(AddressFamily.INET);
+    socket_.blocking = false;
     setSocketOpts();
-    try {
-      socket_.connect(new InternetAddress(host_, port_));
-    } catch (SocketException e) {
-      throw new TTransportException(TTransportException.Type.NOT_OPEN,
-        __FILE__, __LINE__, e);
+
+    // Cannot use std.socket.Socket.connect here because it hides away
+    // EINPROGRESS/WSAWOULDBLOCK, and cannot use InternetAddress here because
+    // it does not provide access to the sockaddr_in struct outside std.socket.
+    auto addr = InternetAddress.parse(host_);
+    if (addr == InternetAddress.ADDR_NONE) {
+      auto host = new InternetHost;
+      if (!host.getHostByName(host_)) {
+        throw new TTransportException(`Unable to resolve host "` ~ host_ ~ `".`,
+          TTransportException.Type.NOT_OPEN);
+      }
+      addr = host.addrList[0];
     }
+
+    sockaddr_in sin;
+    sin.sin_family = AddressFamily.INET;
+    sin.sin_addr.s_addr = hostToNet(addr);
+    sin.sin_port = hostToNet(port);
+
+    auto errorCode = connect(socket_.handle, cast(sockaddr*)&sin, sin.sizeof);
+    if (errorCode == 0) {
+      // If the connection could be established immediately, just return. I
+      // don't know if this ever happens.
+      return;
+    }
+
+    auto errno = getSocketErrno();
+    if (errno != CONNECT_INPROGRESS_ERRNO) {
+      throw new TTransportException(`Could not establish connection to "` ~
+        host_ ~ `": ` ~ socketErrnoString(errno),
+        TTransportException.Type.NOT_OPEN);
+    }
+
+    // This is the expected case: connect() signalled that the connection
+    // is being established in the background. Queue up a work item with the
+    // async manager which just defers any other operations on this
+    // TAsyncSocket instance until the socket is ready.
+    asyncManager_.execute(TAsyncWorkItem(this, {
+      auto fiber = Fiber.getThis();
+      asyncManager_.socketManager.addOneshotListener(socket_,
+        TAsyncEventType.WRITE, { fiber.call(); });
+      Fiber.yield();
+    }));
   }
 
   /**
    * Closes the socket.
+   *
+   * Note: Currently, calling this while there are still pending asynchronous
+   *   operations for this connection yields undefined behavior.
    */
   override void close() {
     if (socket_ !is null) {
@@ -104,7 +170,7 @@ class TSocket : TBaseTransport {
     if (!isOpen) return false;
 
     ubyte buf;
-    auto r = socket_.receive((&buf)[0 .. 1], SocketFlags.PEEK);
+    auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
     if (r == -1) {
       auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
@@ -121,52 +187,31 @@ class TSocket : TBaseTransport {
 
   override size_t read(ubyte[] buf) {
     typeof(getSocketErrno()) lastErrno;
-    ushort tries;
-    while (tries++ <= maxRecvRetries_) {
-      auto r = socket_.receive(cast(void[])buf);
 
-      // If recv went fine, immediately return.
-      if (r >= 0) return r;
+    auto r = yieldOnEagain(socket_.receive(cast(void[])buf),
+      TAsyncEventType.READ);
 
-      // Something went wrong, find out how to handle it.
-      lastErrno = getSocketErrno();
+    // If recv went fine, immediately return.
+    if (r >= 0) return r;
 
-      // TODO: Handle EAGAIN like C++ does.
+    // Something went wrong, find out how to handle it.
+    lastErrno = getSocketErrno();
 
-      if (lastErrno == INTERRUPTED_ERRNO) {
-        // If the syscall was interrupted, just try again.
-        continue;
+    static if (connresetOnPeerShutdown) {
+      // See top comment.
+      if (lastErrno == ECONNRESET) {
+        return 0;
       }
-
-      static if (connresetOnPeerShutdown) {
-        // See top comment.
-        if (lastErrno == ECONNRESET) {
-          return 0;
-        }
-      }
-
-      // Not an error which is handled in a special way, just leave the loop.
-      break;
     }
 
-    if (lastErrno == TIMEOUT_ERRNO) {
-      throw new TTransportException(TTransportException.Type.TIMED_OUT);
-    } else {
-      throw new TTransportException("Receiving from socket failed: " ~
-        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
-    }
+    throw new TTransportException("Receiving from socket failed: " ~
+      socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
   }
 
   override void write(in ubyte[] buf) {
     size_t sent;
     while (sent < buf.length) {
-      auto b = writeSome(buf[sent .. $]);
-      if (b == 0) {
-        // Couldn't send due to lack of system resources, wait a bit and try
-        // again.
-        Thread.sleep(dur!"usecs"(50));
-      }
-      sent += b;
+      sent += writeSome(buf[sent .. $]);
     }
     assert(sent == buf.length);
   }
@@ -184,7 +229,7 @@ class TSocket : TBaseTransport {
   } out (written) {
     assert(written <= buf.length, "More data written than tried to?!");
   } body {
-    auto r = socket_.send(buf);
+    auto r = yieldOnEagain(socket_.send(buf), TAsyncEventType.WRITE);
 
     // Everything went well, just return the number of bytes written.
     if (r > 0) return r;
@@ -192,15 +237,6 @@ class TSocket : TBaseTransport {
     // Handle error conditions. TODO: Windows.
     if (r < 0) {
       auto lastErrno = getSocketErrno();
-
-      if (lastErrno == WOULD_BLOCK_ERRNO) {
-        // Not an exceptional error per se – even with blocking sockets,
-        // EAGAIN apparently is returned sometimes on out-of-resource
-        // conditions (see the C++ implementation for details). Also, this
-        // allows using TSocket with non-blocking sockets e.g. in
-        // TNonblockingServer.
-        return 0;
-      }
 
       auto type = TTransportException.Type.UNKNOWN;
       if (lastErrno == EPIPE || lastErrno == ECONNRESET || lastErrno == ENOTCONN) {
@@ -265,45 +301,6 @@ class TSocket : TBaseTransport {
     return port_;
   }
 
-  /// The socket send timeout.
-  Duration sendTimeout() const @property {
-    return sendTimeout_;
-  }
-
-  /// Ditto
-  void sendTimeout(Duration value) @property {
-    sendTimeout_ = value;
-    setTimeout(SocketOption.SNDTIMEO, value);
-  }
-
-  /// The socket receiving timeout. Values smaller than 500 ms are not
-  /// supported on Windows.
-  Duration recvTimeout() const @property {
-    return recvTimeout_;
-  }
-
-  /// Ditto
-  void recvTimeout(Duration value) @property {
-    recvTimeout_ = value;
-    setTimeout(SocketOption.RCVTIMEO, value);
-  }
-
-  /**
-   * Maximum number of retries for receiving from socket on read() in case of
-   * EAGAIN/EINTR.
-   */
-  ushort maxRecvRetries() @property const {
-    return maxRecvRetries_;
-  }
-
-  /// Ditto
-  void maxRecvRetries(ushort value) @property {
-    maxRecvRetries_ = value;
-  }
-
-  /// Ditto
-  enum DEFAULT_MAX_RECV_RETRIES = 5;
-
   /**
    * Returns the OS handle of the underlying socket.
    *
@@ -331,8 +328,6 @@ private:
     try {
       alias SocketOptionLevel.SOCKET lvlSock;
       socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
-      socket_.setOption(lvlSock, SocketOption.SNDTIMEO, sendTimeout_);
-      socket_.setOption(lvlSock, SocketOption.RCVTIMEO, recvTimeout_);
     } catch (SocketException e) {
       stderr.writefln("Could not set socket option: %s", e);
     }
@@ -344,46 +339,31 @@ private:
     } catch (SocketException e) {}
   }
 
-  void setTimeout(SocketOption type, Duration value) {
-    assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
-    version (Win32) {
-      if (value > dur!"hnsecs"(0) && value < dur!"msecs"(500)) {
-        stderr.writefln(
-          "Socket %s timeout of %s ms might be raised to 500 ms on Windows.",
-          (type == SocketOption.SNDTIMEO) ? "send" : "receive",
-          value.total!"msecs"
-        );
-      }
-    }
+  T yieldOnEagain(T)(lazy T call, TAsyncEventType eventType) {
+    while (true) {
+      auto result = call();
+      if (result != -1 || getSocketErrno() != EAGAIN) return result;
 
-    if (socket_) {
-      try {
-        socket_.setOption(SocketOptionLevel.SOCKET, type, value);
-      } catch (SocketException e) {
-        throw new TTransportException(
-          "Could not set send timeout: " ~ socketErrnoString(e.errorCode),
-          TTransportException.Type.UNKNOWN,
-          __FILE__,
-          __LINE__
-        );
-      }
+      // We got an EAGAIN result, register a callback to return here once some
+      // event happens and yield.
+      // TODO: It could be that we are needlessly capturing context here,
+      // maybe use scoped delegate?
+      auto fiber = Fiber.getThis();
+      asyncManager_.socketManager.addOneshotListener(socket_, eventType,
+        { fiber.call(); });
+      Fiber.yield();
     }
   }
+
+
+  /// The TAsyncManager to use for non-blocking I/O.
+  TAsyncManager asyncManager_;
 
   /// Remote host.
   string host_;
 
   /// Remote port.
   ushort port_;
-
-  /// Timeout for sending.
-  Duration sendTimeout_;
-
-  /// Timeout for receiving.
-  Duration recvTimeout_;
-
-  /// Maximum number of receive() retries.
-  ushort maxRecvRetries_;
 
   /// Cached peer address.
   InternetAddress peerAddress_;

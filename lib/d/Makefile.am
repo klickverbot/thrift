@@ -23,6 +23,10 @@ d_thriftmodules = $(addprefix thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = $(addprefix src/, $(addsuffix .d,$(d_thriftmodules)))
 
+d_asyncmodules = $(addprefix thrift/async/, base libevent socket)
+d_asyncdir = $(d_thriftdir)/async
+d_async_DATA = $(addprefix src/, $(addsuffix .d,$(d_asyncmodules)))
+
 d_protocolmodules = $(addprefix thrift/protocol/, base binary compact json \
 	processor)
 d_protocoldir = $(d_thriftdir)/protocol
@@ -60,7 +64,7 @@ d_opensslmodules = $(addprefix thrift/c/openssl/, asn1 bio crypto err \
 d_openssldir = $(d_thriftdir)/c/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
 
-d_modules = $(d_thriftmodules) $(d_protocolmodules) \
+d_modules = $(d_thriftmodules) $(d_asyncmodules) $(d_protocolmodules) \
 	$(d_servermodules) $(d_servertransportmodules) $(d_transportmodules) \
 	$(d_utilmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
@@ -70,6 +74,7 @@ libthriftd.a: $(d_sources)
 
 docs: $(d_sources)
 	$(DMD) -D -c -o- -Isrc -Dddocs $(d_thrift_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/async $(d_async_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/protocol $(d_protocol_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/server $(d_server_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/server/transport $(d_servertransport_DATA)

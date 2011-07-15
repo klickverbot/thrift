@@ -20,6 +20,8 @@ version (Windows) {
   alias int evutil_socket_t;
 }
 
+alias extern(C) void function(evutil_socket_t, short, void *) event_callback_fn;
+
 extern(C) struct event {
 	tailq_entry_event ev_active_next;
 	tailq_entry_event ev_next;
@@ -56,7 +58,7 @@ extern(C) struct event {
 	timeval ev_timeout;
 
 	/* allows us to adopt for different types of events */
-	void* function(evutil_socket_t, short, void *arg) ev_callback;
+	event_callback_fn ev_callback;
 	void* ev_arg;
 }
 
@@ -77,8 +79,14 @@ enum EV_ET = 0x20;
 alias extern(C) int function(event*, const(timeval)*) event_add_t;
 event_add_t event_add;
 
+alias extern(C) event_base* function() event_base_new_t;
+event_base_new_t event_base_new;
+
 alias extern(C) void function(event_base*) event_base_free_t;
 event_base_free_t event_base_free;
+
+alias extern(C) int function(event_base*, evutil_socket_t, short, event_callback_fn, void*, const(timeval)*) event_base_once_t;
+event_base_once_t event_base_once;
 
 alias extern(C) int function(event_base*, event*) event_base_set_t;
 event_base_set_t event_base_set;
@@ -88,3 +96,9 @@ event_base_loop_t event_base_loop;
 
 alias extern(C) int function(event*) event_del_t;
 event_del_t event_del;
+
+alias extern(C) void function(event*) event_free_t;
+event_free_t event_free;
+
+alias extern(C) event* function(event_base*, evutil_socket_t, short, event_callback_fn, void*) event_new_t;
+event_new_t event_new;

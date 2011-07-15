@@ -18,8 +18,7 @@
  */
 
 /**
- * Contains abstractions for OS-dependent socket functionality for internal
- * use.
+ * Abstractions over OS-dependent socket functionality for internal use.
  */
 module thrift.util.socket;
 
@@ -36,26 +35,38 @@ version (FreeBSD) {
 }
 
 version (Win32) {
-  import std.c.windows.winsock : WSAGetLastError, WSAEINTR;
+  import std.c.windows.winsock : WSAGetLastError, WSAEINTR, WSAEWOULDBLOCK;
   import std.windows.syserror : sysErrorString;
 } else {
-  import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR, EWOULDBLOCK;
+  import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINPROGRESS, EINTR;
   import core.stdc.string : strerror;
 }
 
+/*
+ * CONNECT_INPROGRESS_ERRNO: set by connect() for non-blocking sockets if the
+ *   connection could not be immediately established.
+ * INTERRUPTED_ERRNO: set when blocking system calls are interrupted by
+ *   signals or similar.
+ * TIMEOUT_ERRNO: set when a socket timeout has been exceeded.
+ */
 version (Win32) {
   alias WSAGetLastError getSocketErrno;
+  enum CONNECT_INPROGRESS_ERRNO = WSAEWOULDBLOCK;
   enum INTERRUPTED_ERRNO = WSAEINTR;
+  enum WOULD_BLOCK_ERRNO = WSAEWOULDBLOCK;
+
   // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
   enum TIMEOUT_ERRNO = 10060;
 } else {
   alias getErrno getSocketErrno;
-  alias EINTR INTERRUPTED_ERRNO;
+  enum CONNECT_INPROGRESS_ERRNO = EINPROGRESS;
+  enum INTERRUPTED_ERRNO = EINTR;
+  enum WOULD_BLOCK_ERRNO = EAGAIN;
 
   // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
   // set (undocumentedly) in out of resource conditions; adapt the code
   // accordingly.
-  alias EAGAIN TIMEOUT_ERRNO;
+  enum TIMEOUT_ERRNO = EAGAIN;
 }
 
 string socketErrnoString(uint errno) {
