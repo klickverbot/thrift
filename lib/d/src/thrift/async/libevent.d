@@ -35,12 +35,13 @@ import thrift.async.base;
 import thrift.c.event.event;
 import thrift.util.socket;
 
+///
 class TLibeventAsyncManager : TAsyncManager {
   this() {
     socketManager_ = new SocketManager;
   }
 
-  override void execute(TAsyncWorkItem work) {
+  override void execute(TAsyncWorkItem workItem) {
     if (!socketManagerRunning_) {
       auto workerThread = new Thread({ socketManager_.run(); });
       workerThread.isDaemon = true;
@@ -53,9 +54,14 @@ class TLibeventAsyncManager : TAsyncManager {
     // unstable (e.g. send could possibly return early if the receiving buffer
     // is full and the blocking call gets interrupted by a signal), it could
     // be changed to a more sophisticated scheme.
-    // TODO: Make sure the delegate doesn't get GCd.
-    auto result = socketManager_.workSendSocket.send((&work)[0 .. 1]);
-    enum size = work.sizeof;
+
+    // Make sure the delegate context doesn't get GCd while the work item is
+    // on the wire. TODO: The following is just a stab in the dark, I am not
+    // sure if it actually works as expected.
+    GC.addRoot(workItem.work.ptr);
+
+    auto result = socketManager_.workSendSocket.send((&workItem)[0 .. 1]);
+    enum size = workItem.sizeof;
     enforce(result == size, new TException(text("Sending work item failed (",
       result, " bytes instead of ", size, " trasmitted).")));
   }
@@ -142,10 +148,17 @@ private {
         if (bytesRead != workItem.sizeof) break;
 
         // Everything went fine, we got a brand new work item.
+
+        // Now that the work item is back in the D world, we don't need the
+        // extra GC root for the context pointer anymore (see
+        // TLibeventAsyncManager.execute).
+        GC.removeRoot(workItem.work.ptr);
+
+        // Add the work item to the queue and execute it.
         auto queue = workItem.transport in workQueues_;
         if (queue is null || (*queue).empty) {
           // If the queue is empty, add the new work item to the queue as well,
-          // but immediately start executing it.s
+          // but immediately start executing it.
           workQueues_[workItem.transport] = [workItem];
           executeWork(workItem);
         } else {
