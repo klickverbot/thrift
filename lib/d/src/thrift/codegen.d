@@ -499,7 +499,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    foreach (field; fieldMetaData) {
+    static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -678,7 +678,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   // passed struct type.
   mixin({
     string code = "";
-    foreach (field; fieldMetaData) {
+    static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
     return code;
