@@ -11,6 +11,9 @@ shared static this() {
   bindFunctions!(thrift.c.event.event)();
 }
 
+__gshared:
+nothrow:
+
 version (Windows) {
   alias ptrdiff_t evutil_socket_t;
 } else {
