@@ -27,11 +27,11 @@
 module thrift.transport.http;
 
 import std.algorithm : canFind, countUntil, endsWith, findSplit, min, startsWith;
+import std.ascii : toLower;
 import std.array : empty;
 import std.conv : parse, to;
 import std.datetime : Clock, UTC;
-import std.ctype : tolower;
-import std.string : stripl;
+import std.string : stripLeft;
 import thrift.base : VERSION;
 import thrift.transport.base;
 import thrift.transport.memory;
@@ -136,7 +136,7 @@ protected:
     }
 
     static bool compToLower(ubyte a, ubyte b) {
-      return a == tolower(cast(char)b);
+      return a == toLower(cast(char)b);
     }
 
     if (startsWith!compToLower(split[0], cast(ubyte[])"transfer-encoding")) {
@@ -145,7 +145,7 @@ protected:
       }
     } else if (startsWith!compToLower(split[0], cast(ubyte[])"content-length")) {
       chunked_ = false;
-      auto lengthString = stripl(cast(const(char)[])split[2]);
+      auto lengthString = stripLeft(cast(const(char)[])split[2]);
       contentLength_ = parse!size_t(lengthString);
     }
   }
@@ -434,12 +434,12 @@ private {
       monthName, sysTime.year, sysTime.hour, sysTime.minute, sysTime.second);
   }
 
-  import std.ctype : toupper;
+  import std.ascii : toUpper;
   import std.traits : EnumMembers;
   string capMemberName(T)(T val) if (is(T == enum)) {
     foreach (i, e; EnumMembers!T) {
       enum name = __traits(derivedMembers, T)[i];
-      enum capName = cast(char) toupper(name[0]) ~ name [1 .. $];
+      enum capName = cast(char) toUpper(name[0]) ~ name [1 .. $];
       if (val == e) {
         return capName;
       }

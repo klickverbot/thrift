@@ -29,9 +29,9 @@ import core.sync.mutex : Mutex;
 import core.memory : GC;
 import core.stdc.config;
 import core.stdc.stdlib : free, malloc;
-import std.conv : emplace, to;
+import std.ascii : toUpper;
 import std.array : empty, front, popFront;
-import std.ctype : toupper;
+import std.conv : emplace, to;
 import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
@@ -727,7 +727,7 @@ private {
    */
   bool matchName(const(char)[] host, const(char)[] pattern) {
     while (!host.empty && !pattern.empty) {
-      if (toupper(pattern.front) == toupper(host.front)) {
+      if (toUpper(pattern.front) == toUpper(host.front)) {
         host.popFront;
         pattern.popFront;
       } else if (pattern.front == '*') {
