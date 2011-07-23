@@ -171,7 +171,7 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
 
     ubyte buf;
     auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
-    if (r == -1) {
+    if (r == Socket.ERROR) {
       auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         if (lastErrno == ECONNRESET) {
@@ -342,7 +342,7 @@ private:
   T yieldOnEagain(T)(lazy T call, TAsyncEventType eventType) {
     while (true) {
       auto result = call();
-      if (result != -1 || getSocketErrno() != EAGAIN) return result;
+      if (result != Socket.ERROR || getSocketErrno() != EAGAIN) return result;
 
       // We got an EAGAIN result, register a callback to return here once some
       // event happens and yield.
