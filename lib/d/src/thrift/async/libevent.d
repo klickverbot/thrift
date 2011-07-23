@@ -42,7 +42,7 @@ class TLibeventAsyncManager : TAsyncSocketManager {
 
     // Set up the socket pair for transferring work to the event loop.
     auto pair = socketPair();
-    workSendSocket = pair[0];
+    workSendSocket_ = pair[0];
     workReceiveSocket_ = pair[1];
     workReceiveSocket_.blocking = false;
 
@@ -61,6 +61,9 @@ class TLibeventAsyncManager : TAsyncSocketManager {
   override void execute(TAsyncWorkItem workItem) {
     if (!workerThread_) {
       workerThread_ = new Thread({ event_base_loop(eventBase_, 0); });
+      // TODO: Once a mechanism for controlled shutting down of the worker
+      // thread has been added, no longer daemonize it to avoid crashes during
+      // shutdown. Also, try restarting the worker thread if it crashed?
       workerThread_.isDaemon = true;
       workerThread_.start();
     }
@@ -76,13 +79,13 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     // sure if it actually works as expected.
     GC.addRoot(workItem.work.ptr);
 
-    auto result = workSendSocket.send((&workItem)[0 .. 1]);
+    auto result = workSendSocket_.send((&workItem)[0 .. 1]);
     enum size = workItem.sizeof;
     enforce(result == size, new TException(text("Sending work item failed (",
       result, " bytes instead of ", size, " trasmitted).")));
   }
 
-  void addOneshotListener(Socket socket, TAsyncEventType eventType,
+  override void addOneshotListener(Socket socket, TAsyncEventType eventType,
      SocketEventListener listener
   ) {
     // Create a copy of the listener delegate on the C heap.
@@ -102,12 +105,11 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     if (result != 0) onOutOfMemoryError();
   }
 
-  /// The socket used to send new work items to the event loop. It is
-  /// expected that work items can always be read at once from it, i.e. that
-  /// there will never be short reads.
-  Socket workSendSocket;
-
 private:
+  /**
+   * Receives a work item from the work receive socket and adds it to the
+   * queue. Called from the worker thread.
+   */
   void receiveWork() {
     // Read as many new work items off the socket as possible (at least one
     // should be available, as we got notified by libevent).
@@ -130,8 +132,7 @@ private:
       // Everything went fine, we got a brand new work item.
 
       // Now that the work item is back in the D world, we don't need the
-      // extra GC root for the context pointer anymore (see
-      // TLibeventAsyncManager.execute).
+      // extra GC root for the context pointer anymore (see execute()).
       GC.removeRoot(workItem.work.ptr);
 
       // Add the work item to the queue and execute it.
@@ -155,24 +156,31 @@ private:
     }
   }
 
+  /**
+   * Executes a work item and all folliwing items waiting in the same queue.
+   */
   void executeWork(TAsyncWorkItem workItem) {
     (new Fiber({
-      // Execute the actual work. It will possibly add listeners to the
-      // event loop and yield away if it has to wait for blocking operations.
-      workItem.work();
+      auto item = workItem;
+      while (true) {
+        // Execute the actual work. It will possibly add listeners to the
+        // event loop and yield away if it has to wait for blocking operations.
+        item.work();
 
-      // Remove the item from the work queue.
-      auto queue = workQueues_[workItem.transport];
-      assert(queue.front == workItem);
-      queue.popFront();
+        // Remove the item from the work queue.
+        // Note: Due to the value semantics of array slices, we have to
+        // re-lookup this on every iteration. This could be solved, but I'd
+        // rather replace this directly with a queue type once one becomes
+        // available in Phobos.
+        auto queue = workQueues_[item.transport];
+        assert(queue.front == item);
+        queue.popFront();
+        workQueues_[workItem.transport] = queue;
 
-      // A queue container with reference semantics would make this line
-      // unnecessary.
-      workQueues_[workItem.transport] = queue;
+        if (queue.empty) break;
 
-      // If the queue is not empty, execute the next item.
-      if (!queue.empty) {
-        executeWork(queue.front);
+        // If the queue is not empty, execute the next waiting item.
+        item = queue.front;
       }
     })).call();
   }
@@ -206,9 +214,14 @@ private:
   event_base* eventBase_;
 
   /// The socket used for receiving new work items in the event loop. Paired
-  /// with workSendSocket.
+  /// with workSendSocket_.
   Socket workReceiveSocket_;
   event* workReceiveEvent_;
+
+  /// The socket used to send new work items to the event loop. It is
+  /// expected that work items can always be read at once from it, i.e. that
+  /// there will never be short reads.
+  Socket workSendSocket_;
 
   /// Queued up work delegates for async transports (also includes currently
   /// active ones, they are removed from the queue on completion).
