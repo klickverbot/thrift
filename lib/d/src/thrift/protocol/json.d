@@ -25,6 +25,7 @@ import std.conv;
 import std.range;
 import std.stdio;
 import std.string : format;
+import std.traits : isIntegral;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
