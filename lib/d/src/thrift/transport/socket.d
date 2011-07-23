@@ -30,12 +30,10 @@ import thrift.transport.base;
 import thrift.util.socket;
 
 /**
- * Socket implementation of the TTransport interface.
- *
- * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
- * sockets or IPv6) are currently supported.
+ * Common parts of a socket TTransportImplementation, regardless of how the
+ * actual I/O is performed (sync/async).
  */
-class TSocket : TBaseTransport {
+abstract class TSocketBase : TBaseTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
@@ -45,7 +43,6 @@ class TSocket : TBaseTransport {
   this(Socket socket) {
     socket_ = socket;
     setSocketOpts();
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -59,7 +56,6 @@ class TSocket : TBaseTransport {
   this(string host, ushort port) {
     host_ = host;
     port_ = port;
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -67,6 +63,172 @@ class TSocket : TBaseTransport {
    */
   override bool isOpen() @property {
     return socket_ !is null;
+  }
+
+  /**
+   * Writes as much data to the socket as there can be in a single OS call.
+   *
+   * Params:
+   *   buf = Data to write.
+   *
+   * Returns: The actual number of bytes written. Never more than buf.length.
+   */
+  abstract size_t writeSome(in ubyte[] buf) in {
+    assert(isOpen, "Called writeSome() on non-open socket!");
+  } out (written) {
+    assert(written <= buf.length, "Implementation wrote more data than requested to?!");
+  } body {
+    assert(0, "DMD bug? – Why would contracts work for interfaces, but not "
+      "for abstract methods? "
+      "(Error: function […] in and out contracts require function body");
+  }
+
+  /**
+   * Returns the host name of the peer.
+   *
+   * The socket must be open when calling this.
+   */
+  string getPeerHost() {
+    enforce(isOpen, new TTransportException("Cannot get peer host for " ~
+      "closed socket.", TTransportException.Type.NOT_OPEN));
+
+    if (!peerHost_) {
+      peerHost_ = peerAddress.toHostNameString();
+    }
+
+    return peerHost_;
+  }
+
+  /**
+   * Returns the port of the peer.
+   *
+   * The socket must be open when calling this.
+   */
+  ushort getPeerPort() {
+    enforce(isOpen, new TTransportException("Cannot get peer port for " ~
+      "closed socket.", TTransportException.Type.NOT_OPEN));
+
+    if (!peerPort_) {
+      peerPort_ = peerAddress.port();
+    }
+
+    return peerPort_;
+  }
+
+  /**
+   * The host the socket is connected to or will connect to. Null if an
+   * already connected socket was used to construct the object.
+   */
+  string host() @property {
+    return host_;
+  }
+
+  /**
+   * The port the socket is connected to or will connect to. Zero if an
+   * already connected socket was used to construct the object.
+   */
+  ushort port() @property {
+    return port_;
+  }
+
+  /// The socket send timeout.
+  Duration sendTimeout() const @property {
+    return sendTimeout_;
+  }
+
+  /// Ditto
+  void sendTimeout(Duration value) @property {
+    sendTimeout_ = value;
+  }
+
+  /// The socket receiving timeout. Values smaller than 500 ms are not
+  /// supported on Windows.
+  Duration recvTimeout() const @property {
+    return recvTimeout_;
+  }
+
+  /// Ditto
+  void recvTimeout(Duration value) @property {
+    recvTimeout_ = value;
+  }
+
+  /**
+   * Returns the OS handle of the underlying socket.
+   *
+   * Should not usually be used directly, but access to it can be necessary
+   * to interface with C libraries.
+   */
+  typeof(socket_.handle()) socketHandle() @property {
+    return socket_.handle();
+  }
+
+protected:
+  InternetAddress peerAddress() @property {
+    if (!peerAddress_) {
+      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
+      assert(peerAddress_);
+    }
+    return peerAddress_;
+  }
+  
+  /**
+   * Sets the needed socket options.
+   */
+  void setSocketOpts() {
+    try {
+      alias SocketOptionLevel.SOCKET lvlSock;
+      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+    } catch (SocketException e) {
+      stderr.writefln("Could not set socket option: %s", e);
+    }
+
+    // Just try to disable Nagle's algorithm – this will fail if we are passed
+    // in a non-TCP socket via the Socket-accepting constructor.
+    try {
+      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
+    } catch (SocketException e) {}
+  }
+
+  /// Remote host.
+  string host_;
+
+  /// Remote port.
+  ushort port_;
+
+  /// Timeout for sending.
+  Duration sendTimeout_;
+
+  /// Timeout for receiving.
+  Duration recvTimeout_;
+
+  /// Cached peer address.
+  InternetAddress peerAddress_;
+
+  /// Cached peer host name.
+  string peerHost_;
+
+  /// Cached peer port.
+  ushort peerPort_;
+
+  /// Wrapped socket object.
+  Socket socket_;
+}
+
+/**
+ * Socket implementation of the TTransport interface.
+ *
+ * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
+ * sockets or IPv6) are currently supported.
+ */
+class TSocket : TSocketBase {
+  ///
+  this(Socket socket) {
+    super(socket);
+  }
+
+  ///
+  this(string host, ushort port) {
+    super(host, port);
   }
 
   /**
@@ -171,19 +333,7 @@ class TSocket : TBaseTransport {
     assert(sent == buf.length);
   }
 
-  /**
-   * Writes as much data to the socket as there can be in a single OS call.
-   *
-   * Params:
-   *   buf = Data to write.
-   *
-   * Returns: The actual number of bytes written. Never more than buf.length.
-   */
-  size_t writeSome(in ubyte[] buf) in {
-    assert(isOpen, "Called writeSome() on non-open socket!");
-  } out (written) {
-    assert(written <= buf.length, "More data written than tried to?!");
-  } body {
+  override size_t writeSome(in ubyte[] buf) {
     auto r = socket_.send(buf);
 
     // Everything went well, just return the number of bytes written.
@@ -217,74 +367,13 @@ class TSocket : TBaseTransport {
       TTransportException.Type.UNKNOWN);
   }
 
-  /**
-   * Returns the host name of the peer.
-   *
-   * The socket must be open when calling this.
-   */
-  string getPeerHost() {
-    enforce(isOpen, new TTransportException("Cannot get peer host for " ~
-      "closed socket.", TTransportException.Type.NOT_OPEN));
-
-    if (!peerHost_) {
-      peerHost_ = peerAddress.toHostNameString();
-    }
-
-    return peerHost_;
-  }
-
-  /**
-   * Returns the port of the peer.
-   *
-   * The socket must be open when calling this.
-   */
-  ushort getPeerPort() {
-    enforce(isOpen, new TTransportException("Cannot get peer port for " ~
-      "closed socket.", TTransportException.Type.NOT_OPEN));
-
-    if (!peerPort_) {
-      peerPort_ = peerAddress.port();
-    }
-
-    return peerPort_;
-  }
-
-  /**
-   * The host the socket is connected to or will connect to. Null if an
-   * already connected socket was used to construct the object.
-   */
-  string host() @property {
-    return host_;
-  }
-
-  /**
-   * The port the socket is connected to or will connect to. Zero if an
-   * already connected socket was used to construct the object.
-   */
-  ushort port() @property {
-    return port_;
-  }
-
-  /// The socket send timeout.
-  Duration sendTimeout() const @property {
-    return sendTimeout_;
-  }
-
-  /// Ditto
-  void sendTimeout(Duration value) @property {
-    sendTimeout_ = value;
+  override void sendTimeout(Duration value) @property {
+    super.sendTimeout(value);
     setTimeout(SocketOption.SNDTIMEO, value);
   }
 
-  /// The socket receiving timeout. Values smaller than 500 ms are not
-  /// supported on Windows.
-  Duration recvTimeout() const @property {
-    return recvTimeout_;
-  }
-
-  /// Ditto
-  void recvTimeout(Duration value) @property {
-    recvTimeout_ = value;
+  override void recvTimeout(Duration value) @property {
+    super.recvTimeout(value);
     setTimeout(SocketOption.RCVTIMEO, value);
   }
 
@@ -304,44 +393,11 @@ class TSocket : TBaseTransport {
   /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
-  /**
-   * Returns the OS handle of the underlying socket.
-   *
-   * Should not usually be used directly, but access to it can be necessary
-   * to interface with C libraries.
-   */
-  typeof(socket_.handle()) socketHandle() @property {
-    return socket_.handle();
-  }
-
-protected:
-  InternetAddress peerAddress() @property {
-    if (!peerAddress_) {
-      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
-      assert(peerAddress_);
-    }
-    return peerAddress_;
-  }
-
 private:
-  /**
-   * Sets the needed socket options.
-   */
-  void setSocketOpts() {
-    try {
-      alias SocketOptionLevel.SOCKET lvlSock;
-      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
-      socket_.setOption(lvlSock, SocketOption.SNDTIMEO, sendTimeout_);
-      socket_.setOption(lvlSock, SocketOption.RCVTIMEO, recvTimeout_);
-    } catch (SocketException e) {
-      stderr.writefln("Could not set socket option: %s", e);
-    }
-
-    // Just try to disable Nagle's algorithm – this will fail if we are passed
-    // in a non-TCP socket via the Socket-accepting constructor.
-    try {
-      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
-    } catch (SocketException e) {}
+  override void setSocketOpts() {
+    super.setSocketOpts();
+    setTimeout(SocketOption.SNDTIMEO, sendTimeout_);
+    setTimeout(SocketOption.RCVTIMEO, recvTimeout_);
   }
 
   void setTimeout(SocketOption type, Duration value) {
@@ -370,30 +426,6 @@ private:
     }
   }
 
-  /// Remote host.
-  string host_;
-
-  /// Remote port.
-  ushort port_;
-
-  /// Timeout for sending.
-  Duration sendTimeout_;
-
-  /// Timeout for receiving.
-  Duration recvTimeout_;
-
-  /// Maximum number of receive() retries.
-  ushort maxRecvRetries_;
-
-  /// Cached peer address.
-  InternetAddress peerAddress_;
-
-  /// Cached peer host name.
-  string peerHost_;
-
-  /// Cached peer port.
-  ushort peerPort_;
-
-  /// Wrapped socket object.
-  Socket socket_;
+  /// Maximum number of recv() retries.
+  ushort maxRecvRetries_  = DEFAULT_MAX_RECV_RETRIES;
 }

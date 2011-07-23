@@ -28,6 +28,7 @@ import std.socket;
 import std.stdio : stderr; // No proper logging support yet.
 import thrift.async.base;
 import thrift.transport.base;
+import thrift.transport.socket : TSocketBase;
 import thrift.util.endian;
 import thrift.util.socket;
 
@@ -49,7 +50,7 @@ version (Windows) {
  *
  * TODO: Implement timeouts.
  */
-class TAsyncSocket : TBaseTransport, TAsyncTransport {
+class TAsyncSocket : TSocketBase, TAsyncTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
@@ -60,10 +61,8 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
    */
   this(TAsyncSocketManager asyncManager, Socket socket) {
     asyncManager_ = asyncManager;
-
-    socket_ = socket;
-    socket_.blocking = false;
-    setSocketOpts();
+    socket.blocking = false;
+    super(socket);
   }
 
   /**
@@ -77,20 +76,11 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
    */
   this(TAsyncSocketManager asyncManager, string host, ushort port) {
     asyncManager_ = asyncManager;
-
-    host_ = host;
-    port_ = port;
+    super(host, port);
   }
 
   override TAsyncManager asyncManager() @property {
     return asyncManager_;
-  }
-
-  /**
-   * Checks whether the socket is connected.
-   */
-  override bool isOpen() @property {
-    return socket_ !is null;
   }
 
   /**
@@ -231,19 +221,7 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
     assert(sent == buf.length);
   }
 
-  /**
-   * Writes as much data to the socket as there can be in a single OS call.
-   *
-   * Params:
-   *   buf = Data to write.
-   *
-   * Returns: The actual number of bytes written. Never more than buf.length.
-   */
-  size_t writeSome(in ubyte[] buf) in {
-    assert(isOpen, "Called writeSome() on non-open socket!");
-  } out (written) {
-    assert(written <= buf.length, "More data written than tried to?!");
-  } body {
+  override size_t writeSome(in ubyte[] buf) {
     auto r = yieldOnEagain(socket_.send(buf), TAsyncEventType.WRITE);
 
     // Everything went well, just return the number of bytes written.
@@ -268,92 +246,7 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
       TTransportException.Type.UNKNOWN);
   }
 
-  /**
-   * Returns the host name of the peer.
-   *
-   * The socket must be open when calling this.
-   */
-  string getPeerHost() {
-    enforce(isOpen, new TTransportException("Cannot get peer host for " ~
-      "closed socket.", TTransportException.Type.NOT_OPEN));
-
-    if (!peerHost_) {
-      peerHost_ = peerAddress.toHostNameString();
-    }
-
-    return peerHost_;
-  }
-
-  /**
-   * Returns the port of the peer.
-   *
-   * The socket must be open when calling this.
-   */
-  ushort getPeerPort() {
-    enforce(isOpen, new TTransportException("Cannot get peer port for " ~
-      "closed socket.", TTransportException.Type.NOT_OPEN));
-
-    if (!peerPort_) {
-      peerPort_ = peerAddress.port();
-    }
-
-    return peerPort_;
-  }
-
-  /**
-   * The host the socket is connected to or will connect to. Null if an
-   * already connected socket was used to construct the object.
-   */
-  string host() @property {
-    return host_;
-  }
-
-  /**
-   * The port the socket is connected to or will connect to. Zero if an
-   * already connected socket was used to construct the object.
-   */
-  ushort port() @property {
-    return port_;
-  }
-
-  /**
-   * Returns the OS handle of the underlying socket.
-   *
-   * Should not usually be used directly, but access to it can be necessary
-   * to interface with C libraries.
-   */
-  typeof(socket_.handle()) socketHandle() @property {
-    return socket_.handle();
-  }
-
-protected:
-  InternetAddress peerAddress() @property {
-    if (!peerAddress_) {
-      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
-      assert(peerAddress_);
-    }
-    return peerAddress_;
-  }
-
 private:
-  /**
-   * Sets the needed socket options.
-   */
-  void setSocketOpts() {
-    try {
-      alias SocketOptionLevel.SOCKET lvlSock;
-      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
-    } catch (SocketException e) {
-      stderr.writefln("Could not set socket option: %s", e);
-    }
-
-    // Just try to disable Nagle's algorithm – this will fail if we are passed
-    // in a non-TCP socket via the Socket-accepting constructor.
-    try {
-      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
-    } catch (SocketException e) {}
-  }
-
   T yieldOnEagain(T)(lazy T call, TAsyncEventType eventType) {
     while (true) {
       auto result = call();
@@ -381,25 +274,6 @@ private:
     }
   }
 
-
   /// The TAsyncSocketManager to use for non-blocking I/O.
   TAsyncSocketManager asyncManager_;
-
-  /// Remote host.
-  string host_;
-
-  /// Remote port.
-  ushort port_;
-
-  /// Cached peer address.
-  InternetAddress peerAddress_;
-
-  /// Cached peer host name.
-  string peerHost_;
-
-  /// Cached peer port.
-  ushort peerPort_;
-
-  /// Wrapped socket object.
-  Socket socket_;
 }
