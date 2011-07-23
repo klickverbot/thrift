@@ -53,7 +53,18 @@ enum TAsyncEventType {
   WRITE
 }
 
-alias void delegate() SocketEventListener;
+/**
+ * The type of the delegates used to register socket event handlers.
+ */
+alias void delegate(TAsyncEventReason callReason) SocketEventListener;
+
+/**
+ * The reason a listener was called.
+ */
+enum TAsyncEventReason : byte {
+  NORMAL, /// The event listened for was triggered normally.
+  TIMED_OUT /// A timeout for the event was set, and it expired.
+}
 
 /**
  * Represents an operation which is executed asynchronously and the result of

@@ -191,10 +191,12 @@ private:
     (cast(TLibeventAsyncManager)managerThis).receiveWork();
   }
 
-  static extern(C) void invokeListenerCallback(evutil_socket_t, short,
+  static extern(C) void invokeListenerCallback(evutil_socket_t, short flags,
     void *arg
   ) {
-    (*(cast(SocketEventListener*)arg))();
+    auto reason = (flags & EV_TIMEOUT) ? TAsyncEventReason.TIMED_OUT :
+      TAsyncEventReason.NORMAL;
+    (*(cast(SocketEventListener*)arg))(reason);
     GC.removeRange(arg);
     clear(arg);
     free(arg);

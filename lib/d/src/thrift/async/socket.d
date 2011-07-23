@@ -152,7 +152,7 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
     asyncManager_.execute(TAsyncWorkItem(this, {
       auto fiber = Fiber.getThis();
       asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
-        { fiber.call(); });
+        (TAsyncEventReason reason){ fiber.call(); });
       Fiber.yield();
 
       // TODO: Check for SO_ERROR here to provide a better error message than
@@ -364,8 +364,20 @@ private:
       // TODO: It could be that we are needlessly capturing context here,
       // maybe use scoped delegate?
       auto fiber = Fiber.getThis();
-      asyncManager_.addOneshotListener(socket_, eventType, { fiber.call(); });
+      TAsyncEventReason eventReason;
+      asyncManager_.addOneshotListener(socket_, eventType,
+        (TAsyncEventReason reason) {
+          eventReason = reason;
+          fiber.call();
+        }
+      );
       Fiber.yield();
+
+      if (eventReason == TAsyncEventReason.TIMED_OUT) {
+        throw new TTransportException(
+          "Timed out while waiting for socket to get ready for " ~
+          to!string(eventType), TTransportException.Type.TIMED_OUT);
+      }
     }
   }
 
