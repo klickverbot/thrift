@@ -54,11 +54,11 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
    * Constructor that takes an already created, connected (!) socket.
    *
    * Params:
-   *   asyncManager = The TAsyncManager to use for non-blocking I/O.
+   *   asyncManager = The TAsyncSocketManager to use for non-blocking I/O.
    *   socket = Already created, connected socket object. Will be switched to
    *     non-blocking mode if it isn't already.
    */
-  this(TAsyncManager asyncManager, Socket socket) {
+  this(TAsyncSocketManager asyncManager, Socket socket) {
     asyncManager_ = asyncManager;
 
     socket_ = socket;
@@ -71,10 +71,11 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
    * on the given port.
    *
    * Params:
+   *   asyncManager = The TAsyncSocketManager to use for non-blocking I/O.
    *   host = Remote host.
    *   port = Remote port.
    */
-  this(TAsyncManager asyncManager, string host, ushort port) {
+  this(TAsyncSocketManager asyncManager, string host, ushort port) {
     asyncManager_ = asyncManager;
 
     host_ = host;
@@ -95,7 +96,10 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
   /**
    * Asynchronously connects the socket.
    *
-   *
+   * Completes without blocking and defers further operations on the socket
+   * until the connection is established. If connecting fails, this is
+   * currently not indicated in any way other than every call to read/write
+   * failing.
    */
   override void open() {
     if (isOpen) return;
@@ -147,9 +151,20 @@ class TAsyncSocket : TBaseTransport, TAsyncTransport {
     // TAsyncSocket instance until the socket is ready.
     asyncManager_.execute(TAsyncWorkItem(this, {
       auto fiber = Fiber.getThis();
-      asyncManager_.socketManager.addOneshotListener(socket_,
-        TAsyncEventType.WRITE, { fiber.call(); });
+      asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
+        { fiber.call(); });
       Fiber.yield();
+
+      // TODO: Check for SO_ERROR here to provide a better error message than
+      // failing with »Sending to socket failed: Broken pipe« when trying to
+      // send/receive. It is not quite clear though how to signal this to the
+      // client. We can't throw an exception, obviously, because open() has
+      // already returned, and TTransport currently specifies isOpen as a
+      // precondition to all the member methods, so marking the socket as
+      // closed would put clients in the awkward position of possibly breaking
+      // the contract depending on runtime behavior. Maybe using contracts
+      // should be rethought, but what about the performance cost associated
+      // with using enforce/exceptions instead?
     }));
   }
 
@@ -349,15 +364,14 @@ private:
       // TODO: It could be that we are needlessly capturing context here,
       // maybe use scoped delegate?
       auto fiber = Fiber.getThis();
-      asyncManager_.socketManager.addOneshotListener(socket_, eventType,
-        { fiber.call(); });
+      asyncManager_.addOneshotListener(socket_, eventType, { fiber.call(); });
       Fiber.yield();
     }
   }
 
 
-  /// The TAsyncManager to use for non-blocking I/O.
-  TAsyncManager asyncManager_;
+  /// The TAsyncSocketManager to use for non-blocking I/O.
+  TAsyncSocketManager asyncManager_;
 
   /// Remote host.
   string host_;

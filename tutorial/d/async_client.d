@@ -59,20 +59,22 @@ void main() {
   auto logResult = client.getStruct(1);
 
   // Await the responses.
-  pingResult.await();
+  pingResult.waitGet();
   writeln("ping()");
 
-  int sum = addResult.await();
+  int sum = addResult.waitGet();
   writefln("1 + 1 = %s", sum);
 
   try {
-    quotientResult.await();
+    quotientResult.waitGet();
     writeln("Whoa we can divide by 0");
   } catch (InvalidOperation io) {
     writeln("Invalid operation: " ~ io.why);
   }
 
-  writefln("15 - 10 = %s", diffResult.await());
+  writefln("15 - 10 = %s", diffResult.waitGet());
 
+  // TFuture is implicitly convertible to the result type via »alias this«,
+  // for which it (eagerly, of course) awaits completion.
   writefln("Check log: %s", logResult.value);
 }

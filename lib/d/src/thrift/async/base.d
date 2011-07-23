@@ -20,17 +20,20 @@ module thrift.async.base;
 
 import core.sync.condition;
 import core.sync.mutex;
+import core.time : Duration;
 import std.socket;
 import thrift.base;
 import thrift.transport.base;
 
+/**
+ * A transport which uses a TAsyncManager to schedule non-blocking operations.
+ */
 interface TAsyncTransport : TTransport {
   TAsyncManager asyncManager() @property;
 }
 
 interface TAsyncManager {
   void execute(TAsyncWorkItem work);
-  TAsyncSocketManager socketManager() @property;
 }
 
 struct TAsyncWorkItem {
@@ -40,7 +43,7 @@ struct TAsyncWorkItem {
 
 alias void delegate() Work;
 
-interface TAsyncSocketManager {
+interface TAsyncSocketManager : TAsyncManager {
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
     SocketEventListener listener);
 }
@@ -52,38 +55,53 @@ enum TAsyncEventType {
 
 alias void delegate() SocketEventListener;
 
-final class TFuture(ResultType) {
-  this() {
-    doneMutex_ = new Mutex;
-    doneCondition_ = new Condition(doneMutex_);
+/**
+ * Represents an operation which is executed asynchronously and the result of
+ * which will become available at some point in the future.
+ *
+ * All methods are thread-safe.
+ */
+interface TFuture(ResultType) {
+  /**
+   * Whether the result is already available.
+   */
+  bool done() const @property;
+
+  /**
+   * Waits until the operation is completed.
+   *
+   * The result is guaranteed to be available afterwards.
+   */
+  void wait() out {
+    // DMD @@BUG6108@.
+    version(none) assert(done);
+  }
+
+ /**
+  * Waits until the operation is completed or the specified timeout expired.
+  *
+  * Returns: true if the result became available in time (done is guaranteed
+  *   to be set then), false otherwise.
+  */
+  bool wait(Duration timeout) out (result) {
+    // DMD @@BUG6108@.
+    version(none) assert(!result || done);
   }
 
   /**
    * Waits until the operation is completed and returns its result, or
    * rethrows any exception if it fails.
    */
-  ResultType await() {
-    if (!done_) {
-      synchronized (doneMutex_) {
-        while (!done_) doneCondition_.wait();
-      }
-    }
-
-    if (exception_) throw exception_;
-
-    static if (!is(ResultType == void)) {
-      return result_;
-    }
-  }
-
-  alias await this;
+  ResultType waitGet();
+  alias waitGet this;
 
   /**
-   * Whether the result is already available.
+   * Waits until the operation is completed or the timeout expires.
+   *
+   * If the operation is completed in time, returns its result, or rethrows
+   * any exception if it failed. If not, throws a TFutureException.
    */
-  bool done() const @property {
-    return done_;
-  }
+  ResultType waitGet(Duration timeout);
 
   static if (!is(ResultType == void)) {
     /**
@@ -91,7 +109,84 @@ final class TFuture(ResultType) {
      *
      * Throws: TFutureException if not yet done; the set exception if any.
      */
-    ResultType result() const @property {
+    ResultType get();
+  }
+
+  /**
+   * Returns the captured exception if the operation failed, or null otherwise.
+   *
+   * Throws: TFutureException if not yet done.
+   */
+  Exception getException();
+}
+
+/**
+ * A TFuture covering the simple but common case where the result is simply
+ * set by a call to complete()/fail().
+ *
+ * All methods are thread-safe, but usually, complete()/fail() are only called
+ * from a single thread (different from the thread(s) waiting for the result
+ * using the TFuture interface).
+ */
+class TPromise(ResultType) : TFuture!ResultType {
+  this() {
+    doneMutex_ = new Mutex;
+    doneCondition_ = new Condition(doneMutex_);
+  }
+
+  /+override+/ void wait() {
+    // If we are already done, return early to avoid needlessly acquiring the
+    // lock.
+    if (done_) return;
+
+    synchronized (doneMutex_) {
+      while (!done_) doneCondition_.wait();
+    }
+  }
+
+  /+override+/ bool wait(Duration timeout) {
+    // If we are already done, return early to avoid needlessly acquiring the
+    // lock.
+    if (done_) return true;
+
+    synchronized (doneMutex_) {
+      doneCondition_.wait(timeout);
+    }
+
+    // Return done_ instead of directly the return value of Condition.wait()
+    // so that we never return true if the result is not available, even in
+    // case of spurious wakeups. I am not sure if they can actually happen for
+    // a timed wait as well, but in any case they should be rare enough to not
+    // warrant more expensive timeout checking (e.g. calculating the expected
+    // wakeup time from the current system clock would be possible).
+    return done_;
+  }
+
+  /+override+/ ResultType waitGet() {
+    wait();
+
+    if (exception_) throw exception_;
+    static if (!is(ResultType == void)) {
+      return result_;
+    }
+  }
+
+  /+override+/ ResultType waitGet(Duration timeout) {
+    enforce(wait(timeout), new TFutureException(
+      "Result was not available in time."));
+
+    if (exception_) throw exception_;
+    static if (!is(ResultType == void)) {
+      return result_;
+    }
+  }
+
+  /+override+/ bool done() const @property {
+    return done_;
+  }
+
+  static if (!is(ResultType == void)) {
+    /+override+/ ResultType get() {
       enforce(done_, new TFutureException("Result not yet available."));
       if (exception_) throw exception_;
       return result_;
@@ -104,15 +199,26 @@ final class TFuture(ResultType) {
      * Throws: TFutureException if the operation is already completed.
      */
     void complete(ResultType result) {
-      enforce(!done_, new TFutureException("Operation already done."));
-      result_ = result;
-      notifyCompletion();
+      synchronized (doneMutex_) {
+        enforce(!done_, new TFutureException("Operation already done."));
+        result_ = result;
+        done_ = true;
+        doneCondition_.notifyAll();
+      }
     }
   } else {
     void complete() {
-      enforce(!done_, new TFutureException("Operation already done."));
-      notifyCompletion();
+      synchronized (doneMutex_) {
+        enforce(!done_, new TFutureException("Operation already done."));
+        done_ = true;
+        doneCondition_.notifyAll();
+      }
     }
+  }
+
+  /+override+/ Exception getException() {
+    enforce(done_, new TFutureException("Result not yet available."));
+    return exception_;
   }
 
   /**
@@ -122,20 +228,15 @@ final class TFuture(ResultType) {
    * Throws: TFutureException if the operation is already completed.
    */
   void fail(Exception exception) {
-    enforce(!done_, new TFutureException("Operation already done."));
-    exception_ = exception;
-    notifyCompletion();
-  }
-
-private:
-  void notifyCompletion() {
-    assert(!done_);
     synchronized (doneMutex_) {
-      doneCondition_.notifyAll();
+      enforce(!done_, new TFutureException("Operation already done."));
+      exception_ = exception;
       done_ = true;
+      doneCondition_.notifyAll();
     }
   }
 
+private:
   shared bool done_;
   static if (!is(ResultType == void)) {
     ResultType result_;

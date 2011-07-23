@@ -1409,11 +1409,13 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
           paramNames ~= paramName;
         }
 
-        code ~= "TFuture!(ReturnType!(Interface." ~ methodName ~ ")) " ~
-          methodName ~ "(" ~ ctfeJoin(paramList) ~ ") {\n";
+        immutable returnTypeCode = "ReturnType!(Interface." ~ methodName ~ ")";
+
+        code ~= "TFuture!(" ~ returnTypeCode ~ ") " ~ methodName ~ "(" ~
+          ctfeJoin(paramList) ~ ") {\n";
 
         // Create the future instance that will repesent the result.
-        code ~= "auto future = new typeof(return);\n";
+        code ~= "auto promise = new TPromise!(" ~ returnTypeCode ~ ");\n";
 
         // Prepare work item that executes the TClient method call.
         code ~= "auto work = TAsyncWorkItem(asyncTransport_, {\n";
@@ -1421,20 +1423,21 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
         code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
           ") == void)) {\n";
         code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
-        code ~= "future.complete();\n";
+        code ~= "promise.complete();\n";
         code ~= "} else {\n";
         code ~= "auto result = client_." ~ methodName ~ "(" ~
           ctfeJoin(paramNames) ~ ");\n";
-        code ~= "future.complete(result);\n";
+        code ~= "promise.complete(result);\n";
         code ~= "}\n";
         code ~= "} catch (Exception e) {\n";
-        code ~= "future.fail(e);\n";
+        code ~= "promise.fail(e);\n";
         code ~= "}\n";
         code ~= "});\n";
 
-        // Enqueue the work item and immediately return the future.
+        // Enqueue the work item and immediately return the promise resp. its
+        // future interface.
         code ~= "asyncTransport_.asyncManager.execute(work);\n";
-        code ~= "return future;\n";
+        code ~= "return promise;\n";
         code ~= "}\n";
       }
     }
