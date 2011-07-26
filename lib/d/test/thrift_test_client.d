@@ -57,7 +57,7 @@ TProtocol createProtocol(T)(T trans, ProtocolType type) {
 void main(string[] args) {
   string host = "localhost";
   ushort port = 9090;
-  int numTests = 1;
+  uint numTests = 1;
   bool ssl;
   ProtocolType protocolType;
   TransportType transportType;
