@@ -16,16 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-/**
- * A TAsyncManager implementation based on libevent.
- */
 module thrift.async.libevent;
 
+import core.time : Duration, dur;
 import core.exception : onOutOfMemoryError;
 import core.memory : GC;
 import core.thread : Fiber, Thread;
 import core.stdc.stdlib : free, malloc;
+import core.sys.posix.sys.time : timeval; // TODO: Windows.
 import std.conv : text, to;
 import std.array : empty, front, popFront;
 import std.socket;
@@ -35,6 +33,9 @@ import thrift.async.base;
 import thrift.c.event.event;
 import thrift.util.socket;
 
+/**
+ * A TAsyncManager implementation based on libevent.
+ */
 // TODO: Provide some means to shut down the socket manager worker thread.
 class TLibeventAsyncManager : TAsyncSocketManager {
   this() {
@@ -88,6 +89,27 @@ class TLibeventAsyncManager : TAsyncSocketManager {
   override void addOneshotListener(Socket socket, TAsyncEventType eventType,
      SocketEventListener listener
   ) {
+    addOneshotListenerImpl(socket, eventType, null, listener);
+  }
+
+  override void addOneshotListener(Socket socket, TAsyncEventType eventType,
+    Duration timeout, SocketEventListener listener
+  ) {
+    if (timeout <= dur!"hnsecs"(0)) {
+      addOneshotListenerImpl(socket, eventType, null, listener);
+    } else {
+      // This is not really documented well, but libevent does not require to
+      // keep the timeval around after the event was added.
+      timeval tv = { tv_sec: cast(int)timeout.total!"seconds"(),
+        tv_usec: timeout.fracSec.usecs };
+      addOneshotListenerImpl(socket, eventType, &tv, listener);
+    }
+  }
+
+private:
+  void addOneshotListenerImpl(Socket socket, TAsyncEventType eventType,
+     const(timeval)* timeout, SocketEventListener listener
+  ) {
     // Create a copy of the listener delegate on the C heap.
     auto listenerMem = malloc(listener.sizeof);
     if (!listenerMem) onOutOfMemoryError();
@@ -97,7 +119,7 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     // Add a libevent oneshot event for it.
     auto result = event_base_once(eventBase_, socket.handle,
       libeventEventType(eventType), &invokeListenerCallback,
-      listenerMem, null);
+      listenerMem, timeout);
 
     // Assuming that we didn't get our arguments wrong above, the only other
     // situation in which event_base_once can fail is when it can't allocate
@@ -105,7 +127,6 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     if (result != 0) onOutOfMemoryError();
   }
 
-private:
   /**
    * Receives a work item from the work receive socket and adds it to the
    * queue. Called from the worker thread.

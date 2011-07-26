@@ -45,6 +45,8 @@ alias void delegate() Work;
 
 interface TAsyncSocketManager : TAsyncManager {
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
+    Duration timeout, SocketEventListener listener);
+  void addOneshotListener(Socket socket, TAsyncEventType eventType,
     SocketEventListener listener);
 }
 

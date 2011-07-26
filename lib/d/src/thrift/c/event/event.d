@@ -4,7 +4,7 @@
  */
 module thrift.c.event.event;
 
-import core.sys.posix.sys.time;
+import core.sys.posix.sys.time; // TODO: Windows.
 import thrift.c.event.loader;
 
 shared static this() {

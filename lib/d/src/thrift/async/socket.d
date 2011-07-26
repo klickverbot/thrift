@@ -47,8 +47,6 @@ version (Windows) {
  *
  * As for thrift.transport.socket, due to the limitations of std.socket, only
  * TCP/IPv4 sockets (i.e. no Unix sockets or IPv6) are currently supported.
- *
- * TODO: Implement timeouts.
  */
 class TAsyncSocket : TSocketBase, TAsyncTransport {
   /**
@@ -256,20 +254,32 @@ private:
       // event happens and yield.
       // TODO: It could be that we are needlessly capturing context here,
       // maybe use scoped delegate?
+
+      Duration timeout = void;
+      final switch (eventType) {
+        case TAsyncEventType.READ:
+          timeout = recvTimeout_;
+          break;
+        case TAsyncEventType.WRITE:
+          timeout = sendTimeout_;
+          break;
+      }
+
       auto fiber = Fiber.getThis();
-      TAsyncEventReason eventReason;
-      asyncManager_.addOneshotListener(socket_, eventType,
+      TAsyncEventReason eventReason = void;
+      asyncManager_.addOneshotListener(socket_, eventType, timeout,
         (TAsyncEventReason reason) {
           eventReason = reason;
           fiber.call();
         }
       );
+
       Fiber.yield();
 
       if (eventReason == TAsyncEventReason.TIMED_OUT) {
         throw new TTransportException(
           "Timed out while waiting for socket to get ready for " ~
-          to!string(eventType), TTransportException.Type.TIMED_OUT);
+          to!string(eventType) ~ ".", TTransportException.Type.TIMED_OUT);
       }
     }
   }

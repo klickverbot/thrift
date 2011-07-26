@@ -37,7 +37,7 @@ import std.array : empty;
 import std.algorithm : min;
 import std.concurrency;
 import std.conv : to;
-import std.datetime : AutoStart, dur, Clock, Duration, StopWatch;
+import std.datetime : AutoStart, dur, Duration, StopWatch;
 import std.exception;
 import std.stdio : stderr, File; // No proper error logging yet.
 import thrift.transport.base;
