@@ -866,14 +866,20 @@ template TArgsStruct(Interface, string methodName) {
       // If we have no meta information, just use param1, param2, etc. as
       // field names, it shouldn't really matter anyway. 1-based »indexing«
       // is used to match the common scheme in the Thrift world.
-      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
-        "param" ~ to!string(i + 1);
+      string memberId;
+      string memberName;
+      if (methodMetaFound && i < methodMeta.params.length) {
+        memberId = to!string(methodMeta.params[i].id);
+        memberName = methodMeta.params[i].name;
+      } else {
+        memberId = to!string(i + 1);
+        memberName = "param" ~ to!string(i + 1);
+      }
 
       memberCode ~= "ParameterTypeTuple!(Interface." ~ methodName ~
         ")[" ~ to!string(i) ~ "]" ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
-        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
     }
 
     string code = "struct TArgsStruct {\n";
@@ -930,8 +936,15 @@ template TPargsStruct(Interface, string methodName) {
       // If we have no meta information, just use param1, param2, etc. as
       // field names, it shouldn't really matter anyway. 1-based »indexing«
       // is used to match the common scheme in the Thrift world.
-      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
-        "param" ~ to!string(i + 1);
+      string memberId;
+      string memberName;
+      if (methodMetaFound && i < methodMeta.params.length) {
+        memberId = to!string(methodMeta.params[i].id);
+        memberName = methodMeta.params[i].name;
+      } else {
+        memberId = to!string(i + 1);
+        memberName = "param" ~ to!string(i + 1);
+      }
 
       // Workaround for DMD @@BUG@@ 6056: make an intermediary alias for the
       // parameter type, and declare the member using const(memberNameType)*.
@@ -939,8 +952,7 @@ template TPargsStruct(Interface, string methodName) {
         ")[" ~ to!string(i) ~ "] " ~ memberName ~ "Type;\n";
       memberCode ~= "const(" ~ memberName ~ "Type)* " ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
-        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
     }
 
     string code = "struct TPargsStruct {\n";
@@ -1241,9 +1253,14 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         string[] paramList;
         string paramAssignCode;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-          // Just cosmetics in this case.
-          immutable paramName = methodMetaFound ? methodMeta.params[i].name :
-            "param" ~ to!string(i + 1);
+          // Use the param name speficied in the meta information if any –
+          // just cosmetics in this case.
+          string paramName;
+          if (methodMetaFound && i < methodMeta.params.length) {
+            paramName = methodMeta.params[i].name;
+          } else {
+            paramName = "param" ~ to!string(i + 1);
+          }
 
           paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
@@ -1643,8 +1660,13 @@ template TServiceProcessor(Interface, Protocols...) if (
         // Generate the parameter list to pass to the called iface function.
         string[] paramList;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-          paramList ~= "args." ~ (methodMetaFound ? methodMeta.params[i].name :
-            "param" ~ to!string(i + 1));
+          string paramName;
+          if (methodMetaFound && i < methodMeta.params.length) {
+            paramName = methodMeta.params[i].name;
+          } else {
+            paramName = "param" ~ to!string(i + 1);
+          }
+          paramList ~= "args." ~ paramName;
         }
 
         immutable call = "iface_." ~ methodName ~ "(" ~ ctfeJoin(paramList) ~ ")";
