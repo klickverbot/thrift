@@ -119,9 +119,9 @@ class TNonblockingServer : TServer {
   }
 
   ~this() {
-    if (eventBase_) {
-      event_base_free(eventBase_);
-    }
+    if (listenEvent_) event_free(listenEvent_);
+    if (completionEvent_) event_free(completionEvent_);
+    if (eventBase_) event_base_free(eventBase_);
   }
 
   override void serve() {
@@ -381,23 +381,19 @@ private:
       to!string(event_get_version()), to!string(event_get_method()));
 
     // Register the event for the listening socket.
-    event_set(&listenEvent_, listenSocket_.handle, EV_READ | EV_PERSIST,
-      &handleEventCallback, cast(void*)this);
+    listenEvent_ = event_new(eventBase_, listenSocket_.handle,
+      EV_READ | EV_PERSIST, &handleEventCallback, cast(void*)this);
 
-    event_base_set(eventBase_, &listenEvent_);
-
-    if (event_add(&listenEvent_, null) == -1) {
+    if (event_add(listenEvent_, null) == -1) {
       throw new TException("event_add for the listening socket event failed.");
     }
 
     if (taskPool) {
       // Register an event for the task completion notification socket.
-      event_set(&completionEvent_, completionReceiveSocket_.handle,
+      completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
         EV_READ | EV_PERSIST, &taskCompletionCallback, cast(void*)this);
 
-      event_base_set(eventBase_, &completionEvent_);
-
-      if (event_add(&completionEvent_, null) == -1) {
+      if (event_add(completionEvent_, null) == -1) {
         throw new TException("event_add for the notification socket failed.");
       }
     }
@@ -505,10 +501,10 @@ private:
   event_base* eventBase_;
 
   /// The libevent event definition for the listening socket events.
-  event listenEvent_;
+  event* listenEvent_;
 
   /// The libevent event definition for the connection completion events.
-  event completionEvent_;
+  event* completionEvent_;
 
   /// The total number of connections existing, both active and idle.
   size_t numConnections_;
