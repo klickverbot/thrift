@@ -22,7 +22,7 @@ import core.stdc.errno : EPIPE, ENOTCONN;
 import core.thread : Thread;
 import core.time : Duration;
 import std.array : empty;
-import std.conv : to;
+import std.conv : text, to;
 import std.exception : enforce;
 import std.socket;
 import std.stdio : stderr; // No proper logging support yet.
@@ -76,7 +76,11 @@ abstract class TSocketBase : TBaseTransport {
   abstract size_t writeSome(in ubyte[] buf) in {
     assert(isOpen, "Called writeSome() on non-open socket!");
   } out (written) {
-    assert(written <= buf.length, "Implementation wrote more data than requested to?!");
+    // DMD @@BUG@@: Enabling this e.g. fails the contract in the
+    // async_test_server, because buf.length evaluates to 0 here, even though
+    // in the method body it correctly is 27 (equal to the return value).
+    version (none) assert(written <= buf.length, text("Implementation wrote " ~
+      "more data than requested to?! (", written, " vs. ", buf.length, ")"));
   } body {
     assert(0, "DMD bug? – Why would contracts work for interfaces, but not "
       "for abstract methods? "
@@ -170,7 +174,7 @@ protected:
     }
     return peerAddress_;
   }
-  
+
   /**
    * Sets the needed socket options.
    */
