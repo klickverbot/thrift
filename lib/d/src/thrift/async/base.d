@@ -114,14 +114,12 @@ interface TFuture(ResultType) {
    */
   ResultType waitGet(Duration timeout);
 
-  static if (!is(ResultType == void)) {
-    /**
-     * Returns the result of the operation.
-     *
-     * Throws: TFutureException if not yet done; the set exception if any.
-     */
-    ResultType get();
-  }
+  /**
+   * Returns the result of the operation.
+   *
+   * Throws: TFutureException if not yet done; the set exception if any.
+   */
+  ResultType get();
 
   /**
    * Returns the captured exception if the operation failed, or null otherwise.
@@ -196,13 +194,15 @@ class TPromise(ResultType) : TFuture!ResultType {
     return done_;
   }
 
-  static if (!is(ResultType == void)) {
-    /+override+/ ResultType get() {
-      enforce(done_, new TFutureException("Result not yet available."));
-      if (exception_) throw exception_;
+  /+override+/ ResultType get() {
+    enforce(done_, new TFutureException("Result not yet available."));
+    if (exception_) throw exception_;
+    static if (!is(ResultType == void)) {
       return result_;
     }
+  }
 
+  static if (!is(ResultType == void)) {
     /**
      * Sets the result of the operation, marks it as done, and notifies any
      * waiters.
