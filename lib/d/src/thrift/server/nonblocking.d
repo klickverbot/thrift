@@ -702,13 +702,15 @@ private {
           // modify the internal buffer of the TMemoryBuffer – works with the
           // current implementation, but isn't exactly beautiful.
           writeBuffer_ = cast(ubyte[])outputTransport_.getContents();
-          if (writeBuffer_.empty) {
+
+          assert(writeBuffer_.length >= 4, "The write buffer should have " ~
+            "least the initially added dummy length bytes.");
+          if (writeBuffer_.length == 4) {
             // The request was one-way, no response to write.
             goto case ConnectionState.INIT;
           }
 
           // Write the frame size into the four bytes reserved for it.
-          assert(writeBuffer_.length > 4);
           auto size = hostToNet(writeBuffer_.length - 4);
           writeBuffer_[0 .. 4] = cast(ubyte[])((&size)[0 .. 1]);
 
