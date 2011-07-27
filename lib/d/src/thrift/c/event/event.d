@@ -79,6 +79,10 @@ enum EV_ET = 0x20;
 alias extern(C) int function(event*, const(timeval)*) event_add_t;
 event_add_t event_add;
 
+alias extern(C) int function(event*, event_base*, evutil_socket_t, short,
+  event_callback_fn, void*) event_assign_t;
+event_assign_t event_assign;
+
 alias extern(C) event_base* function() event_base_new_t;
 event_base_new_t event_base_new;
 

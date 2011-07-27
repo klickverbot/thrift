@@ -636,6 +636,10 @@ private {
 
     ~this() {
       free(readBuffer_);
+      if (event_) {
+        event_free(event_);
+        event_ = null;
+      }
     }
 
     /**
@@ -946,12 +950,17 @@ private {
 
       if (eventFlags == 0) return;
 
-      event_set(&event_, socket_.socketHandle, eventFlags_,
-        &workSocketCallback, cast(void*)this);
-      event_base_set(server_.eventBase_, &event_);
+      if (!event_) {
+        // If the event was not already allocated, do it now.
+        event_ = event_new(server_.eventBase_, socket_.socketHandle,
+          eventFlags_, &workSocketCallback, cast(void*)this);
+      } else {
+        event_assign(event_, server_.eventBase_, socket_.socketHandle,
+          eventFlags_, &workSocketCallback, cast(void*)this);
+      }
 
       // Add the event
-      if (event_add(&event_, null) == -1) {
+      if (event_add(event_, null) == -1) {
         stderr.writeln("Connection.registerEvent(): could not event_add.");
       }
     }
@@ -970,9 +979,9 @@ private {
      * Unregisters the current libevent event, if any.
      */
     void unregisterEvent() {
-      if (eventFlags_ != 0) {
+      if (event_ && eventFlags_ != 0) {
         eventFlags_ = 0;
-        if (event_del(&event_) == -1) {
+        if (event_del(event_) == -1) {
           stderr.writeln("Connection.unregisterEvent(): event_del failed.");
           return;
         }
@@ -983,10 +992,7 @@ private {
      * Closes this connection and returns it back to the server.
      */
     void close() {
-      // Delete the registered libevent
-      if (event_del(&event_) == -1) {
-        stderr.writeln("Connection.close(): event_del failed.");
-      }
+      unregisterEvent();
 
       if (server_.eventHandler) {
         server_.eventHandler.deleteContext(
@@ -1011,7 +1017,7 @@ private {
     TSocket socket_;
 
     /// The libevent object used for registering the workSocketCallback.
-    event event_;
+    event* event_;
 
     /// Libevent flags
     short eventFlags_;
