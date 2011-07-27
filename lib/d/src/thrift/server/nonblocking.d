@@ -480,9 +480,8 @@ private:
   }
 
   /**
-   * Returns a connection to pool or deletion.  If the connection pool
-   * (a stack) isn't full, place the connection object on it, otherwise
-   * just delete it.
+   * Marks a connection as inactive and either puts it back into the
+   * connection pool or leaves it for garbage collection.
    */
   void disposeConnection(Connection connection) {
     if (!connectionStackLimit ||
@@ -494,12 +493,10 @@ private:
     } else {
       assert(numConnections_ > 0);
       --numConnections_;
-    }
 
-    // We no longer need the additional root – if the connection is cached, we
-    // have already put on the connectionStack_, and if not, we leave it for
-    // collection now.
-    GC.removeRoot(cast(void*)connection);
+      // Leave the connection object for collection now.
+      GC.removeRoot(cast(void*)connection);
+    }
   }
 
   /// Server socket file descriptor
