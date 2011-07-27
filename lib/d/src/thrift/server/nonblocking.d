@@ -119,9 +119,20 @@ class TNonblockingServer : TServer {
   }
 
   ~this() {
-    if (listenEvent_) event_free(listenEvent_);
-    if (completionEvent_) event_free(completionEvent_);
-    if (eventBase_) event_base_free(eventBase_);
+    if (listenEvent_) {
+      event_free(listenEvent_);
+      listenEvent_ = null;
+    }
+
+    if (completionEvent_) {
+      event_free(completionEvent_);
+      completionEvent_ = null;
+    }
+
+    if (eventBase_) {
+      event_base_free(eventBase_);
+      eventBase_ = null;
+    }
   }
 
   override void serve() {
