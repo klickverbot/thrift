@@ -22,51 +22,7 @@ version (Windows) {
 
 alias extern(C) void function(evutil_socket_t, short, void *) event_callback_fn;
 
-extern(C) struct event {
-	tailq_entry_event ev_active_next;
-	tailq_entry_event ev_next;
-	union ev_timeout_pos_t {
-	  tailq_entry_event ev_next_with_common_timeout;
-	  int min_heap_idx;
-	}
-	ev_timeout_pos_t ev_timeout_pos;
-	evutil_socket_t ev_fd;
-
-	event_base* ev_base;
-
-	union _ev_t {
-		struct ev_io_t {
-			tailq_entry_event ev_io_next;
-			timeval ev_timeout;
-		}
-		ev_io_t ev_io;
-
-		struct ev_signal_t {
-			tailq_entry_event ev_signal_next;
-			short ev_ncalls;
-			short *ev_pncalls;
-		}
-		ev_signal_t ev_signal;
-	}
-	_ev_t _ev;
-
-	short ev_events;
-	short ev_res;
-	short ev_flags;
-	ubyte ev_pri;
-	ubyte ev_closure;
-	timeval ev_timeout;
-
-	/* allows us to adopt for different types of events */
-	event_callback_fn ev_callback;
-	void* ev_arg;
-}
-
-extern(C) struct tailq_entry_event {
-  event* tqe_next;
-  event** tqe_prev;
-}
-
+alias void event;
 alias void event_base;
 
 enum EV_TIMEOUT = 0x1;
