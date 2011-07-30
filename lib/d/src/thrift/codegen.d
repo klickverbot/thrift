@@ -676,32 +676,35 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   bool pointerStruct = false) (const T s, Protocol p) if (isTProtocol!Protocol)
 {
-  // Check that all fields for which there is meta info are actually in the
-  // passed struct type.
   mixin({
+    // Check that all fields for which there is meta info are actually in the
+    // passed struct type.
     string code = "";
     static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
-    return code;
-  }());
 
-  // Check that required nullable members are non-null.
-  foreach (name; __traits(derivedMembers, T)) {
-    static if (is(MemberType!(T, name)) &&
-      !isSomeFunction!(MemberType!(T, name)))
-    {
-      // If the field is nullable, we don't need an isSet flag as we can map
-      // unset to null.
-      static if (isNullable!(MemberType!(T, name))) {
-        enum meta = find!`a.name == b`(fieldMetaData, name);
-        static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
-          enforce(__traits(getMember, s, name) !is null,
-            new TException("TRequired field '" ~ name ~ "' null."));
+    // Check that required nullable members are non-null.
+    // WORKAROUND: To stop LDC from emitting the manifest constant »meta« below
+    // into the writeStruct function body (this is an LDC bug, and will
+    // allocate allocate a new array on each method invocation at runtime),
+    // this is inside the string mixin block – the code wouldn't depend on it.
+    foreach (name; __traits(derivedMembers, T)) {
+      static if (is(MemberType!(T, name)) &&
+        !isSomeFunction!(MemberType!(T, name)))
+      {
+        static if (isNullable!(MemberType!(T, name))) {
+          enum meta = find!`a.name == b`(fieldMetaData, name);
+          static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
+            code ~= `enforce(__traits(getMember, s, name) !is null,
+              new TException("Required field '` ~ name ~ `' is null."));\n`;
+          }
         }
       }
     }
-  }
+
+    return code;
+  }());
 
   p.writeStructBegin(TStruct(T.stringof));
   mixin({
