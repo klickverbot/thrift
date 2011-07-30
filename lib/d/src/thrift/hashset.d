@@ -27,6 +27,8 @@ import std.range : ElementType, isInputRange;
  * compile Thrift's set<> to until std.container gains something suitable.
  * Breaks immutability, not really tested, slow, etc.
  */
+// Note: The funky pointer casts (i.e. *(cast(immutable(E)*)&e) instead of
+// just cast(immutable(E))e) are a workaround for LDC 2 compatibilty.
 final class HashSet(E) {
   ///
   this() {}
@@ -38,7 +40,7 @@ final class HashSet(E) {
 
   ///
   void insert(Stuff)(Stuff stuff) if (isImplicitlyConvertible!(Stuff, E)) {
-    aa_[cast(immutable(E))stuff] = [];
+    aa_[*(cast(immutable(E)*)&stuff)] = [];
   }
 
   ///
@@ -46,7 +48,7 @@ final class HashSet(E) {
     isInputRange!Stuff && isImplicitlyConvertible!(ElementType!Stuff, E)
   ) {
     foreach (e; stuff) {
-      aa_[cast(immutable(E))e] = [];
+      aa_[*(cast(immutable(E)*)&e)] = [];
     }
   }
 
@@ -57,7 +59,7 @@ final class HashSet(E) {
 
   ///
   void remove(E e) {
-    aa_.remove(cast(immutable(E))e);
+    aa_.remove(*(cast(immutable(E)*)&e));
   }
   alias remove removeKey;
 
