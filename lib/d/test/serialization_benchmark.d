@@ -7,9 +7,9 @@
  * e.g. by including the source files with the build instead
  * of linking libthriftd:
  *
- * dmd -w -O -release -inline -I../src -Igen-d -ofserialization_benchmark
- * $(find ../src/thrift -name '*.d') gen-d/DebugProtoTest_types.d
- * serialization_benchmark.d
+   dmd -w -O -release -inline -I../src -Igen-d -ofserialization_benchmark \
+   $(find ../src/thrift -name '*.d') gen-d/DebugProtoTest_types.d \
+   serialization_benchmark.d
  */
 module serialization_benchmark;
 
