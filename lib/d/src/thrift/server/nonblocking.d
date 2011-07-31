@@ -100,12 +100,9 @@ class TNonblockingServer : TServer {
     super(processor, null, inputTransportFactory, outputTransportFactory,
       inputProtocolFactory, outputProtocolFactory);
     port_ = port;
-    this.taskPool = taskPool;
 
-    if (taskPool) {
-      stdout.writefln("TNonblockingServer: Using task pool with size: %s",
-        taskPool.size);
-    }
+    eventBase_ = event_base_new();
+    this.taskPool = taskPool;
 
     connectionStackLimit = DEFAULT_CONNECTION_STACK_LIMIT;
     maxActiveProcessors = DEFAULT_MAX_ACTIVE_PROCESSORS;
@@ -129,10 +126,8 @@ class TNonblockingServer : TServer {
       completionEvent_ = null;
     }
 
-    if (eventBase_) {
-      event_base_free(eventBase_);
-      eventBase_ = null;
-    }
+    event_base_free(eventBase_);
+    eventBase_ = null;
   }
 
   override void serve() {
@@ -142,23 +137,29 @@ class TNonblockingServer : TServer {
       BIND_RETRY_LIMIT, BIND_RETRY_DELAY);
     listenSocket_.blocking = false;
 
-    if (taskPool) {
-      auto pair = socketPair();
-      foreach (s; pair) s.blocking = false;
-      completionSendSocket_ = pair[0];
-      completionReceiveSocket_ = pair[1];
+    // Log the libevent version and backend and the size of the task pool used.
+    stdout.writefln("TNonblockingServer: libevent version %s, using method %s",
+      to!string(event_get_version()), to!string(event_base_get_method(eventBase_)));
+
+    if (taskPool_) {
+      stdout.writefln("TNonblockingServer: Using task pool with size: %s",
+        taskPool_.size);
     }
 
-    // Initialize libevent core
-    registerEvents(event_init());
+    // Register the event for the listening socket.
+    listenEvent_ = event_new(eventBase_, listenSocket_.handle,
+      EV_READ | EV_PERSIST, &handleEventCallback, cast(void*)this);
+    if (event_add(listenEvent_, null) == -1) {
+      throw new TException("event_add for the listening socket event failed.");
+    }
 
-    // Run libevent engine, never returns, invokes calls to eventHandler
+    // Enter the libevent loop – never returns.
     if (eventHandler) eventHandler.preServe();
     event_base_loop(eventBase_, 0);
   }
 
   /**
-   * Returns the number of currently active connections, i.e. open sockets.
+   * Returns the number of currently active connections, i. e. open sockets.
    */
   size_t getNumConnections() const {
     return numConnections_;
@@ -187,9 +188,39 @@ class TNonblockingServer : TServer {
   /// Duration between bind() retries.
   enum BIND_RETRY_DELAY = dur!"hnsecs"(0);
 
-  /// The task pool to use for processing requests. If null, no additional
-  /// threads are used and request are processed »inline«.
-  TaskPool taskPool;
+  /**
+   * The task pool to use for processing requests. If null, no additional
+   * threads are used and request are processed »inline«.
+   *
+   * Can safely be set even when the server is already running.
+   */
+  TaskPool taskPool() {
+    return taskPool_;
+  }
+
+  /// ditto
+  void taskPool(TaskPool pool) {
+    taskPool_ = pool;
+
+    // If we are now using a task pool, but the completion notification
+    // mechanism has not already been set up, do it now. Note that we do _not_
+    // tear it down in the reverse case because there could still be some active
+    // connections which are using it.
+    if (pool && !completionEvent_) {
+      auto pair = socketPair();
+      foreach (s; pair) s.blocking = false;
+      completionSendSocket_ = pair[0];
+      completionReceiveSocket_ = pair[1];
+
+      // Register an event for the task completion notification socket.
+      completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
+        EV_READ | EV_PERSIST, &taskCompletionCallback, cast(void*)this);
+
+      if (event_add(completionEvent_, null) == -1) {
+        throw new TException("event_add for the notification socket failed.");
+      }
+    }
+  }
 
   /**
    * Hysteresis for overload state.
@@ -254,7 +285,7 @@ class TNonblockingServer : TServer {
 
   /**
    * Every N calls we check the buffer size limits on a connected Connection.
-   * 0 disables (i.e. the checks are only done when a connection closes).
+   * 0 disables (i. e. the checks are only done when a connection closes).
    */
   uint resizeBufferEveryN;
 
@@ -287,7 +318,6 @@ private:
    * to handle those requests.
    */
   void handleEvent(int fd, short which) {
-    // Make sure that libevent didn't mess up the socket handles
     assert(fd == listenSocket_.handle);
 
     // Accept as many new clients as possible, even though libevent signaled
@@ -302,7 +332,7 @@ private:
       } catch (SocketAcceptException e) {
         if (!(e.errorCode == EWOULDBLOCK || e.errorCode == EAGAIN)) {
           stderr.writefln("TNonblockingServer.handleEvent(): Error " ~
-            "accepting conection: %s", e);
+            "accepting connection: %s", e);
         }
         break;
       }
@@ -380,52 +410,24 @@ private:
   }
 
   /**
-   * Registers the needed libevent events on the given event_base.
-   */
-  void registerEvents(event_base* base) {
-    assert(listenSocket_);
-    assert(!eventBase_);
-    eventBase_ = base;
-
-    // Log the libevent version and backend used.
-    stdout.writefln("TNonblockingServer: libevent version %s, using method %s",
-      to!string(event_get_version()), to!string(event_get_method()));
-
-    // Register the event for the listening socket.
-    listenEvent_ = event_new(eventBase_, listenSocket_.handle,
-      EV_READ | EV_PERSIST, &handleEventCallback, cast(void*)this);
-
-    if (event_add(listenEvent_, null) == -1) {
-      throw new TException("event_add for the listening socket event failed.");
-    }
-
-    if (taskPool) {
-      // Register an event for the task completion notification socket.
-      completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
-        EV_READ | EV_PERSIST, &taskCompletionCallback, cast(void*)this);
-
-      if (event_add(completionEvent_, null) == -1) {
-        throw new TException("event_add for the notification socket failed.");
-      }
-    }
-  }
-
-  /**
-   * C-callable event handler for listener events.  Provides a callback
-   * that libevent can understand which invokes server.handleEvent().
+   * C callback wrapper around handleEvent(). Expects the custom argument to be
+   * the this pointer of the associated server instance.
    */
   extern(C) static void handleEventCallback(int fd, short which, void* serverThis) {
     (cast(TNonblockingServer)serverThis).handleEvent(fd, which);
   }
 
   /**
-   * C-callable event handler for signaling task completion.  Provides a
-   * callback that libevent can understand that will read a connection
-   * object's address from a pipe and call connection.transition() for
-   * that object.
+   * C callback for data on the completion receive socket.
+   *
+   * Read the address of a connection object from the socket and transitions it.
+   * Expects the custom argument to be the this pointer of the associated server
+   * instance.
    */
-  extern(C) static void taskCompletionCallback(int fd, short which, void* serverThis) {
+  extern(C) static void taskCompletionCallback(int fd, short what, void* serverThis) {
     auto server = cast(TNonblockingServer) serverThis;
+    assert(fd == server.completionReceiveSocket_.handle);
+    assert(what & EV_READ);
 
     Connection connection;
     ptrdiff_t bytesRead;
@@ -466,7 +468,7 @@ private:
       auto result = new Connection(socket, flags, this);
 
       // Make sure the connection does not get collected while it is active,
-      // i.e. hooked up with libevent.
+      // i. e. hooked up with libevent.
       GC.addRoot(cast(void*)result);
 
       return result;
@@ -534,6 +536,9 @@ private:
   /// Number of connections dropped due to overload since the server started.
   ulong nTotalConnectionsDropped_;
 
+  /// The task pool used for processing requests.
+  TaskPool taskPool_;
+
   /// Socket used to send completion notification messages. Paired with
   /// completionReceiveSocket_.
   Socket completionSendSocket_;
@@ -581,9 +586,8 @@ private {
      * to the same effect on the internal state.
      */
     this(Socket socket, short eventFlags, TNonblockingServer s) {
-      // Allocate input and output tranpsorts
-      // these only need to be allocated once per Connection (they don't need to be
-      // reallocated on init() call)
+      // The input and output transport objects are reused between clients
+      // connections, so initialize them here rather than in init().
       inputTransport_ = new TInputRangeTransport!(ubyte[])([]);
       outputTransport_ = new TMemoryBuffer(s.writeBufferDefaultSize);
 
@@ -661,9 +665,9 @@ private {
     }
 
     /**
-     * Transtitions the connection to the next state.
+     * Transitions the connection to the next state.
      *
-     * This is called e.g. when the request has been read completely or all
+     * This is called e. g. when the request has been read completely or all
      * the data has been written back.
      */
     void transition() {
@@ -685,11 +689,12 @@ private {
 
           server_.incrementActiveProcessors();
 
-          if (server_.taskPool) {
+          taskPool_ = server_.taskPool;
+          if (taskPool_) {
             // Create a new task and add it to the task pool queue.
             auto processingTask = task!processRequest(this);
             connState_ = ConnectionState.WAIT_PROCESSOR;
-            server_.taskPool.put(processingTask);
+            taskPool_.put(processingTask);
 
             // We don't want to process any more data while the task is active.
             unregisterEvent();
@@ -804,7 +809,7 @@ private {
      * task has been preemptively terminated (on overload).
      */
     void notifyServer() {
-      if (!server_.taskPool) return;
+      if (!taskPool_) return;
 
       assert(server_.completionSendSocket_);
       auto bytesSent =
@@ -812,7 +817,7 @@ private {
 
       if (bytesSent != Connection.sizeof) {
         stderr.writeln(
-          "TNonblockingServer: Sending completion notification falied.");
+          "TNonblockingServer: Sending completion notification failed.");
       }
     }
 
@@ -1010,6 +1015,11 @@ private {
     /// The server this connection belongs to.
     TNonblockingServer server_;
 
+    /// The task pool used for this connection. This is cached instead of
+    /// directly using server_.taskPool to avoid confusion if it is changed in
+    /// another thread while the request is processed.
+    TaskPool taskPool_;
+
     /// The socket managed by this connection.
     TSocket socket_;
 
@@ -1031,7 +1041,7 @@ private {
     /// the wire is specified as one.
     int readWant_;
 
-    /// The position in the read buffer, i.e. the number of payload bytes
+    /// The position in the read buffer, i. e. the number of payload bytes
     /// already received from the socket in READ_REQUEST state, resp. the
     /// number of size bytes in READ_FRAME_SIZE state.
     uint readBufferPos_;
@@ -1077,7 +1087,7 @@ private {
  * The request processing function, which invokes the processor for the server
  * for all the RPC messages received over a connection.
  *
- * Must be public because it is passed as alias to std.paralellism.task.
+ * Must be public because it is passed as alias to std.parallelism.task().
  */
 void processRequest(Connection connection) {
   try {
@@ -1090,7 +1100,7 @@ void processRequest(Connection connection) {
         if (!server_.processor.process(inputProtocol_, outputProtocol_,
           connectionContext_) || !inputProtocol_.transport.peek()
         ) {
-          // Something went fundamentlly wrong or there is nothing more to
+          // Something went fundamentally wrong or there is nothing more to
           // process, close the connection.
           break;
         }

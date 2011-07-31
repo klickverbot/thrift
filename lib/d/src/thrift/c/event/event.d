@@ -45,14 +45,17 @@ event_base_new_t event_base_new;
 alias extern(C) void function(event_base*) event_base_free_t;
 event_base_free_t event_base_free;
 
+alias extern(C) const(char)* function(const(event_base*)) event_base_get_method_t;
+event_base_get_method_t event_base_get_method;
+
+alias extern(C) int function(event_base*, int) event_base_loop_t;
+event_base_loop_t event_base_loop;
+
 alias extern(C) int function(event_base*, evutil_socket_t, short, event_callback_fn, void*, const(timeval)*) event_base_once_t;
 event_base_once_t event_base_once;
 
 alias extern(C) int function(event_base*, event*) event_base_set_t;
 event_base_set_t event_base_set;
-
-alias extern(C) int function(event_base*, int) event_base_loop_t;
-event_base_loop_t event_base_loop;
 
 alias extern(C) int function(event*) event_del_t;
 event_del_t event_del;
