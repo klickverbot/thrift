@@ -23,7 +23,7 @@ import DebugProtoTest_types;
 
 void main() {
   auto buf = new TMemoryBuffer;
-  enum ITERATIONS = 1_000_000;
+  enum ITERATIONS = 10_000_000;
 
   {
     auto ooe = OneOfEach();
@@ -50,7 +50,7 @@ void main() {
     writefln("Write: %s ms (%s kHz)", msecs, ITERATIONS / msecs);
   }
 
-  auto data = buf.getContents();
+  auto data = buf.getContents().dup;
 
   {
     auto readBuf = createTInputRangeTransport(data);
