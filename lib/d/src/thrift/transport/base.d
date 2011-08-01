@@ -221,7 +221,7 @@ interface TTransport {
 }
 
 /**
- * Provides basic fallback implementations of the TTransport interface.
+ * Provides basic fall-back implementations of the TTransport interface.
  */
 class TBaseTransport : TTransport {
   override bool isOpen() @property {
@@ -234,17 +234,17 @@ class TBaseTransport : TTransport {
 
   override void open() {
     throw new TTransportException("Cannot open TBaseTransport.",
-      TTransportException.Type.NOT_OPEN);
+      TTransportException.Type.NOT_IMPLEMENTED);
   }
 
   override void close() {
     throw new TTransportException("Cannot close TBaseTransport.",
-      TTransportException.Type.NOT_OPEN);
+      TTransportException.Type.NOT_IMPLEMENTED);
   }
 
   override size_t read(ubyte[] buf) {
-    throw new TTransportException("TBaseTransport cannot read.",
-      TTransportException.Type.NOT_OPEN);
+    throw new TTransportException("Cannot read from a TBaseTransport.",
+      TTransportException.Type.NOT_IMPLEMENTED);
   }
 
   override void readAll(ubyte[] buf) {
@@ -266,8 +266,8 @@ class TBaseTransport : TTransport {
   }
 
   override void write(in ubyte[] buf) {
-    throw new TTransportException("TBaseTransport cannot write.",
-      TTransportException.Type.NOT_OPEN);
+    throw new TTransportException("Cannot write to a TBaseTransport.",
+      TTransportException.Type.NOT_IMPLEMENTED);
   }
 
   override size_t writeEnd() {
@@ -285,8 +285,8 @@ class TBaseTransport : TTransport {
   }
 
   override void consume(size_t len) {
-    throw new TTransportException("TBaseTransport cannot consume.",
-      TTransportException.Type.NOT_OPEN);
+    throw new TTransportException("Cannot consume from a TBaseTransport.",
+      TTransportException.Type.NOT_IMPLEMENTED);
   }
 
 protected:
@@ -336,25 +336,27 @@ class TTransportException : TException {
     INTERRUPTED, ///
     BAD_ARGS, ///
     CORRUPTED_DATA, ///
-    INTERNAL_ERROR ///
+    INTERNAL_ERROR, ///
+    NOT_IMPLEMENTED ///
   }
 
   ///
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
-    string msgForType(Type type) {
-      switch (type) {
-        case Type.UNKNOWN: return "TTransportException: Unknown transport exception";
-        case Type.NOT_OPEN: return "TTransportException: Transport not open";
-        case Type.TIMED_OUT: return "TTransportException: Timed out";
-        case Type.END_OF_FILE: return "TTransportException: End of file";
-        case Type.INTERRUPTED: return "TTransportException: Interrupted";
-        case Type.BAD_ARGS: return "TTransportException: Invalid arguments";
-        case Type.CORRUPTED_DATA: return "TTransportException: Corrupted Data";
-        case Type.INTERNAL_ERROR: return "TTransportException: Internal error";
-        default: return "TTransportException: (Invalid exception type)";
-      }
+    string msg = "TTransportException: ";
+    switch (type) {
+      case Type.UNKNOWN: msg ~= "Unknown transport exception"; break;
+      case Type.NOT_OPEN: msg ~= "Transport not open"; break;
+      case Type.TIMED_OUT: msg ~= "Timed out"; break;
+      case Type.END_OF_FILE: msg ~= "End of file"; break;
+      case Type.INTERRUPTED: msg ~= "Interrupted"; break;
+      case Type.BAD_ARGS: msg ~= "Invalid arguments"; break;
+      case Type.CORRUPTED_DATA: msg ~= "Corrupted Data"; break;
+      case Type.INTERNAL_ERROR: msg ~= "Internal error"; break;
+      case Type.NOT_IMPLEMENTED: msg ~= "Not implemented"; break;
+      default: msg ~= "(Invalid exception type)"; break;
     }
-    this(msgForType(type), type, file, line, next);
+
+    this(msg, type, file, line, next);
   }
 
   ///
