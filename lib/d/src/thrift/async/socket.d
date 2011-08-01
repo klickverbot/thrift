@@ -43,7 +43,7 @@ version (Windows) {
  * Non-blocking socket implementation of the TTransport interface.
  *
  * Whenever a socket operation would block, TAsyncSocket registers a callback
- * with the specified TAsyncIOService and yields.
+ * with the specified TAsyncSocketManager and yields.
  *
  * As for thrift.transport.socket, due to the limitations of std.socket, only
  * TCP/IPv4 sockets (i.e. no Unix sockets or IPv6) are currently supported.
@@ -143,16 +143,14 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
         (TAsyncEventReason reason){ fiber.call(); });
       Fiber.yield();
 
-      // TODO: Check for SO_ERROR here to provide a better error message than
-      // failing with »Sending to socket failed: Broken pipe« when trying to
-      // send/receive. It is not quite clear though how to signal this to the
-      // client. We can't throw an exception, obviously, because open() has
-      // already returned, and TTransport currently specifies isOpen as a
-      // precondition to all the member methods, so marking the socket as
-      // closed would put clients in the awkward position of possibly breaking
-      // the contract depending on runtime behavior. Maybe using contracts
-      // should be rethought, but what about the performance cost associated
-      // with using enforce/exceptions instead?
+      int errorFlag;
+      socket_.getOption(SocketOptionLevel.SOCKET, cast(SocketOption)SO_ERROR,
+        errorFlag);
+
+      if (errorFlag) {
+        // Close the connection, so that subsequent work items fail immediately.
+        close();
+      }
     }));
   }
 
@@ -283,6 +281,15 @@ private:
       Fiber.yield();
 
       if (eventReason == TAsyncEventReason.TIMED_OUT) {
+        // If we are cancelling the request due to a timed out operation, the
+        // connection is in an undefined state, because the server could decide
+        // to send the requested data later, or we could have already been half-
+        // way into writing a request. Thus, we close the connection to make any
+        // possibly queued up work items fail immediately. Besides, the server
+        // is unlikely to immediately recover after a socket-level timeout has
+        // experienced anyway.
+        close();
+
         throw new TTransportException(
           "Timed out while waiting for socket to get ready for " ~
           to!string(eventType) ~ ".", TTransportException.Type.TIMED_OUT);
@@ -292,4 +299,18 @@ private:
 
   /// The TAsyncSocketManager to use for non-blocking I/O.
   TAsyncSocketManager asyncManager_;
+}
+
+private {
+  // std.socket doesn't include SO_ERROR for reasons unknown.
+  version (linux) {
+    enum SO_ERROR = 4;
+  } else version (OSX) {
+    enum SO_ERROR = 0x1007;
+  } else version (FreeBSD) {
+    enum SO_ERROR = 0x1007;
+  } else {
+    // TODO: Windows.
+    static assert(0, "Don't know SO_ERROR on this platform.");
+  }
 }
