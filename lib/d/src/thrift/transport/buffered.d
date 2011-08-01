@@ -206,6 +206,7 @@ final class TBufferedTransport : TBufferBase {
   }
 
   override void close() {
+    if (!isOpen) return;
     flush();
     transport_.close();
   }
