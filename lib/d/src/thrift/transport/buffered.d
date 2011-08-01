@@ -16,193 +16,75 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-/**
- * Crude port of the C++ Buffered transport.
- *
- * TODO: Implement this in ideomatic D.
- */
 module thrift.transport.buffered;
 
 import std.algorithm : min;
+import std.array : empty;
 import std.exception : enforce;
 import thrift.transport.base;
 
-class TBufferBase : TBaseTransport {
-  /**
-   * Fast-path read.
-   *
-   * When we have enough data buffered to fulfill the read, we can satisfy it
-   * with a single memcpy, then adjust our internal pointers.  If the buffer
-   * is empty, we call out to our slow path, implemented by a subclass.
-   * This method is meant to eventually be nonvirtual and inlinable.
-   */
-  override size_t read(ubyte[] buf) {
-    ubyte* new_rBase = rBase_ + buf.length;
-    if (new_rBase <= rBound_) {
-      buf[] = rBase_[0..buf.length];
-      rBase_ = new_rBase;
-      return buf.length;
-    }
-    return readSlow(buf);
-  }
-
-  /**
-   * Shortcutted version of readAll.
-   */
-  override void readAll(ubyte[] buf) {
-    ubyte* new_rBase = rBase_ + buf.length;
-    if (new_rBase <= rBound_) {
-      buf[] = rBase_[0..buf.length];
-      rBase_ = new_rBase;
-      return;
-    }
-    super.readAll(buf);
-  }
-
-  /**
-   * Fast-path write.
-   *
-   * When we have enough empty space in our buffer to accomodate the write, we
-   * can satisfy it with a single memcpy, then adjust our internal pointers.
-   * If the buffer is full, we call out to our slow path, implemented by a
-   * subclass.  This method is meant to eventually be nonvirtual and
-   * inlinable.
-   */
-  override void write(in ubyte[] buf) {
-    ubyte* new_wBase = wBase_ + buf.length;
-    if (new_wBase <= wBound_) {
-      wBase_[0..buf.length] = buf;
-      wBase_ = new_wBase;
-      return;
-    }
-    writeSlow(buf);
-  }
-
-  /**
-   * Fast-path borrow.  A lot like the fast-path read.
-   */
-  override const(ubyte)[] borrow(ubyte* buf, size_t len) {
-    if (cast(ptrdiff_t)len <= rBound_ - rBase_) {
-      return rBase_[0 .. (rBound_ - rBase_)];
-    }
-    return borrowSlow(buf, len);
-  }
-
-  /**
-   * Consume doesn't require a slow path.
-   */
-  override void consume(size_t len) {
-    enforce(cast(ptrdiff_t)len <= rBound_ - rBase_, new TTransportException(
-      TTransportException.Type.BAD_ARGS, "consume did not follow a borrow."));
-    rBase_ += len;
-  }
-
-
-protected:
-  /// Slow path read.
-  abstract size_t readSlow(ubyte[] buf);
-
-  /// Slow path write.
-  abstract void writeSlow(in ubyte[] buf);
-
-  /// Slow path borrow.
-  abstract const(ubyte)[] borrowSlow(ubyte* buf, size_t len);
-
-  /**
-   * Trivial constructor.
-   *
-   * Initialize pointers safely.  Constructing is not a very
-   * performance-sensitive operation, so it is okay to just leave it to
-   * the concrete class to set up pointers correctly.
-   */
-  this() {}
-
-  /// Convenience mutator for setting the read buffer.
-  void setReadBuffer(ubyte[] buf) {
-    rBase_ = buf.ptr;
-    rBound_ = buf.ptr + buf.length;
-  }
-
-  /// Convenience mutator for setting the write buffer.
-  void setWriteBuffer(ubyte[] buf) {
-    wBase_ = buf.ptr;
-    wBound_ = buf.ptr + buf.length;
-  }
-
-  /// Reads begin here.
-  ubyte* rBase_;
-  /// Reads may extend to just before here.
-  ubyte* rBound_;
-
-  /// Writes begin here.
-  ubyte* wBase_;
-  /// Writes may extend to just before here.
-  ubyte* wBound_;
-}
-
 /**
- * Buffered transport.
- *
- * For reads it will read more data than is requested and will serve future
- * data out of a local buffer. For writes, data is stored to an in memory
- * buffer before being written/flushed out.
+ * Wraps another transport and buffers reads and writes until the internal
+ * buffers are exhausted, at which point new data is fetched resp. the
+ * accumulated data is written out at once.
  */
-final class TBufferedTransport : TBufferBase {
-  enum int DEFAULT_BUFFER_SIZE = 512;
-
-  /// Use default buffer sizes.
+final class TBufferedTransport : TBaseTransport {
+  /**
+   * Constructs a new instance, using the default buffer sizes.
+   *
+   * Params:
+   *   transport = The underlying transport to wrap.
+   */
   this(TTransport transport) {
-    transport_ = transport;
-    rBuf_ = new ubyte[DEFAULT_BUFFER_SIZE];
-    wBuf_ = new ubyte[DEFAULT_BUFFER_SIZE];
-    initPointers();
+    this(transport, DEFAULT_BUFFER_SIZE);
   }
 
-  /// Use specified buffer sizes.
-  this(TTransport transport, uint sz) {
-    transport_ = transport;
-    rBuf_ = new ubyte[sz];
-    wBuf_ = new ubyte[sz];
-    initPointers();
+  /**
+   * Constructs a new instance, using the specified buffer size.
+   *
+   * Params:
+   *   transport = The underlying transport to wrap.
+   *   bufferSize = The size of the read and write buffers to use, in bytes.
+   */
+  this(TTransport transport, size_t bufferSize) {
+    this(transport, bufferSize, bufferSize);
   }
 
-  /// Use specified read and write buffer sizes.
-  this(TTransport transport, uint rsz, uint wsz) {
+  /**
+   * Constructs a new instance, using the specified buffer size.
+   *
+   * Params:
+   *   transport = The underlying transport to wrap.
+   *   readBufferSize = The size of the read buffer to use, in bytes.
+   *   writeBufferSize = The size of the write buffer to use, in bytes.
+   */
+  this(TTransport transport, size_t readBufferSize, size_t writeBufferSize) {
     transport_ = transport;
-    rBuf_ = new ubyte[rsz];
-    wBuf_ = new ubyte[wsz];
-    initPointers();
+    readBuffer_ = new ubyte[readBufferSize];
+    writeBuffer_ = new ubyte[writeBufferSize];
+    writeAvail_ = writeBuffer_;
   }
 
-  override void open() {
-    transport_.open();
-  }
+  /// The default size of the read/write buffers, in bytes.
+  enum int DEFAULT_BUFFER_SIZE = 512;
 
   override bool isOpen() {
     return transport_.isOpen();
   }
 
   override bool peek() {
-    if (rBase_ == rBound_) {
-      setReadBuffer(rBuf_[0..transport_.read(rBuf_)]);
+    if (readAvail_.empty) {
+      // If there is nothing available to read, see if we can get something
+      // from the underlying transport.
+      auto bytesRead = transport_.read(readBuffer_);
+      readAvail_ = readBuffer_[0 .. bytesRead];
     }
-    return (rBound_ > rBase_);
+
+    return !readAvail_.empty;
   }
 
-  override void flush() {
-    // Write out any data waiting in the write buffer.
-    auto have_bytes = wBase_ - wBuf_.ptr;
-    if (have_bytes > 0) {
-      // Note that we reset wBase_ prior to the underlying write
-      // to ensure we're in a sane state (i.e. internal buffer cleaned)
-      // if the underlying write throws up an exception
-      wBase_ = wBuf_.ptr;
-      transport_.write(wBuf_[0..have_bytes]);
-    }
-
-    // Flush the underlying transport.
-    transport_.flush();
+  override void open() {
+    transport_.open();
   }
 
   override void close() {
@@ -211,115 +93,120 @@ final class TBufferedTransport : TBufferBase {
     transport_.close();
   }
 
-  /// Returns the wrapped transport.
-  TTransport underlyingTransport() @property {
-    return transport_;
-  }
+  override size_t read(ubyte[] buf) {
+    if (readAvail_.empty) {
+      // No data left in our buffer, fetch some from the underlying transport.
 
-protected:
-  override size_t readSlow(ubyte[] buf) {
-    size_t have = rBound_ - rBase_;
+      if (buf.length > readBuffer_.length) {
+        // If the amount of data requested is larger than our reading buffer,
+        // directly read to the passed buffer. This probably doesn't occur too
+        // often in practice (and even if it does, the underlying transport
+        // probably cannot fulfill the request at once anyway), but it can't
+        // harm to try…
+        return transport_.read(buf);
+      }
 
-    // We should only take the slow path if we can't satisfy the read
-    // with the data already in the buffer.
-    assert(have < buf.length);
-
-    // If we have some date in the buffer, copy it out and return it.
-    // We have to return it without attempting to read more, since we aren't
-    // guaranteed that the underlying transport actually has more data, so
-    // attempting to read from it could block.
-    if (have > 0) {
-      buf[0..have] = rBase_[0..have];
-      setReadBuffer(rBuf_[0..0]);
-      return have;
+      auto bytesRead = transport_.read(readBuffer_);
+      readAvail_ = readBuffer_[0 .. bytesRead];
     }
 
-    // No data is available in our buffer.
-    // Get more from underlying transport up to buffer size.
-    // Note that this makes a lot of sense if len < rBufSize_
-    // and almost no sense otherwise.  TODO(dreiss): Fix that
-    // case (possibly including some readv hotness).
-    setReadBuffer(rBuf_[0..transport_.read(rBuf_)]);
-
     // Hand over whatever we have.
-    auto give = min(buf.length, cast(size_t)(rBound_ - rBase_));
-    buf[0..give] = rBase_[0..give];
-    rBase_ += give;
-
+    auto give = min(readAvail_.length, buf.length);
+    buf[0 .. give] = readAvail_[0 .. give];
+    readAvail_ = readAvail_[give .. $];
     return give;
   }
 
-  override void writeSlow(in ubyte[] buf) {
-    auto have_bytes = wBase_ - wBuf_.ptr;
-    auto space = wBound_ - wBase_;
-    // We should only take the slow path if we can't accomodate the write
-    // with the free space already in the buffer.
-    assert(wBound_ - wBase_ < cast(ptrdiff_t)(buf.length));
+  /**
+   * Shortcut version of readAll.
+   */
+  override void readAll(ubyte[] buf) {
+    if (readAvail_.length >= buf.length) {
+      buf[] = readAvail_[0 .. buf.length];
+      readAvail_ = readAvail_[buf.length .. $];
+      return;
+    }
 
-    // Now here's the tricky question: should we copy data from buf into our
-    // internal buffer and write it from there, or should we just write out
-    // the current internal buffer in one syscall and write out buf in another.
-    // If our currently buffered data plus buf is at least double our buffer
-    // size, we will have to do two syscalls no matter what (except in the
-    // degenerate case when our buffer is empty), so there is no use copying.
-    // Otherwise, there is sort of a sliding scale.  If we have N-1 bytes
-    // buffered and need to write 2, it would be crazy to do two syscalls.
-    // On the other hand, if we have 2 bytes buffered and are writing 2N-3,
-    // we can save a syscall in the short term by loading up our buffer, writing
-    // it out, and copying the rest of the bytes into our buffer.  Of course,
-    // if we get another 2-byte write, we haven't saved any syscalls at all,
-    // and have just copied nearly 2N bytes for nothing.  Finding a perfect
-    // policy would require predicting the size of future writes, so we're just
-    // going to always eschew syscalls if we have less than 2N bytes to write.
+    super.readAll(buf);
+  }
 
-    // The case where we have to do two syscalls.
-    // This case also covers the case where the buffer is empty,
-    // but it is clearer (I think) to think of it as two separate cases.
-    if ((have_bytes + buf.length >= 2*wBuf_.length) || (have_bytes == 0)) {
-      // TODO(dreiss): writev
-      if (have_bytes > 0) {
-        transport_.write(wBuf_.ptr[0..have_bytes]);
+  override void write(in ubyte[] buf) {
+    if (writeAvail_.length >= buf.length) {
+      // If the data fits in the buffer, just save it there.
+      writeAvail_[0 .. buf.length] = buf;
+      writeAvail_ = writeAvail_[buf.length .. $];
+      return;
+    }
+
+    // We have to decide if we copy data from buf to our internal buffer, or
+    // just directly write them out. The same considerations about avoiding
+    // syscalls as for C++ apply here.
+    auto bytesAvail = writeAvail_.ptr - writeBuffer_.ptr;
+    if ((bytesAvail + buf.length >= 2 * writeBuffer_.length) || (bytesAvail == 0)) {
+      // We would immediately need two syscalls anyway (or we don't have
+      // anything) in our buffer to write, so just write out both buffers.
+      if (bytesAvail > 0) {
+        transport_.write(writeBuffer_[0 .. bytesAvail]);
+        writeAvail_ = writeBuffer_;
       }
+
       transport_.write(buf);
-      wBase_ = wBuf_.ptr;
       return;
     }
 
     // Fill up our internal buffer for a write.
-    wBase_[0..space] = buf[0..space];
-    auto newBuf = buf[space..$];
-    transport_.write(wBuf_);
+    writeAvail_[] = buf[0 .. writeAvail_.length];
+    auto left = buf[writeAvail_.length .. $];
+    transport_.write(writeBuffer_);
 
     // Copy the rest into our buffer.
-    wBuf_[0..newBuf.length] = newBuf[];
-    wBase_ = wBuf_.ptr + newBuf.length;
+    writeBuffer_[0 .. left.length] = left[];
+    writeAvail_ = writeBuffer_[left.length .. $];
   }
 
-  /*
-   * The following behavior is currently implemented by TBufferedTransport,
-   * but that may change in a future version:
-   * 1/ If len is at most rBufSize_, borrow will never return NULL.
-   *    Depending on the underlying transport, it could throw an exception
-   *    or hang forever.
-   * 2/ Some borrow requests may copy bytes internally.  However,
-   *    if len is at most rBufSize_/2, none of the copied bytes
-   *    will ever have to be copied again.  For optimial performance,
-   *    stay under this limit.
-   */
-  override const(ubyte)[] borrowSlow(ubyte* buf, size_t len) {
+  override void flush() {
+    // Write out any data waiting in the write buffer.
+    auto bytesAvail = writeAvail_.ptr - writeBuffer_.ptr;
+    if (bytesAvail > 0) {
+      // Note that we reset writeAvail_ prior to calling the underlying protocol
+      // to make sure the buffer is cleared even if the transport throws an
+      // exception.
+      writeAvail_ = writeBuffer_;
+      transport_.write(writeBuffer_[0 .. bytesAvail]);
+    }
+
+    // Flush the underlying transport.
+    transport_.flush();
+  }
+
+  override const(ubyte)[] borrow(ubyte* buf, size_t len) {
+    if (len <= readAvail_.length) {
+      return readAvail_;
+    }
     return null;
   }
 
-  void initPointers() {
-    setReadBuffer(rBuf_[0..0]);
-    setWriteBuffer(wBuf_);
-    // Write size never changes.
+  override void consume(size_t len) {
+    enforce(len <= readBuffer_.length, new TTransportException(
+      "Invalid consume length.", TTransportException.Type.BAD_ARGS));
+    readAvail_ = readAvail_[len .. $];
   }
 
+  /**
+   * The wrapped transport.
+   */
+  TTransport underlyingTransport() @property {
+    return transport_;
+  }
+
+private:
   TTransport transport_;
 
-  ubyte[] rBuf_;
-  ubyte[] wBuf_;
+  ubyte[] readBuffer_;
+  ubyte[] writeBuffer_;
+
+  ubyte[] readAvail_;
+  ubyte[] writeAvail_;
 }
 
 /**
