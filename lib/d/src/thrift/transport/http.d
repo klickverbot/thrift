@@ -63,6 +63,7 @@ abstract class THttpTransport : TBaseTransport {
   }
 
   override void close() {
+    // TODO: Anything to clean up?
     transport_.close();
   }
 

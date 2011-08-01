@@ -110,12 +110,17 @@ final class TFileReaderTransport : TBaseTransport {
   }
 
   override void close() {
+    if (!isOpen) return;
+
     file_.close();
     isOpen_ = false;
     readState_.resetAllValues();
   }
 
   override size_t read(ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot read if file is not open.", TTransportException.Type.NOT_OPEN));
+
     // If there is no event currently processed, try fetching one from the
     // file.
     if (!currentEvent_) {
@@ -632,6 +637,8 @@ final class TFileWriterTransport : TBaseTransport {
    * Closes the transport, i.e. the underlying file and the writer thread.
    */
   override void close() {
+    if (!isOpen) return;
+
     prioritySend(writerThread_, ShutdownMessage()); // FIXME: Should use normal send here.
     receive((ShutdownMessage msg, Tid tid){});
     isOpen_ = false;
@@ -648,7 +655,8 @@ final class TFileWriterTransport : TBaseTransport {
    */
   override void write(in ubyte[] buf) {
     enforce(isOpen, new TTransportException(
-      "Cannot write to non-open transport.", TTransportException.Type.NOT_OPEN));
+      "Cannot write to non-open file.", TTransportException.Type.NOT_OPEN));
+
     if (buf.empty) {
       stderr.writeln("TFileWriterTransport: Cannot write empty event, skipping.");
       return;
@@ -670,6 +678,9 @@ final class TFileWriterTransport : TBaseTransport {
    * Throws: TTransportException if an error occurs.
    */
   override void flush() {
+    enforce(isOpen, new TTransportException(
+      "Cannot flush file if not open.", TTransportException.Type.NOT_OPEN));
+
     send(writerThread_, FlushMessage());
     receive((FlushMessage msg, Tid tid){});
   }

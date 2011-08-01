@@ -73,9 +73,7 @@ abstract class TSocketBase : TBaseTransport {
    *
    * Returns: The actual number of bytes written. Never more than buf.length.
    */
-  abstract size_t writeSome(in ubyte[] buf) in {
-    assert(isOpen, "Called writeSome() on non-open socket!");
-  } out (written) {
+  abstract size_t writeSome(in ubyte[] buf) out (written) {
     // DMD @@BUG@@: Enabling this e.g. fails the contract in the
     // async_test_server, because buf.length evaluates to 0 here, even though
     // in the method body it correctly is 27 (equal to the return value).
@@ -260,10 +258,10 @@ class TSocket : TSocketBase {
    * Closes the socket.
    */
   override void close() {
-    if (socket_ !is null) {
-      socket_.close();
-      socket_ = null;
-    }
+    if (isOpen) return;
+
+    socket_.close();
+    socket_ = null;
   }
 
   override bool peek() {
@@ -286,6 +284,9 @@ class TSocket : TSocketBase {
   }
 
   override size_t read(ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot read if socket is not open.", TTransportException.Type.NOT_OPEN));
+
     typeof(getSocketErrno()) lastErrno;
     ushort tries;
     while (tries++ <= maxRecvRetries_) {
@@ -338,6 +339,9 @@ class TSocket : TSocketBase {
   }
 
   override size_t writeSome(in ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot write if file is not open.", TTransportException.Type.NOT_OPEN));
+
     auto r = socket_.send(buf);
 
     // Everything went well, just return the number of bytes written.

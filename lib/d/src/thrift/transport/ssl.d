@@ -50,7 +50,7 @@ import thrift.transport.base;
 import thrift.transport.socket;
 
 /**
- * OpenSSL implementation for SSL socket interface.
+ * SSL encrypted socket implementation using OpenSSL.
  */
 final class TSSLSocket : TSocket {
   override bool isOpen() @property {
@@ -83,6 +83,8 @@ final class TSSLSocket : TSocket {
   }
 
   override void close() {
+    if (!isOpen) return;
+
     if (ssl_ !is null) {
       auto rc = SSL_shutdown(ssl_);
       if (rc == 0) {
@@ -132,9 +134,8 @@ final class TSSLSocket : TSocket {
   }
 
   override void flush() {
-    if (ssl_ is null) return;
-
     checkHandshake();
+
     auto bio = SSL_get_wbio(ssl_);
     enforce(bio !is null, new TSSLException("SSL_get_wbio returned null"));
 

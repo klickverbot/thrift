@@ -163,10 +163,10 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
    *   operations for this connection yields undefined behavior.
    */
   override void close() {
-    if (socket_ !is null) {
-      socket_.close();
-      socket_ = null;
-    }
+    if (!isOpen) return;
+
+    socket_.close();
+    socket_ = null;
   }
 
   override bool peek() {
@@ -189,6 +189,9 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
   }
 
   override size_t read(ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot read if socket is not open.", TTransportException.Type.NOT_OPEN));
+
     typeof(getSocketErrno()) lastErrno;
 
     auto r = yieldOnEagain(socket_.receive(cast(void[])buf),
@@ -220,6 +223,9 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
   }
 
   override size_t writeSome(in ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot write if socket is not open.", TTransportException.Type.NOT_OPEN));
+
     auto r = yieldOnEagain(socket_.send(buf), TAsyncEventType.WRITE);
 
     // Everything went well, just return the number of bytes written.

@@ -23,12 +23,26 @@ import std.conv : text;
 import thrift.base;
 
 /**
- * Generic interface for a method of transporting data. A TTransport may be
- * capable of either reading or writing, but not necessarily both.
+ * An entity data can be read from and/or written to.
+ *
+ * A TTransport implementation may capable of either reading or writing, but
+ * not necessarily both.
  */
 interface TTransport {
   /**
    * Whether this transport is open.
+   *
+   * If a transport is closed, it can be opened by calling open(), and vice
+   * versa for close().
+   *
+   * While a transport should always be open when trying to read/write data,
+   * the related functions do not necessarily fail when called for a closed
+   * transport. Situations like this could occur e. g. with a wrapper
+   * transport which buffers data when the underlying transport has already
+   * been closed (possibly because the connection was abruptly closed), but
+   * there is still data left to be read in the buffers. This choice has been
+   * made to simplify transport implementations, in terms of both  code
+   * complexity and runtime overhead.
    */
   bool isOpen() @property;
 
@@ -36,7 +50,8 @@ interface TTransport {
    * Tests whether there is more data to read or if the remote side is
    * still open.
    *
-   * This is used by a server to check if it should listen for another request.
+   * A typical use case would be a server checking if it should process
+   * another request on the transport.
    */
   bool peek();
 
@@ -71,11 +86,7 @@ interface TTransport {
    *
    * Throws: TTransportException if an error occurs.
    */
-  size_t read(ubyte[] buf) in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.serversocket unittests.
-    version(none) assert(isOpen, "Called read() on non-open transport!");
-  }
+  size_t read(ubyte[] buf);
 
   /**
    * Fills the given buffer by reading data into it, failing if not enough
@@ -89,11 +100,7 @@ interface TTransport {
    * Throws: TTransportException if insufficient data is available or reading
    *   fails altogether.
    */
-  void readAll(ubyte[] buf) in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.framed unittests.
-    version(none) assert(isOpen, "Called readAll() on non-open transport!");
-  }
+  void readAll(ubyte[] buf);
 
   /**
    * Must be called by clients when read is completed.
@@ -105,11 +112,7 @@ interface TTransport {
    *
    * Returns: The number of bytes read if available, 0 otherwise.
    */
-  size_t readEnd() in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // ThriftTest SSL server.
-    version(none) assert(isOpen, "Called readEnd() on non-open transport!");
-  }
+  size_t readEnd();
 
   /**
    * Writes the passed slice of data.
@@ -127,11 +130,7 @@ interface TTransport {
    *
    * Throws: TTransportException if an error occurs.
    */
-  void write(in ubyte[] buf) in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.memory unittests.
-    version(none) assert(isOpen, "Called write() on non-open transport!");
-  }
+  void write(in ubyte[] buf);
 
   /**
    * Must be called by clients when write is completed.
@@ -141,11 +140,7 @@ interface TTransport {
    *
    * Returns: The number of bytes written if available, 0 otherwise.
    */
-  size_t writeEnd() in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // ThriftTest SSL server.
-    version(none) assert(isOpen, "Called writeEnd() on non-open transport!");
-  }
+  size_t writeEnd();
 
   /**
    * Flushes any pending data to be written.
@@ -158,11 +153,7 @@ interface TTransport {
    *
    * Throws: TTransportException if an error occurs.
    */
-  void flush() in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.framed unittests.
-    version(none) assert(isOpen, "Called flush() on non-open transport!");
-  }
+  void flush();
 
   /**
    * Attempts to return a slice of <code>len</code> bytes of incoming data,
@@ -191,11 +182,7 @@ interface TTransport {
    *
    * Throws: TTransportException if an error occurs.
    */
-  const(ubyte)[] borrow(ubyte* buf, size_t len) in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.memory unittests.
-    version(none) assert(isOpen, "Called borrow() on non-open transport!");
-  } out (result) {
+  const(ubyte)[] borrow(ubyte* buf, size_t len) out (result) {
     // FIXME: Commented out because len gets corrupted in
     // thrift.transport.memory borrow() unittest.
     version(none) assert(result is null || result.length >= len,
@@ -213,11 +200,7 @@ interface TTransport {
    *
    * Throws: TTransportException if an error occurs.
    */
-  void consume(size_t len) in {
-    // DMD @@BUG6108@@: Uncommenting the assertion leads to crashing
-    // thrift.transport.memory unittests.
-    version(none) assert(isOpen, "Called consume() on non-open transport!");
-  }
+  void consume(size_t len);
 }
 
 /**
@@ -391,7 +374,7 @@ protected:
 }
 
 /**
- * Metaprogramming helper returning whether the passed type is a TTransport
+ * Meta-programming helper returning whether the passed type is a TTransport
  * implementation.
  */
 template isTTransport(T) {
