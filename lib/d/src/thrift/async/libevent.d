@@ -60,13 +60,16 @@ class TLibeventAsyncManager : TAsyncSocketManager {
   }
 
   override void execute(TAsyncWorkItem workItem) {
-    if (!workerThread_) {
-      workerThread_ = new Thread({ event_base_loop(eventBase_, 0); });
-      // TODO: Once a mechanism for controlled shutting down of the worker
-      // thread has been added, no longer daemonize it to avoid crashes during
-      // shutdown. Also, try restarting the worker thread if it crashed?
-      workerThread_.isDaemon = true;
-      workerThread_.start();
+    // TODO: Don't needlessly acquire the lock.
+    synchronized {
+      if (!workerThread_) {
+        workerThread_ = new Thread({ event_base_loop(eventBase_, 0); });
+        // TODO: Once a mechanism for controlled shutting down of the worker
+        // thread has been added, no longer daemonize it to avoid crashes during
+        // shutdown. Also, try restarting the worker thread if it crashed?
+        workerThread_.isDaemon = true;
+        workerThread_.start();
+      }
     }
 
     // We should be able to send the work item as a whole – we currently
@@ -143,7 +146,7 @@ private:
       if (bytesRead < 0) {
         auto errno = getSocketErrno();
         if (errno != WOULD_BLOCK_ERRNO) {
-          stderr.writefln("TLibevent…SocketManger.receiveWork(): read " ~
+          stderr.writefln("TLibeventAsyncManager.receiveWork(): read " ~
             "failed, some work item will never be executed: %s",
             socketErrnoString(errno));
         }
@@ -171,7 +174,7 @@ private:
     // If the last read was successful, but didn't read enough bytes, we got
     // a problem.
     if (bytesRead > 0) {
-      stderr.writefln("TLibevent…SocketManger.receiveWork(): Unexpected " ~
+      stderr.writefln("TLibeventAsyncManager.receiveWork(): Unexpected " ~
         "partial read (%s bytes instead of %s), some work item will never" ~
         "be executed.", bytesRead, workItem.sizeof);
     }

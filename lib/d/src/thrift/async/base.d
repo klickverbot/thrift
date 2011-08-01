@@ -16,6 +16,32 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
+/**
+ * Contains support infrastructure for handling coroutine-based asynchronous/
+ * non-blocking operations, as used by thrift.codegen.TAsyncClient.
+ *
+ * The main piece of the »client side« (e.g. for TAsyncClient users) of the
+ * API is TFuture, which represents an asynchronously executed operation,
+ * which can have a return value, throw exceptions, and which can be waited
+ * upon.
+ *
+ * On the »implementation side«, the idea is that by using a TAsyncTransport
+ * instead of a normal TTransport and executing the work through a
+ * TAsyncManager, the same code as for synchronous I/O can be reused in
+ * between them, for example:
+ *
+ * ---
+ * auto asyncManager = someTAsyncSocketManager();
+ * auto socket = new TAsyncSocket(asyncManager, host, port);
+ * …
+ * asyncManager.execute(TAsyncWorkItem(socket, {
+ *   SomeThriftStruct s;
+ *   s.read(socket);
+ *   // Do something with s, e.g. set a TPromise result to it.
+ * });
+ * ---
+ */
 module thrift.async.base;
 
 import core.sync.condition;
@@ -26,33 +52,86 @@ import thrift.base;
 import thrift.transport.base;
 
 /**
- * A transport which uses a TAsyncManager to schedule non-blocking operations.
+ * Manages one or more asynchronous transport resources (e.g. sockets in the
+ * case of TAsyncSocketManager) and allows work items to be submitted for them.
+ *
+ * Implementations will typically run a background thread for executing the
+ * work, which is one of the reasons for a TAsyncManager to be used. Each work
+ * item is run in its own fiber and is expected to yield() away while it is
+ * waiting for a time-consuming operation.
+ *
+ * The second important purpose of TAsyncManager is to serialize access to
+ * the transport resources – without taking care of that, things would go
+ * horribly wrong for example when issuing multiple RPC calls over the same
+ * connection in rapid succession, so that more than one piece of client code
+ * tries to write to the socket at the same time.
  */
-interface TAsyncTransport : TTransport {
-  TAsyncManager asyncManager() @property;
-}
-
 interface TAsyncManager {
+  /**
+   * Submits a work item to be executed asynchronously.
+   *
+   * Note: The work item will likely be executed in a different thread, so make
+   *   sure the code it relies on is thread-safe. An exception are the async
+   *   transports themselves, to which access is serialized, as noted above.
+   *
+   * On a related note, this method itself is also thread-safe.
+   */
   void execute(TAsyncWorkItem work);
 }
 
-struct TAsyncWorkItem {
-  TAsyncTransport transport;
-  Work work;
+/**
+ * A transport which uses a TAsyncManager to schedule non-blocking operations.
+ */
+interface TAsyncTransport : TTransport {
+  /**
+   * The TAsyncManager associated with this transport.
+   */
+  TAsyncManager asyncManager() @property;
 }
 
-alias void delegate() Work;
+/**
+ * A work item operating on an TAsyncTransport, which can be executed
+ * by a TAsyncManager.
+ */
+struct TAsyncWorkItem {
+  /// The async transport the task to execute operates on.
+  TAsyncTransport transport;
 
+  /// The task to execute. While pretty much anything could be passed in
+  /// theory, it should be something which relies on the given transport
+  /// in practice for the concept to make sense.
+  void delegate() work;
+}
+
+/**
+ * A TAsyncManager supporting async operations/notifications for sockets.
+ */
 interface TAsyncSocketManager : TAsyncManager {
+  /**
+   * Adds a listener that is triggered once when an event of the specified type
+   * occurs, and removed afterwards.
+   *
+   * Params:
+   *   socket = The socket to listen for events at.
+   *   eventType = The type of the event to listen for.
+   *   timeout = The period of time after which the listener will be called
+   *     with TAsyncEventReason.TIMED_OUT if no event happened.
+   *   listener = The delegate to call when an event happened.
+   */
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
     Duration timeout, SocketEventListener listener);
+
+  /// Ditto
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
     SocketEventListener listener);
 }
 
+/**
+ * Types of events that can happen for an asynchronous transport.
+ */
 enum TAsyncEventType {
-  READ,
-  WRITE
+  READ, /// New data became available to read.
+  WRITE /// The transport became ready to be written to.
 }
 
 /**
@@ -73,6 +152,9 @@ enum TAsyncEventReason : byte {
  * which will become available at some point in the future.
  *
  * All methods are thread-safe.
+ *
+ * Note: Currently, no support for canceling operations is implemented yet,
+ *   although this will likely change soon.
  */
 interface TFuture(ResultType) {
   /**
@@ -104,6 +186,10 @@ interface TFuture(ResultType) {
   /**
    * Waits until the operation is completed and returns its result, or
    * rethrows any exception if it fails.
+   *
+   * The result of this method is »alias this«'d to the interface, so that
+   * TFuture can be used as a drop-in replacement for a simple value in
+   * synchronous code.
    */
   ResultType waitGet();
   alias waitGet this;
