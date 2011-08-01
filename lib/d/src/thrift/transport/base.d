@@ -74,10 +74,13 @@ interface TTransport {
   void close();
 
   /**
-   * Attempts to read data into the given buffer, stopping when the buffer is
-   * exhausted or no more data is available.
+   * Attempts to fill the given buffer by reading data.
    *
-   * The transport must be open when calling this.
+   * For potentially blocking data sources (e.g. sockets), read() will only
+   * block if no data is available at all. If there is some data available,
+   * but waiting for new data to arrive would be required to fill the whole
+   * buffer, the readily available data will be immediately returned – use
+   * readAll() if you want to wait until the whole buffer is filled.
    *
    * Params:
    *   buf = Slice to use as buffer.
@@ -91,8 +94,6 @@ interface TTransport {
   /**
    * Fills the given buffer by reading data into it, failing if not enough
    * data is available.
-   *
-   * The transport must be open when calling this.
    *
    * Params:
    *   buf = Slice to use as buffer.
@@ -108,16 +109,12 @@ interface TTransport {
    * Implementations can choose to perform a transport-specific action, e.g.
    * logging the request to a file.
    *
-   * The transport must be open when calling this.
-   *
    * Returns: The number of bytes read if available, 0 otherwise.
    */
   size_t readEnd();
 
   /**
    * Writes the passed slice of data.
-   *
-   * The transport must be open when calling this.
    *
    * Note: You must call flush() to ensure the data is actually written,
    * and available to be read back in the future.  Destroying a TTransport
@@ -148,8 +145,6 @@ interface TTransport {
    * Must be called before destruction to ensure writes are actually complete,
    * otherwise pending data may be discarded. Typically used with buffered
    * transport mechanisms.
-   *
-   * The transport must be open when calling this.
    *
    * Throws: TTransportException if an error occurs.
    */
