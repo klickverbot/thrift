@@ -231,28 +231,28 @@ class t_cpp_generator : public t_oop_generator {
   std::string get_include_prefix(const t_program& program) const;
 
   /**
-   * True iff we should generate pure enums for Thrift enums, instead of wrapper classes.
+   * True if we should generate pure enums for Thrift enums, instead of wrapper classes.
    */
   bool gen_pure_enums_;
 
   /**
-   * True iff we should generate local reflection metadata for TDenseProtocol.
+   * True if we should generate local reflection metadata for TDenseProtocol.
    */
   bool gen_dense_;
 
   /**
-   * True iff we should generate templatized reader/writer methods.
+   * True if we should generate templatized reader/writer methods.
    */
   bool gen_templates_;
 
   /**
-   * True iff we should use a path prefix in our #include statements for other
+   * True if we should use a path prefix in our #include statements for other
    * thrift-generated header files.
    */
   bool use_include_prefix_;
 
   /**
-   * True iff we should generate "Continuation OBject"-style classes as well.
+   * True if we should generate "Continuation OBject"-style classes as well.
    */
   bool gen_cob_style_;
 
@@ -1482,9 +1482,8 @@ void t_cpp_generator::generate_service(t_service* tservice) {
     endl;
   if (gen_cob_style_) {
     f_header_ <<
+      "#include <transport/TBufferTransports.h>" << endl << // TMemoryBuffer
       "#include <tr1/functional>" << endl <<
-      // TODO(dreiss): Libify the base client so we don't have to include this.
-      "#include <transport/TTransportUtils.h>" << endl <<
       "namespace apache { namespace thrift { namespace async {" << endl <<
       "class TAsyncChannel;" << endl <<
       "}}}" << endl;
@@ -3009,6 +3008,12 @@ void t_cpp_generator::generate_process_function(t_service* tservice,
         indent() << "T_GENERIC_PROTOCOL(this, oprot, _oprot);" << endl << endl;
     }
 
+    if (tfunction->is_oneway()) {
+      out <<
+        indent() << "(void) seqid;" << endl <<
+        indent() << "(void) oprot;" << endl;
+    }
+
     out <<
       indent() << tservice->get_name() + "_" + tfunction->get_name() + "_args" << " args;" << endl <<
       indent() << "void* ctx = NULL;" << endl <<
@@ -3998,7 +4003,7 @@ string t_cpp_generator::function_signature(t_function* tfunction,
                   ? "()"
                   : ("(" + type_name(ttype) + " const& _return)"));
       if (has_xceptions) {
-        exn_cob = ", std::tr1::function<void(::apache::thrift::TDelayedException* _throw)> exn_cob";
+        exn_cob = ", std::tr1::function<void(::apache::thrift::TDelayedException* _throw)> /* exn_cob */";
       }
     } else {
       throw "UNKNOWN STYLE";
@@ -4144,6 +4149,10 @@ string t_cpp_generator::get_include_prefix(const t_program& program) const {
 
 
 THRIFT_REGISTER_GENERATOR(cpp, "C++",
+"    cob_style:       Generate \"Continuation OBject\"-style classes.\n"
+"    no_client_completion:\n"
+"                     Omit calls to completion__() in CobClient class.\n"
+"    templates:       Generate templatized reader/writer methods.\n"
 "    pure_enums:      Generate pure enums instead of wrapper classes.\n"
 "    dense:           Generate type specifications for the dense protocol.\n"
 "    include_prefix:  Use full include paths in generated files.\n"
