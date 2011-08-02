@@ -18,6 +18,7 @@
  */
 module thrift.async.libevent;
 
+import core.atomic;
 import core.time : Duration, dur;
 import core.exception : onOutOfMemoryError;
 import core.memory : GC;
@@ -60,15 +61,19 @@ class TLibeventAsyncManager : TAsyncSocketManager {
   }
 
   override void execute(TAsyncWorkItem workItem) {
-    // TODO: Don't needlessly acquire the lock.
-    synchronized {
-      if (!workerThread_) {
-        workerThread_ = new Thread({ event_base_loop(eventBase_, 0); });
-        // TODO: Once a mechanism for controlled shutting down of the worker
-        // thread has been added, no longer daemonize it to avoid crashes during
-        // shutdown. Also, try restarting the worker thread if it crashed?
-        workerThread_.isDaemon = true;
-        workerThread_.start();
+    // Technically, only half barriers would be required here, but adding the
+    // argument seems to trigger a DMD template argument deduction @@BUG@@.
+    if (!atomicLoad(cast(shared)workerThread_)) {
+      synchronized (this) {
+        if (!workerThread_) {
+          auto thread = new Thread({ event_base_loop(eventBase_, 0); });
+          // TODO: Once a mechanism for controlled shutting down of the worker
+          // thread has been added, no longer daemonize it to avoid crashes  during
+          // shutdown. Also, try restarting the worker thread if it crashed?
+          thread.isDaemon = true;
+          thread.start();
+          atomicStore(*(cast(shared)&workerThread_), cast(shared)thread);
+        }
       }
     }
 
