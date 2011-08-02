@@ -87,11 +87,11 @@ int main() {
 
   {
     Timer timer;
-    OneOfEach ooe2;
     shared_ptr<TMemoryBuffer> buf2(new TMemoryBuffer(data, datasize));
     TBinaryProtocolT<TBufferBase> prot(buf2);
 
     for (int i = 0; i < num; i ++) {
+      OneOfEach ooe2;
       buf2->resetBuffer(data, datasize);
       ooe2.read(&prot);
     }
