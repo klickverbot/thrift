@@ -1,6 +1,5 @@
 /**
- * libevent event.h interface (still included with libevent2, but called
- * »compat«).
+ * libevent event.h interface.
  */
 module thrift.c.event.event;
 

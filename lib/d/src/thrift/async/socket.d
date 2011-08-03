@@ -18,7 +18,6 @@
  */
 module thrift.async.socket;
 
-import core.stdc.errno : EPIPE, ENOTCONN;
 import core.thread : Fiber;
 import core.time : Duration;
 import std.array : empty;
@@ -234,7 +233,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       auto lastErrno = getSocketErrno();
 
       auto type = TTransportException.Type.UNKNOWN;
-      if (lastErrno == EPIPE || lastErrno == ECONNRESET || lastErrno == ENOTCONN) {
+      if (isSocketCloseErrno(lastErrno)) {
         type = TTransportException.Type.NOT_OPEN;
         close();
       }
@@ -252,7 +251,7 @@ private:
   T yieldOnEagain(T)(lazy T call, TAsyncEventType eventType) {
     while (true) {
       auto result = call();
-      if (result != Socket.ERROR || getSocketErrno() != EAGAIN) return result;
+      if (result != Socket.ERROR || getSocketErrno() != WOULD_BLOCK_ERRNO) return result;
 
       // We got an EAGAIN result, register a callback to return here once some
       // event happens and yield.
@@ -309,8 +308,7 @@ private {
     enum SO_ERROR = 0x1007;
   } else version (FreeBSD) {
     enum SO_ERROR = 0x1007;
-  } else {
-    // TODO: Windows.
-    static assert(0, "Don't know SO_ERROR on this platform.");
-  }
+  } else version (Win32) {
+    import std.c.windows.winsock : SO_ERROR;
+  } else static assert(false, "Don't know SO_ERROR on this platform.");
 }

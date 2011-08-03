@@ -37,6 +37,12 @@ version (FreeBSD) {
 version (Win32) {
   import std.c.windows.winsock : WSAGetLastError, WSAEINTR, WSAEWOULDBLOCK;
   import std.windows.syserror : sysErrorString;
+
+  // These are unfortunately not defined in std.c.windows.winsock, see
+  // http://msdn.microsoft.com/en-us/library/ms740668.aspx.
+  enum WSAECONNRESET = 10054;
+  enum WSAENOTCONN = 10057;
+  enum WSAETIMEDOUT = 10060;
 } else {
   import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINPROGRESS, EINTR;
   import core.stdc.string : strerror;
@@ -54,9 +60,11 @@ version (Win32) {
   enum CONNECT_INPROGRESS_ERRNO = WSAEWOULDBLOCK;
   enum INTERRUPTED_ERRNO = WSAEINTR;
   enum WOULD_BLOCK_ERRNO = WSAEWOULDBLOCK;
+  enum TIMEOUT_ERRNO = WSAETIMEDOUT;
 
-  // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
-  enum TIMEOUT_ERRNO = 10060;
+  bool isSocketCloseErrno(typeof(getSocketErrno()) errno) {
+    return (errno == WSAECONNRESET || errno == WSAENOTCONN);
+  }
 } else {
   alias getErrno getSocketErrno;
   enum CONNECT_INPROGRESS_ERRNO = EINPROGRESS;
@@ -67,6 +75,10 @@ version (Win32) {
   // set (undocumentedly) in out of resource conditions; adapt the code
   // accordingly.
   enum TIMEOUT_ERRNO = EAGAIN;
+
+  bool isSocketCloseErrno(typeof(getSocketErrno()) errno) {
+    return (errno == EPIPE || errno == ECONNRESET || errno == ENOTCONN);
+  }
 }
 
 string socketErrnoString(uint errno) {

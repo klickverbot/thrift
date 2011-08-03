@@ -18,7 +18,6 @@
  */
 module thrift.transport.socket;
 
-import core.stdc.errno : EPIPE, ENOTCONN;
 import core.thread : Thread;
 import core.time : Duration;
 import std.array : empty;
@@ -361,7 +360,7 @@ class TSocket : TSocketBase {
       }
 
       auto type = TTransportException.Type.UNKNOWN;
-      if (lastErrno == EPIPE || lastErrno == ECONNRESET || lastErrno == ENOTCONN) {
+      if (isSocketCloseErrno(lastErrno)) {
         type = TTransportException.Type.NOT_OPEN;
         close();
       }

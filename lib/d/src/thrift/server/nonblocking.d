@@ -37,7 +37,6 @@
 module thrift.server.nonblocking;
 
 import core.memory : GC;
-import core.stdc.errno : EAGAIN, EWOULDBLOCK;
 import core.time : Duration, dur;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
@@ -330,7 +329,7 @@ private:
       try {
         clientSocket = listenSocket_.accept();
       } catch (SocketAcceptException e) {
-        if (!(e.errorCode == EWOULDBLOCK || e.errorCode == EAGAIN)) {
+        if (e.errorCode != WOULD_BLOCK_ERRNO) {
           stderr.writefln("TNonblockingServer.handleEvent(): Error " ~
             "accepting connection: %s", e);
         }
@@ -438,7 +437,7 @@ private:
         auto errno = getSocketErrno();
 
         // TODO: Windows.
-        if (!(errno == EWOULDBLOCK || errno == EAGAIN)) {
+        if (errno != WOULD_BLOCK_ERRNO) {
           stderr.writefln("TNonblockingServer.taskCompletionCallback(): read " ~
             "failed, resources will be leaked: %s", socketErrnoString(errno));
         }
