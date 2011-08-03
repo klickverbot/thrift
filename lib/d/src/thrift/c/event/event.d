@@ -4,7 +4,7 @@
  */
 module thrift.c.event.event;
 
-import core.sys.posix.sys.time; // TODO: Windows.
+import core.stdc.config;
 import thrift.c.event.loader;
 
 shared static this() {
@@ -14,8 +14,17 @@ shared static this() {
 __gshared:
 nothrow:
 
+version (Posix) {
+  public import core.sys.posix.sys.time : timeval;
+} else version (Windows) {
+  struct timeval {
+    c_long tv_sec;
+    c_long tv_usec;
+  }
+} else static assert(false, "Don't know timeval on this platform.");
+
 version (Windows) {
-  alias ptrdiff_t evutil_socket_t;
+  alias ptrdiff_t evutil_socket_t;  
 } else {
   alias int evutil_socket_t;
 }

@@ -24,10 +24,9 @@ import core.exception : onOutOfMemoryError;
 import core.memory : GC;
 import core.thread : Fiber, Thread;
 import core.stdc.stdlib : free, malloc;
-import core.sys.posix.sys.time : timeval; // TODO: Windows.
 import std.conv : text, to;
 import std.array : empty, front, popFront;
-import std.socket;
+import std.socket : Socket;
 import std.stdio : stderr;
 import thrift.base;
 import thrift.async.base;
