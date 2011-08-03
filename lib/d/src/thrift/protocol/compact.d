@@ -18,9 +18,11 @@
  */
 module thrift.protocol.compact;
 
+import std.array : uninitializedArray;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
+import thrift.util.endian;
 
 /**
  * D implementation of the Compact protocol.
@@ -35,17 +37,8 @@ final class TCompactProtocol(Transport = TTransport) if (
     trans_ = trans;
   }
 
-  Transport getTransport() {
+  Transport transport() @property {
     return trans_;
-  }
-
-  void setReadLength(int value) {
-    if (value > 0) {
-      readLength_ = value;
-      checkReadLength_ = true;
-    } else {
-      checkReadLength_ = false;
-    }
   }
 
   void reset() {
@@ -174,7 +167,7 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   byte readByte() {
     ubyte[1] b = void;
-    read(b);
+    trans_.readAll(b);
     return cast(byte)b[0];
   }
 
@@ -191,8 +184,8 @@ final class TCompactProtocol(Transport = TTransport) if (
   }
 
   double readDouble() {
-    IntBuf!long b;
-    read(b.bytes);
+    IntBuf!long b = void;
+    trans_.readAll(b.bytes);
     b.value = leToHost(b.value);
     return *cast(double*)(&b.value);
   }
@@ -203,12 +196,14 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   ubyte[] readBinary() {
     auto size = readVarint32();
-    import std.stdio;
-    checkReadLength(size);
-    if (size == 0) return null;
+    if (size < 0) {
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    }
+    if (size == 0) {
+      return null;
+    }
 
-    // There might be room for optimization here.
-    auto buf = new ubyte[size];
+    auto buf = uninitializedArray!(ubyte[])(size);
     trans_.readAll(buf);
     return buf;
   }
@@ -288,7 +283,7 @@ final class TCompactProtocol(Transport = TTransport) if (
   TList readListBegin() {
     auto sizeAndType = readByte();
 
-    int lsize = (sizeAndType >> 4) & 0x0f;
+    auto lsize = (sizeAndType >> 4) & 0x0f;
     if (lsize == 15) {
       lsize = readVarint32();
     }
@@ -307,18 +302,19 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   TMap readMapBegin() {
     TMap m = void;
-    ubyte kvType;
 
-    m.size = readVarint32();
-    if (m.size != 0) {
+    auto size = readVarint32();
+    ubyte kvType;
+    if (size != 0) {
       kvType = readByte();
     }
 
     // FIXME: m.size is unsigned, always false.
-    if (m.size < 0) {
+    if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
 
+    m.size = size;
     m.keyType = getTType(cast(CType)(kvType >> 4));
     m.valueType = getTType(cast(CType)(kvType & 0xf));
 
@@ -329,12 +325,8 @@ final class TCompactProtocol(Transport = TTransport) if (
   TSet readSetBegin() {
     TSet s = void;
 
-    ubyte size_and_type;
-    int lsize;
-
     auto sizeAndType = readByte();
-
-    lsize = (sizeAndType >> 4) & 0x0f;
+    auto lsize = (sizeAndType >> 4) & 0x0f;
     if (lsize == 15) {
       lsize = readVarint32();
     }
@@ -343,7 +335,7 @@ final class TCompactProtocol(Transport = TTransport) if (
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
     }
 
-    s.elemType = getTType(cast(CType)(size_and_type & 0x0f));
+    s.elemType = getTType(cast(CType)(sizeAndType & 0x0f));
     s.size = cast(size_t)lsize;
 
     return s;
@@ -396,7 +388,7 @@ private:
     trans_.write(buf[0 .. wsize]);
   }
 
-  /**
+  /*
    * Write an i64 as a varint. Results in 1-10 bytes on the wire.
    */
   void writeVarint64(ulong n) {
@@ -416,7 +408,7 @@ private:
     trans_.write(buf[0 .. wsize]);
   }
 
-  /**
+  /*
    * Convert l into a zigzag long. This allows negative numbers to be
    * represented compactly as a varint.
    */
@@ -424,7 +416,7 @@ private:
     return (l << 1) ^ (l >> 63);
   }
 
-  /**
+  /*
    * Convert n into a zigzag int. This allows negative numbers to be
    * represented compactly as a varint.
    */
@@ -495,7 +487,7 @@ private:
       // Slow path.
       while (true) {
         ubyte[1] bite;
-        read(bite);
+        trans_.readAll(bite);
         ++rsize;
 
         val |= cast(ulong)(bite[0] & 0x7f) << shift;
@@ -513,14 +505,14 @@ private:
     }
   }
 
-  /**
+  /*
    * Convert from zigzag int to int.
    */
   int zigzagToI32(uint n) {
     return (n >> 1) ^ -(n & 1);
   }
 
-  /**
+  /*
    * Convert from zigzag long to long.
    */
   long zigzagToI64(ulong n) {
@@ -558,26 +550,6 @@ private:
     }
   }
 
-  /**
-   * Wraps trans_.readAll for length checking.
-   */
-  void read(ubyte[] buf) {
-    assert(buf.length < int.max);
-    checkReadLength(cast(int)buf.length);
-    trans_.readAll(buf);
-  }
-
-  void checkReadLength(int length) {
-    if (length < 0)
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-
-    if (checkReadLength_) {
-      readLength_ -= length;
-      if (readLength_ < 0)
-        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
-    }
-  }
-
   enum PROTOCOL_ID = 0x82;
   enum VERSION_N = 1;
   enum VERSION_MASK = 0b0001_1111;
@@ -590,9 +562,6 @@ private:
 
   TField booleanField_;
 
-  int readLength_;
-  bool checkReadLength_;
-
   bool hasBoolValue_;
   bool boolValue_;
 
@@ -601,10 +570,12 @@ private:
 
 /**
  * TCompactProtocol construction helper to avoid having to explicitly specify
- * the transport type (see D Bugzilla enhancement requet 6082).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans)
-  if(isTTransport!Transport)
+  if (isTTransport!Transport)
 {
   return new TCompactProtocol!Transport(trans);
 }
@@ -647,26 +618,27 @@ unittest {
   ]);
 }
 
+/**
+ * TProtocolFactory creating a TCompactProtocol instance for passed in
+ * transports.
+ *
+ * The optional Transports template tuple parameter can be used to specify
+ * one or more TTransport implementations to specifically instantiate
+ * TCompactProtocol for. If the actual transport types encountered at
+ * runtime match one of the transports in the list, a specialized protocol
+ * instance is created. Otherwise, a generic TTransport version is used.
+ */
 class TCompactProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
-  this (int readLength = 0) {
-    readLength_ = readLength;
-  }
-
   TProtocol getProtocol(TTransport trans) const {
     foreach (Transport; TypeTuple!(Transports, TTransport)) {
       auto concreteTrans = cast(Transport)trans;
       if (concreteTrans) {
-        auto p = new TCompactProtocol!Transport(concreteTrans);
-        p.setReadLength(readLength_);
-        return p;
+        return new TCompactProtocol!Transport(concreteTrans);
       }
     }
     throw new TProtocolException(
-      "Passed null transport to TBinaryProtocolFactoy");
+      "Passed null transport to TCompactProtocolFactory.");
   }
-
-protected:
-  int readLength_;
 }

@@ -1,7 +1,7 @@
-module thrift.util.openssl.safestack;
+module thrift.c.openssl.safestack;
 
-import thrift.util.openssl.x509v3;
-import thrift.util.openssl.stack;
+import thrift.c.openssl.x509v3;
+import thrift.c.openssl.stack;
 
 int sk_GENERAL_NAME_num(STACK* st) {
   return sk_num(st);

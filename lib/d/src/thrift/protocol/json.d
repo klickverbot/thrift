@@ -25,6 +25,7 @@ import std.conv;
 import std.range;
 import std.stdio;
 import std.string : format;
+import std.traits : isIntegral;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
@@ -44,7 +45,7 @@ final class TJsonProtocol(Transport = TTransport) if (
     reader_ = new LookaheadReader(trans);
   }
 
-  Transport getTransport() {
+  Transport transport() @property {
     return trans_;
   }
 
@@ -374,7 +375,7 @@ private:
     contextStack_.assumeSafeAppend();
   }
 
-  /**
+  /*
    * Writing functions
    */
 
@@ -456,7 +457,7 @@ private:
     trans_.write(ARRAY_END);
   }
 
-  /**
+  /*
    * Reading functions
    */
 
@@ -588,7 +589,7 @@ private:
       ubyte[1] data_;
     }
 
-    /**
+    /*
      * Class to serve as base Json context and as base class for other context
      * implementations
      */
@@ -697,10 +698,12 @@ private:
 
 /**
  * TJsonProtocol construction helper to avoid having to explicitly specify
- * the transport type (see D Bugzilla enhancement requet 6082).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TJsonProtocol!Transport createTJsonProtocol(Transport)(Transport trans)
-  if(isTTransport!Transport)
+  if (isTTransport!Transport)
 {
   return new TJsonProtocol!Transport(trans);
 }
@@ -719,6 +722,16 @@ unittest {
   assert(cast(char[])header == `[1,"foo",1,0]`);
 }
 
+/**
+ * TProtocolFactory creating a TJsonProtocol instance for passed in
+ * transports.
+ *
+ * The optional Transports template tuple parameter can be used to specify
+ * one or more TTransport implementations to specifically instantiate
+ * TJsonProtocol for. If the actual transport types encountered at
+ * runtime match one of the transports in the list, a specialized protocol
+ * instance is created. Otherwise, a generic TTransport version is used.
+ */
 class TJsonProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
@@ -731,7 +744,7 @@ class TJsonProtocolFactory(Transports...) if (
       }
     }
     throw new TProtocolException(
-      "Passed null transport to TBinaryProtocolFactoy");
+      "Passed null transport to TJsonProtocolFactoy.");
   }
 }
 

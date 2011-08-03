@@ -16,6 +16,30 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
+/**
+ * Code generation templates used for implementing struct serialization,
+ * service processors and clients.
+ *
+ * Typically, only the metadata types, TClient, TServiceProcessor and
+ * TStructHelpers are used by client code, the other templates are mainly for
+ * internal use. For a simple usage example, you might want to have a look at
+ * the D tutorial implementation in the top-level tutorial/ directory.
+ *
+ * Several artifacts in this module have options for specifying the exact
+ * TProtocol type used. If it is, the amount of needed virtual calls can be
+ * reduced and as a result, the code also can be optimized better. If
+ * performance is not a concern or the actual protocol type is not known at
+ * compile time, these parameters can just be left at their defaults.
+ *
+ * Some code generation templates take account of the optional TVerboseCodegen
+ * version declaration, which causes warning messages to be emitted if no
+ * metadata for a field/method has been found and the default behavior is
+ * used instead. If this version is not defined, the templates just silently
+ * behave like the Thrift compiler does in this situation, i.e. automatically
+ * assign negative ids (starting at -1) for fields and assume
+ * TReq.OPT_IN_REQ_OUT as requirement level.
+ */
 module thrift.codegen;
 
 import std.algorithm : find, max;
@@ -25,10 +49,18 @@ import std.exception : enforce;
 import std.traits;
 import std.typetuple : allSatisfy, TypeTuple;
 import std.variant : Variant;
+import thrift.async.base;
 import thrift.base;
 import thrift.hashset;
 import thrift.protocol.base;
 import thrift.protocol.processor;
+import thrift.transport.base;
+
+/*
+ * Thrift struct/service meta data, which is used to store information from
+ * the interface definition files not representable in plain D, i.e. field
+ * requirement levels, Thrift field IDs, etc.
+ */
 
 /**
  * Struct field requirement levels.
@@ -49,8 +81,16 @@ enum TReq {
   IGNORE
 }
 
+/**
+ * The way how methods are called.
+ */
 enum TMethodType {
+  /// Called in the normal two-way scheme consisting of a request and a
+  /// response.
   REGULAR,
+
+  /// A fire-and-forget one-way method, where no response is sent and the
+  /// client immediately returns.
   ONEWAY
 }
 
@@ -58,8 +98,8 @@ enum TMethodType {
  * Compile-time metadata for a struct field.
  */
 struct TFieldMeta {
-  /// The name of the field. Used for matching TFieldMeta with the actual
-  /// D struct member.
+  /// The name of the field. Used for matching a TFieldMeta with the actual
+  /// D struct member during code generation.
   string name;
 
   /// The (Thrift) id of the field.
@@ -77,9 +117,18 @@ struct TFieldMeta {
  * Compile-time metadata for a service method.
  */
 struct TMethodMeta {
+  /// The name of the method. Used for matching a TMethodMeta with the actual
+  /// method during code generation.
   string name;
+
+  /// Meta information for the parameteres.
   TParamMeta[] params;
+
+  /// Specifies which exceptions can be thrown by the method. All other
+  /// exceptions are converted to a TApplicationException instead.
   TExceptionMeta[] exceptions;
+
+  /// The fundamental type of the method.
   TMethodType type;
 }
 
@@ -91,8 +140,11 @@ struct TParamMeta {
   /// decorative purposes here.
   string name;
 
+  /// The Thrift id of the parameter in the param struct.
   short id;
 
+  /// A code string containing a D expression for the default value for the
+  /// parameter, if any.
   string defaultValue;
 }
 
@@ -101,14 +153,127 @@ struct TParamMeta {
  */
 struct TExceptionMeta {
   /// The name of the exception »return value«. Contrary to TFieldMeta, it
-  /// only serves decorative purposes here.
+  /// only serves decorative purposes here, as it is only used in code not
+  /// visible to processor implementations/service clients.
   string name;
 
+  /// The Thrift id of the exception field in the return value struct.
   short id;
 
+  /// The name of the exception type.
   string type;
 }
 
+
+/*
+ * Code generation templates.
+ */
+
+/**
+ * Mixin template defining additional helper methods for using a struct with
+ * Thrift, and a member called isSetFlags if the struct contains any fields
+ * for which an »is set« flag is needed.
+ *
+ * It can only be used inside structs or Exception classes.
+ *
+ * For example, consider the following struct definition:
+ * ---
+ * struct Foo {
+ *   string a;
+ *   int b;
+ *   int c;
+ *
+ *   mixin TStructHelpers!([
+ *     TFieldMeta("a", 1),
+ *     TFieldMeta("b", 2),
+ *     TFieldMeta("c", 3, TReq.REQUIRED, "4")
+ *   ]);
+ * }
+ * ---
+ *
+ * TStructHelper adds the following methods to the struct:
+ * ---
+ * /++
+ *  + Sets member fieldName to the given value and marks it as set.
+ *  +
+ *  + Examples:
+ *  + ---
+ *  + auto f = Foo();
+ *  + f.set!"b"(12345);
+ *  + assert(f.isSet!"b");
+ *  + ---
+ *  +/
+ * void set(string fieldName)(MemberType!(This, fieldName) value);
+ *
+ * /++
+ *  + Resets member fieldName to the init property of its type and marks it as
+ *  + not set.
+ *  +
+ *  + Examples:
+ *  + ---
+ *  + // Set f.b to some value.
+ *  + auto f = Foo();
+ *  + f.set!"b"(12345);
+ *  +
+ *  + f.unset!b();
+ *  +
+ *  + // f.b is now unset again.
+ *  + assert(!f.isSet!"b");
+ *  + ---
+ *  +/
+ * void unset(string fieldName);
+ *
+ * /++
+ *  + Returns whether member fieldName is set.
+ *  +
+ *  + Examples:
+ *  + ---
+ *  + auto f = Foo();
+ *  + assert(!f.isSet!"b");
+ *  + f.set!"b"(12345);
+ *  + assert(f.isSet!"b");
+ *  + ---
+ *  +/
+ * bool isSet(string fieldName)() const @property;
+ *
+ * /++
+ *  + Returns a string representation of the struct.
+ *  +
+ *  + Examples:
+ *  + ---
+ *  + auto f = Foo();
+ *  + f.a = "a string";
+ *  + assert(f.toString() == `Foo("a string", 0 (unset), 4)`);
+ *  + ---
+ *  +/
+ * string toString() const;
+ *
+ * /++
+ *  + Deserializes the struct, setting its members to the values read from the
+ *  + protocol. Forwards to readStruct(this, proto);
+ *  +/
+ * void read(Protocol)(Protocol proto) if (isTProtocol!Protocol);
+ *
+ * /++
+ *  + Serializes the struct to the target protocol. Forwards to
+ *  + writeStruct(this, proto);
+ *  +/
+ * void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol);
+ * ---
+ *
+ * Additionally, an opEquals() implementation is provided which simply
+ * compares all fields, but disregards the is set struct, if any (the exact
+ * signature obviously differs between structs and exception classes).
+ *
+ * Note: To set the default values for fields where one has been specified in
+ * the field metadata, a parameterless static opCall is generated, because D
+ * does not allow parameterless (default) constructors for structs. Thus, be
+ * always to use to initialize structs:
+ * ---
+ * Foo foo; // Wrong!
+ * auto foo = Foo(); // Correct.
+ * ---
+ */
 mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   is(typeof(fieldMetaData) : TFieldMeta[])
 ) {
@@ -116,6 +281,8 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import thrift.protocol.base : TProtocol;
 
   alias typeof(this) This;
+  static assert(is(This == struct) || is(This : Exception),
+    "TStructHelpers can only be used inside a struct or an Exception class.");
 
   static if (is(TIsSetFlags!(This, fieldMetaData))) {
     // If we need to keep isSet flags around, create an instance of the
@@ -133,11 +300,10 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   void unset(string fieldName)() if (is(MemberType!(This, fieldName))) {
-    static if (isNullable!(MemberType!(This, fieldName))) {
-      __traits(getMember, this, fieldName) = null;
-    } else static if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
+    if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
       __traits(getMember, this.isSetFlags, fieldName) = false;
     }
+    __traits(getMember, this, fieldName) = MemberType!(This, fieldName).init;
   }
 
   bool isSet(string fieldName)() const @property if (
@@ -230,7 +396,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
       }
     }
 
-    private string thriftFieldInitCode(string thisName) {
+    private static string thriftFieldInitCode(string thisName) {
       string code;
       foreach (field; fieldMetaData) {
         if (field.defaultValue.empty) continue;
@@ -249,9 +415,46 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 }
 
+version (unittest) {
+  // Cannot make this nested in the unittest block due to a »no size yet for
+  // forward reference« error.
+  struct Foo {
+    string a;
+    int b;
+    int c;
+
+    mixin TStructHelpers!([
+      TFieldMeta("a", 1),
+      TFieldMeta("b", 2),
+      TFieldMeta("c", 3, TReq.REQUIRED, "4")
+    ]);
+  }
+}
+unittest {
+  auto f = Foo();
+
+  f.set!"b"(12345);
+  assert(f.isSet!"b");
+  f.unset!"b"();
+  assert(!f.isSet!"b");
+  f.set!"b"(12345);
+  assert(f.isSet!"b");
+  f.unset!"b"();
+
+  f.a = "a string";
+  assert(f.toString() == `Foo(a: a string, b: 0 (unset), c: 4)`);
+}
+
+
 /**
- * Generates an eponymous struct with flags for the optional non-nullable
- * fields of T, if any, or nothing otherwise,
+ * Generates an eponymous struct with boolean flags for the non-required
+ * non-nullable fields of T, if any, or nothing otherwise (i.e. the template
+ * body is empty).
+ *
+ * Nullable fields are just set to null to signal »not set«.
+ *
+ * In most cases, you do not want to use this directly, but via TStructHelpers
+ * instead.
  */
 template TIsSetFlags(T, alias fieldMetaData) {
   mixin({
@@ -279,10 +482,16 @@ template TIsSetFlags(T, alias fieldMetaData) {
 }
 
 /**
- * Reads a Thrift struct to a target protocol.
+ * Deserializes a Thrift struct from a protocol.
  *
- * This is defined outside TStructHelpers to make it possible to read
- * exisiting structs from the wire without altering the types.
+ * Using the Protocol template parameter, the concrete TProtocol to use can be
+ * be specified. If the pointerStruct parameter is set to true, the struct
+ * fields are expected to be pointers to the actual data. This is used
+ * internally (combined with TPResultStruct) and usually should not be used in
+ * user code.
+ *
+ * This is a free function to make it possible to read exisiting structs from
+ * the wire without altering their definitions.
  */
 void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   bool pointerStruct = false)(ref T s, Protocol p) if (isTProtocol!Protocol)
@@ -292,8 +501,6 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
-    // static if clause should not be necessary.
     static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
@@ -455,42 +662,49 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 }
 
 /**
- * Writes a Thrift struct to a target protocol.
+ * Serializes a struct to the target protocol.
  *
- * This is defined outside TStructHelpers to make it possible to write
- * exisiting structs without extending them.
+ * Using the Protocol template parameter, the concrete TProtocol to use can be
+ * be specified. If the pointerStruct parameter is set to true, the struct
+ * fields are expected to be pointers to the actual data. This is used
+ * internally (combined with TPargsStruct) and usually should not be used in
+ * user code.
+ *
+ * This is a free function to make it possible to read exisiting structs from
+ * the wire without altering their definitions.
  */
 void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   bool pointerStruct = false) (const T s, Protocol p) if (isTProtocol!Protocol)
 {
-  // Check that all fields for which there is meta info are actually in the
-  // passed struct type.
   mixin({
+    // Check that all fields for which there is meta info are actually in the
+    // passed struct type.
     string code = "";
-    // DMD @@BUG@@: foreach should just be skipped for null arrays, the
-    // static if clause should not be necessary.
     static if (fieldMetaData) foreach (field; fieldMetaData) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
-    return code;
-  }());
 
-  // Check that required nullable members are non-null.
-  foreach (name; __traits(derivedMembers, T)) {
-    static if (is(MemberType!(T, name)) &&
-      !isSomeFunction!(MemberType!(T, name)))
-    {
-      // If the field is nullable, we don't need an isSet flag as we can map
-      // unset to null.
-      static if (isNullable!(MemberType!(T, name))) {
-        enum meta = find!`a.name == b`(fieldMetaData, name);
-        static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
-          enforce(__traits(getMember, s, name) !is null,
-            new TException("TRequired field '" ~ name ~ "' null."));
+    // Check that required nullable members are non-null.
+    // WORKAROUND: To stop LDC from emitting the manifest constant »meta« below
+    // into the writeStruct function body (this is an LDC bug, and will
+    // allocate allocate a new array on each method invocation at runtime),
+    // this is inside the string mixin block – the code wouldn't depend on it.
+    foreach (name; __traits(derivedMembers, T)) {
+      static if (is(MemberType!(T, name)) &&
+        !isSomeFunction!(MemberType!(T, name)))
+      {
+        static if (isNullable!(MemberType!(T, name))) {
+          enum meta = find!`a.name == b`(fieldMetaData, name);
+          static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
+            code ~= `enforce(__traits(getMember, s, name) !is null,
+              new TException("Required field '` ~ name ~ `' is null."));\n`;
+          }
         }
       }
     }
-  }
+
+    return code;
+  }());
 
   p.writeStructBegin(TStruct(T.stringof));
   mixin({
@@ -606,6 +820,35 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   p.writeStructEnd();
 }
 
+/**
+ * A struct representing the arguments of a Thrift method call.
+ *
+ * Consider this example:
+ * ---
+ * interface Foo {
+ *   int bar(string a, bool b);
+ *
+ *   enum methodMeta = [
+ *     TMethodMeta("bar", [TParamMeta("a", 1), TParamMeta("b", 2)])
+ *   ];
+ * }
+ *
+ * alias TArgsStruct!Foo FooBarArgs;
+ * ---
+ *
+ * The definition of FooBarArgs is equivalent to:
+ * ---
+ * struct FooBarArgs {
+ *   string a;
+ *   bool b;
+ *
+ *   mixin TStructHelpers!([TFieldMeta("a", 1), TFieldMeta("b", 2)]);
+ * }
+ * ---
+ *
+ * If the TVerboseCodegen version is defined, a warning message is issued at
+ * compilation if no TMethodMeta for Interface.methodName is found.
+ */
 template TArgsStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
@@ -626,14 +869,20 @@ template TArgsStruct(Interface, string methodName) {
       // If we have no meta information, just use param1, param2, etc. as
       // field names, it shouldn't really matter anyway. 1-based »indexing«
       // is used to match the common scheme in the Thrift world.
-      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
-        "param" ~ to!string(i + 1);
+      string memberId;
+      string memberName;
+      if (methodMetaFound && i < methodMeta.params.length) {
+        memberId = to!string(methodMeta.params[i].id);
+        memberName = methodMeta.params[i].name;
+      } else {
+        memberId = to!string(i + 1);
+        memberName = "param" ~ to!string(i + 1);
+      }
 
       memberCode ~= "ParameterTypeTuple!(Interface." ~ methodName ~
         ")[" ~ to!string(i) ~ "]" ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
-        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
     }
 
     string code = "struct TArgsStruct {\n";
@@ -655,6 +904,21 @@ template TArgsStruct(Interface, string methodName) {
   }());
 }
 
+/**
+ * Like TArgsStruct, represents the arguments of a Thrift method call, but as
+ * pointers to the (const) parameter type to avoid copying.
+ *
+ * For the struct from the TArgsStruct example, TPargsStruct!Foo would be
+ * equivalent to:
+ * ---
+ * struct FooBarPargs {
+ *   const(string)* a;
+ *   const(bool)* b;
+ *
+ *   void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol);
+ * }
+ * ---
+ */
 template TPargsStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
@@ -675,8 +939,15 @@ template TPargsStruct(Interface, string methodName) {
       // If we have no meta information, just use param1, param2, etc. as
       // field names, it shouldn't really matter anyway. 1-based »indexing«
       // is used to match the common scheme in the Thrift world.
-      immutable memberName = methodMetaFound ? methodMeta.params[i].name :
-        "param" ~ to!string(i + 1);
+      string memberId;
+      string memberName;
+      if (methodMetaFound && i < methodMeta.params.length) {
+        memberId = to!string(methodMeta.params[i].id);
+        memberName = methodMeta.params[i].name;
+      } else {
+        memberId = to!string(i + 1);
+        memberName = "param" ~ to!string(i + 1);
+      }
 
       // Workaround for DMD @@BUG@@ 6056: make an intermediary alias for the
       // parameter type, and declare the member using const(memberNameType)*.
@@ -684,8 +955,7 @@ template TPargsStruct(Interface, string methodName) {
         ")[" ~ to!string(i) ~ "] " ~ memberName ~ "Type;\n";
       memberCode ~= "const(" ~ memberName ~ "Type)* " ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~
-        to!string(methodMetaFound ? methodMeta.params[i].id : (i + 1)) ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
     }
 
     string code = "struct TPargsStruct {\n";
@@ -708,6 +978,44 @@ template TPargsStruct(Interface, string methodName) {
   }());
 }
 
+/**
+ * A struct representing the result of a Thrift method call.
+ *
+ * It contains a field called "success" for the return value of the function
+ * (with id 0), and additional fields for the exceptions declared for the
+ * method, if any.
+ *
+ * Consider the following example:
+ * ---
+ * interface Foo {
+ *   int bar(string a);
+ *
+ *   alias .FooException FooException;
+ *
+ *   enum methodMeta = [
+ *     TMethodMeta("bar",
+ *       [TParamMeta("a", 1)],
+ *       [TExceptionMeta("fooe", 1, "FooException")]
+ *     )
+ *   ];
+ * }
+ * alias TResultStruct!Foo FooBarResult;
+ * ---
+ *
+ * The definition of FooBarResult is equivalent to:
+ * ---
+ * struct FooBarResult {
+ *   int success;
+ *   FooException fooe;
+ *
+ *   mixin(TStructHelpers!([TFieldMeta("success", 0, TReq.OPTIONAL),
+ *     TFieldMeta("fooe", 1, TReq.OPTIONAL)]));
+ * }
+ * ---
+ *
+ * If the TVerboseCodegen version is defined, a warning message is issued at
+ * compilation if no TMethodMeta for Interface.methodName is found.
+ */
 template TResultStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
@@ -726,9 +1034,7 @@ template TResultStruct(Interface, string methodName) {
     static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
       auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
       if (!meta.empty) {
-        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-        // on empty exception arrays.
-        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+        foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
           fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
             ", TReq.OPTIONAL)";
@@ -755,6 +1061,27 @@ template TResultStruct(Interface, string methodName) {
   }());
 }
 
+/**
+ * Like TResultStruct, represents the result of a Thrift method call, but as
+ * pointer to the return value to avoid copying.
+ *
+ * For the struct from the TResultStruct example, TPresultStruct!Foo would be
+ * equivalent to:
+ * ---
+ * struct FooBarPresult {
+ *   int* success;
+ *   Foo.FooException fooe;
+ *
+ *   struct IsSetFlags {
+ *     bool success;
+ *   }
+ *   IsSetFlags isSetFlags;
+ *
+ *   bool isSet(string fieldName)() const @property;
+ *   void read(Protocol)(Protocol proto) if (isTProtocol!Protocol);
+ * }
+ * ---
+ */
 template TPresultStruct(Interface, string methodName) {
   static assert(is(typeof(mixin("Interface." ~ methodName))),
     "Could not find method '" ~ methodName ~ "' in '" ~ Interface.stringof ~ "'.");
@@ -786,9 +1113,7 @@ template TPresultStruct(Interface, string methodName) {
     static if (is(typeof(Interface.methodMeta) : TMethodMeta[])) {
       auto meta = find!`a.name == b`(Interface.methodMeta, methodName);
       if (!meta.empty) {
-        // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-        // on empty exception arrays.
-        if (!meta.front.exceptions.empty) foreach (e; meta.front.exceptions) {
+        foreach (e; meta.front.exceptions) {
           code ~= "Interface." ~ e.type ~ " " ~ e.name ~ ";\n";
           fieldMetaCodes ~= "TFieldMeta(`" ~ e.name ~ "`, " ~ to!string(e.id) ~
             ", TReq.OPTIONAL)";
@@ -825,7 +1150,7 @@ template TPresultStruct(Interface, string methodName) {
       }
     };
 
-    code ~= "void read(P)(P proto) if (is(P : TProtocol)) {\n";
+    code ~= "void read(P)(P proto) if (isTProtocol!P) {\n";
     code ~= "readStruct!(typeof(this), P, [" ~ ctfeJoin(fieldMetaCodes) ~
       "], true)(this, proto);\n";
     code ~= "}\n";
@@ -834,6 +1159,29 @@ template TPresultStruct(Interface, string methodName) {
   }());
 }
 
+/**
+ * Thrift service client, which implements an interface by synchronously
+ * calling a server over a TProtocol.
+ *
+ * The generated class implements the specified interface and additionally
+ * offers the following methods:
+ * ---
+ * this(InputProtocol iprot, OutputProtocol oprot);
+ * // Only if is(InputProtocol == OutputProtocol), to use the same protocol
+ * // for both input and output:
+ * this(InputProtocol prot);
+ *
+ * InputProtocol inputProtocol() @property;
+ * OutputProtocol outputProtocol() @property;
+ * ---
+ *
+ * If Interface is derived from another interface BaseInterface, this class is
+ * also derived from TClient!BaseInterface. The sequence id of the method
+ * calls starts at zero and is automatically incremented after each call.
+ *
+ * TClient takes two additional template parameters for the protocol types
+ * that must be a subclass of TProtocol, which is also the default.
+ */
 template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
   is(Interface _ == interface) && isTProtocol!InputProtocol &&
   (isTProtocol!OutputProtocol || is(OutputProtocol == void))
@@ -844,7 +1192,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         "Services cannot be derived from more than one parent.");
 
       string code = "class TClient : TClient!(BaseTypeTuple!(Interface)[0], " ~
-        "IProt, OProt), Interface {\n";
+        "InputProtocol, OutputProtocol), Interface {\n";
       code ~= q{
         this(IProt iprot, OProt oprot) {
           super(iprot, oprot);
@@ -863,6 +1211,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         static if (isTProtocol!OutputProtocol) {
           alias OutputProtocol OProt;
         } else {
+          static assert(is(OutputProtocol == void));
           alias InputProtocol OProt;
         }
 
@@ -877,11 +1226,11 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
           }
         }
 
-        IProt getInputProtocol() {
+        IProt inputProtocol() @property {
           return iprot_;
         }
 
-        OProt getOutputProtocol() {
+        OProt outputProtocol() @property {
           return oprot_;
         }
 
@@ -907,9 +1256,14 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         string[] paramList;
         string paramAssignCode;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-          // Just cosmetics in this case.
-          immutable paramName = methodMetaFound ? methodMeta.params[i].name :
-            "param" ~ to!string(i + 1);
+          // Use the param name speficied in the meta information if any –
+          // just cosmetics in this case.
+          string paramName;
+          if (methodMetaFound && i < methodMeta.params.length) {
+            paramName = methodMeta.params[i].name;
+          } else {
+            paramName = "param" ~ to!string(i + 1);
+          }
 
           paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
@@ -928,7 +1282,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
           "`, TMessageType.CALL, ++seqid_));\n";
         code ~= "args.write(oprot_);\n";
         code ~= "oprot_.writeMessageEnd();\n";
-        code ~= "oprot_.getTransport().flush();\n";
+        code ~= "oprot_.transport.flush();\n";
 
         // If this is not a oneway method, generate the recieving code.
         if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
@@ -945,18 +1299,18 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             auto msg = iprot_.readMessageBegin();
             scope (exit) {
               iprot_.readMessageEnd();
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
             }
 
             if (msg.type == TMessageType.EXCEPTION) {
               auto x = new TApplicationException(null);
               x.read(iprot_);
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
               throw x;
             }
             if (msg.type != TMessageType.REPLY) {
               skip(iprot_, TType.STRUCT);
-              iprot_.getTransport().readEnd();
+              iprot_.transport.readEnd();
             }
             if (msg.seqid != seqid_) {
               throw new TApplicationException(
@@ -968,9 +1322,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
           };
 
           if (methodMetaFound) {
-            // DMD @@BUG@@: The if should not be necessary, but otherwise DMD ICEs
-            // on empty exception arrays.
-            if (!methodMeta.exceptions.empty) foreach (e; methodMeta.exceptions) {
+            foreach (e; methodMeta.exceptions) {
               code ~= "if (result.isSet!`" ~ e.name ~ "`) throw result." ~
                 e.name ~ ";\n";
             }
@@ -996,8 +1348,130 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
 }
 
 /**
+ * Asynchronous Thrift service client, which just like TClient implements an
+ * interface by calling a server, but instead of synchronously invoking the
+ * methods, it returns the result as a TFuture and uses a TAsyncManager to
+ * perform the actual work.
+ */
+template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
+  is(Interface _ == interface) && isTProtocol!InputProtocol &&
+  (isTProtocol!OutputProtocol || is(OutputProtocol == void))
+) {
+  mixin({
+    static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
+      static assert(BaseInterfaces.length == 1,
+        "Services cannot be derived from more than one parent.");
+
+      string code = "class TAsyncClient : TAsyncClient!(BaseTypeTuple!(" ~
+        "Interface)[0], InputProtocol, OutputProtocol) {\n";
+      code ~= q{
+        this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf) {
+          this(trans, tf, tf, pf, pf);
+        }
+
+        this(TAsyncTransport trans, TTransportFactory itf,
+          TTransportFactory otf, TProtocolFactory ipf, TProtocolFactory opf
+        ) {
+          super(trans, itf, otf, ipf, opf);
+          client_ = new typeof(client_)(iprot_, oprot_);
+        }
+
+        private TClient!(Interface, IProt, OProt) client_;
+      };
+    } else {
+      string code = "class TAsyncClient {";
+      code ~= q{
+        alias InputProtocol IProt;
+        static if (isTProtocol!OutputProtocol) {
+          alias OutputProtocol OProt;
+        } else {
+          static assert(is(OutputProtocol == void));
+          alias InputProtocol OProt;
+        }
+
+        this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf) {
+          this(trans, tf, tf, pf, pf);
+        }
+
+        this(TAsyncTransport trans, TTransportFactory itf,
+          TTransportFactory otf, TProtocolFactory ipf, TProtocolFactory opf
+        ) {
+          asyncTransport_ = trans;
+
+          auto iprot = ipf.getProtocol(itf.getTransport(trans));
+          iprot_ = cast(IProt)iprot;
+          enforce(iprot_, new TException(text("Input protocol not of the " ~
+            "specified concrete type (", IProt.stringof, ").")));
+
+          auto oprot = opf.getProtocol(otf.getTransport(trans));
+          oprot_ = cast(OProt)oprot;
+          enforce(oprot_, new TException(text("Output protocol not of the " ~
+            "specified concrete type (", OProt.stringof, ").")));
+
+          client_ = new typeof(client_)(iprot_, oprot_);
+        }
+
+        protected TAsyncTransport asyncTransport_;
+        protected IProt iprot_;
+        protected OProt oprot_;
+        private TClient!(Interface, IProt, OProt) client_;
+      };
+    }
+
+    foreach (methodName; __traits(derivedMembers, Interface)) {
+      static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
+        string[] paramList;
+        string[] paramNames;
+        foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+          immutable paramName = "param" ~ to!string(i + 1);
+          paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+            to!string(i) ~ "] " ~ paramName;
+          paramNames ~= paramName;
+        }
+
+        immutable returnTypeCode = "ReturnType!(Interface." ~ methodName ~ ")";
+
+        code ~= "TFuture!(" ~ returnTypeCode ~ ") " ~ methodName ~ "(" ~
+          ctfeJoin(paramList) ~ ") {\n";
+
+        // Create the future instance that will repesent the result.
+        code ~= "auto promise = new TPromise!(" ~ returnTypeCode ~ ");\n";
+
+        // Prepare work item that executes the TClient method call.
+        code ~= "auto work = TAsyncWorkItem(asyncTransport_, {\n";
+        code ~= "try {\n";
+        code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
+          ") == void)) {\n";
+        code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
+        code ~= "promise.complete();\n";
+        code ~= "} else {\n";
+        code ~= "auto result = client_." ~ methodName ~ "(" ~
+          ctfeJoin(paramNames) ~ ");\n";
+        code ~= "promise.complete(result);\n";
+        code ~= "}\n";
+        code ~= "} catch (Exception e) {\n";
+        code ~= "promise.fail(e);\n";
+        code ~= "}\n";
+        code ~= "});\n";
+
+        // Enqueue the work item and immediately return the promise resp. its
+        // future interface.
+        code ~= "asyncTransport_.asyncManager.execute(work);\n";
+        code ~= "return promise;\n";
+        code ~= "}\n";
+      }
+    }
+
+    code ~= "}\n";
+    return code;
+  }());
+}
+
+/**
  * TClient construction helper to avoid having to explicitly specify
- * the protocol types (see D Bugzilla enhancement requet 6082).
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
  */
 TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
   is(Interface _ == interface) && isTProtocol!Prot
@@ -1013,6 +1487,26 @@ TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
   return new TClient!(Interface, IProt, OProt)(iprot, oprot);
 }
 
+/**
+ * Service processor for Interface, which implements TProcessor by
+ * synchronously forwarding requests for the service methods to a handler
+ * implementing Interface.
+ *
+ * The generated class implements TProcessor and additionally allows a
+ * TProcessorEventHandler to be specified via public eventHandler property.
+ * The constructor takes a single argument of type Interface, which is the
+ * handler to forward the requests to. If Interface is derived from another
+ * interface BaseInterface, this class is also derived from
+ * TServiceProcessor!BaseInterface.
+ *
+ * The optional Protocols template tuple parameter can be used to specify
+ * one or more TProtocol implementations to specifically generate code for. If
+ * the actual types of the protocols passed to process() at runtime match one
+ * of the items from the list, the optimized code paths are taken, otherwise,
+ * a generic TProtocol version is used as fallback. For cases where the input
+ * and output protocols differ, ProtocolPair!(InputProtocol, OutputProtocol)
+ * can be used in the Protocols list.
+ */
 template TServiceProcessor(Interface, Protocols...) if (
   is(Interface _ == interface) && allSatisfy!(isTProtocolOrPair, Protocols)
 ) {
@@ -1039,28 +1533,33 @@ template TServiceProcessor(Interface, Protocols...) if (
               msg.seqid));
             e.write(oprot);
             oprot.writeMessageEnd();
-            oprot.getTransport().writeEnd();
-            oprot.getTransport().flush();
+            oprot.transport.writeEnd();
+            oprot.transport.flush();
           }
 
           if (msg.type != TMessageType.CALL && msg.type != TMessageType.ONEWAY) {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
-            iprot.getTransport().readEnd();
+            iprot.transport.readEnd();
 
             writeException(new TApplicationException(
               TApplicationException.Type.INVALID_MESSAGE_TYPE));
-          } else if (auto dg = msg.name in processMap_) {
-            (*dg)(msg.seqid, iprot, oprot, context);
-          } else {
+            return false;
+          }
+
+          auto dg = msg.name in processMap_;
+          if (!dg) {
             skip(iprot, TType.STRUCT);
             iprot.readMessageEnd();
-            iprot.getTransport().readEnd();
+            iprot.transport.readEnd();
 
             writeException(new TApplicationException("Invalid method name: '" ~
               msg.name ~ "'.", TApplicationException.Type.INVALID_MESSAGE_TYPE));
+
+            return false;
           }
 
+          (*dg)(msg.seqid, iprot, oprot, context);
           return true;
         }
 
@@ -1153,7 +1652,7 @@ template TServiceProcessor(Interface, Protocols...) if (
 
           args.read(iprot);
           iprot.readMessageEnd();
-          iprot.getTransport().readEnd();
+          iprot.transport.readEnd();
 
           if (eventHandler) eventHandler.postRead(callContext, qName);
         };
@@ -1164,8 +1663,13 @@ template TServiceProcessor(Interface, Protocols...) if (
         // Generate the parameter list to pass to the called iface function.
         string[] paramList;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-          paramList ~= "args." ~ (methodMetaFound ? methodMeta.params[i].name :
-            "param" ~ to!string(i + 1));
+          string paramName;
+          if (methodMetaFound && i < methodMeta.params.length) {
+            paramName = methodMeta.params[i].name;
+          } else {
+            paramName = "param" ~ to!string(i + 1);
+          }
+          paramList ~= "args." ~ paramName;
         }
 
         immutable call = "iface_." ~ methodName ~ "(" ~ ctfeJoin(paramList) ~ ")";
@@ -1177,9 +1681,7 @@ template TServiceProcessor(Interface, Protocols...) if (
 
         // If this is not a oneway method, generate the recieving code.
         if (!methodMetaFound || methodMeta.type != TMethodType.ONEWAY) {
-          // DMD @@BUG@@: The second if condition should not be necessary, but
-          // otherwise DMD ICEs on empty exception arrays.
-          if (methodMetaFound && !methodMeta.exceptions.empty) {
+          if (methodMetaFound) {
             foreach (e; methodMeta.exceptions) {
               code ~= "} catch (Interface." ~ e.type ~ " " ~ e.name ~ ") {\n";
               code ~= "result.set!`" ~ e.name ~ "`(" ~ e.name ~ ");\n";
@@ -1198,8 +1700,8 @@ template TServiceProcessor(Interface, Protocols...) if (
                 TMessage(methodName, TMessageType.EXCEPTION, seqid));
               x.write(oprot);
               oprot.writeMessageEnd();
-              oprot.getTransport().writeEnd();
-              oprot.getTransport().flush();
+              oprot.transport.writeEnd();
+              oprot.transport.flush();
               return;
             }
 
@@ -1209,8 +1711,8 @@ template TServiceProcessor(Interface, Protocols...) if (
               TMessageType.REPLY, seqid));
             result.write(oprot);
             oprot.writeMessageEnd();
-            oprot.getTransport().writeEnd();
-            oprot.getTransport().flush();
+            oprot.transport.writeEnd();
+            oprot.transport.flush();
 
             if (eventHandler) eventHandler.postWrite(callContext, qName);
           };
@@ -1240,16 +1742,20 @@ template TServiceProcessor(Interface, Protocols...) if (
   }());
 }
 
+/// Ditto
 struct ProtocolPair(InputProtocol, OutputProtocol) if (
   isTProtocol!InputProtocol && isTProtocol!OutputProtocol
 ) {}
 
-/**
+/*
  * Removes all type qualifiers from T.
  *
  * In contrast to std.traits.Unqual, FullyUnqual also removes qualifiers from
  * array elements (e.g. immutable(byte[]) -> byte[], not immutable(byte)[]),
  * excluding strings (string isn't reduced to char[]).
+ *
+ * Must be public because it is used by generated code, but is not part of the
+ * public API.
  */
 template FullyUnqual(T) {
   static if (is(T _ == const(U), U)) {
@@ -1300,7 +1806,7 @@ private {
     static assert(!isTProtocolOrPair!void);
   }
 
-  /**
+  /*
    * Returns a D code string containing the matching TType value for a passed
    * D type, e.g. dToTTypeString!byte == "TType.BYTE".
    */
@@ -1339,6 +1845,7 @@ private {
   /*
    * Miscellaneous metaprogramming helpers.
    */
+
   template isNullable(T) {
     enum isNullable = __traits(compiles, { T t = null; });
   }
@@ -1347,7 +1854,7 @@ private {
     alias typeof(__traits(getMember, T.init, name)) MemberType;
   }
 
-  /**
+  /*
    * Simple eager join() for strings, std.algorithm.join isn't CTFEable yet.
    */
   string ctfeJoin(string[] strings, string separator = ", ") {

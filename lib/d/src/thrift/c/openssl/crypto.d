@@ -1,10 +1,10 @@
-module thrift.util.openssl.crypto;
+module thrift.c.openssl.crypto;
 
 import core.stdc.config;
-import thrift.util.openssl.loader;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.crypto)();
+  bindFunctions!(thrift.c.openssl.crypto)();
 }
 
 __gshared:

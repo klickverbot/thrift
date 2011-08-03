@@ -18,64 +18,22 @@
  */
 module thrift.transport.socket;
 
+import core.stdc.errno : EPIPE, ENOTCONN;
+import core.thread : Thread;
 import core.time : Duration;
 import std.array : empty;
-import std.conv : to;
+import std.conv : text, to;
 import std.exception : enforce;
 import std.socket;
 import std.stdio : stderr; // No proper logging support yet.
 import thrift.transport.base;
-
-private {
-  // FreeBSD and OS X return -1 and set ECONNRESET if socket was closed by
-  // the other side, we need to check for that before throwing an exception.
-  version (FreeBSD) {
-    enum connresetOnPeerShutdown = true;
-  } else version (OSX) {
-    enum connresetOnPeerShutdown = true;
-  } else {
-    enum connresetOnPeerShutdown = false;
-  }
-
-  version (Win32) {
-    import std.c.windows.winsock : WSAGetLastError, WSAEINTR;
-    import std.windows.syserror : sysErrorString;
-  } else {
-    import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINTR;
-    import core.stdc.string : strerror;
-  }
-
-  version (Win32) {
-    alias WSAGetLastError getSocketErrno;
-    enum INTERRUPTED_ERRNO = WSAEINTR;
-    // See http://msdn.microsoft.com/en-us/library/ms740668.aspx.
-    enum TIMEOUT_ERRNO = 10060;
-  } else {
-    alias getErrno getSocketErrno;
-    alias EINTR INTERRUPTED_ERRNO;
-
-    // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
-    // set (undocumentedly) in out of ressource conditions; adapt the code
-    // accordingly.
-    alias EAGAIN TIMEOUT_ERRNO;
-  }
-
-  string socketErrnoString(uint errno) {
-    version (Win32) {
-      return sysErrorString(errno);
-    } else {
-      return to!string(strerror(errno));
-    }
-  }
-}
+import thrift.util.socket;
 
 /**
- * Socket implementation of the TTransport interface.
- *
- * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
- * sockets or IPv6) are currently supported.
+ * Common parts of a socket TTransportImplementation, regardless of how the
+ * actual I/O is performed (sync/async).
  */
-class TSocket : TBaseTransport {
+abstract class TSocketBase : TBaseTransport {
   /**
    * Constructor that takes an already created, connected (!) socket.
    *
@@ -85,7 +43,6 @@ class TSocket : TBaseTransport {
   this(Socket socket) {
     socket_ = socket;
     setSocketOpts();
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -93,13 +50,12 @@ class TSocket : TBaseTransport {
    * on the given port.
    *
    * Params:
-   *   host = Remote host
-   *   port = Remote port
+   *   host = Remote host.
+   *   port = Remote port.
    */
   this(string host, ushort port) {
     host_ = host;
     port_ = port;
-    maxRecvRetries = DEFAULT_MAX_RECV_RETRIES;
   }
 
   /**
@@ -110,114 +66,23 @@ class TSocket : TBaseTransport {
   }
 
   /**
-   * Connects the socket.
+   * Writes as much data to the socket as there can be in a single OS call.
+   *
+   * Params:
+   *   buf = Data to write.
+   *
+   * Returns: The actual number of bytes written. Never more than buf.length.
    */
-  override void open() {
-    if (isOpen) return;
-
-    enforce(!host_.empty, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open null host."));
-    enforce(port_ != 0, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
-
-    if (socket_ is null) {
-      socket_ = new TcpSocket(AddressFamily.INET);
-      setSocketOpts();
-    }
-
-    try {
-      socket_.connect(new InternetAddress(host_, port_));
-    } catch (SocketException e) {
-      throw new TTransportException(TTransportException.Type.NOT_OPEN,
-        __FILE__, __LINE__, e);
-    }
-  }
-
-  /**
-   * Closes the socket.
-   */
-  override void close() {
-    if (socket_ !is null) {
-      socket_.close();
-      socket_ = null;
-    }
-  }
-
-  override bool peek() {
-    if (!isOpen) return false;
-
-    ubyte buf;
-    auto r = socket_.receive((&buf)[0..1], SocketFlags.PEEK);
-    if (r == -1) {
-      auto errno = getSocketErrno();
-      static if (connresetOnPeerShutdown) {
-        if (errno == ECONNRESET) {
-          close();
-          return false;
-        }
-      }
-      throw new TTransportException("Peeking into socket failed: " ~
-        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
-    }
-    return (r > 0);
-  }
-
-  override size_t read(ubyte[] buf) {
-    typeof(getSocketErrno()) errno;
-    ushort tries;
-    while (tries++ <= maxRecvRetries_) {
-      auto r = socket_.receive(cast(void[])buf);
-
-      // If recv went fine, immediately return.
-      if (r >= 0) return r;
-
-      // Something went wrong, find out how to handle it.
-      errno = getSocketErrno();
-
-      // TODO: Handle EAGAIN like C++ does.
-
-      if (errno == INTERRUPTED_ERRNO) {
-        // If the syscall was interrupted, just try again.
-        continue;
-      }
-
-      static if (connresetOnPeerShutdown) {
-        // See top comment.
-        if (errno == ECONNRESET) {
-          return 0;
-        }
-      }
-
-      // Not an error which is handled in a special way, just leave the loop.
-      break;
-    }
-
-    if (errno == TIMEOUT_ERRNO) {
-      throw new TTransportException(TTransportException.Type.TIMED_OUT);
-    } else {
-      throw new TTransportException("Receiving from socket failed: " ~
-        socketErrnoString(errno), TTransportException.Type.UNKNOWN);
-    }
-  }
-
-  override void write(in ubyte[] buf) {
-    auto r = socket_.send(buf);
-    if (r == -1) {
-      auto errno = getSocketErrno();
-      static if (connresetOnPeerShutdown) {
-        // See top comment.
-        if (errno == ECONNRESET) {
-          close();
-          return;
-        }
-      }
-      if (errno == TIMEOUT_ERRNO) {
-        throw new TTransportException(TTransportException.Type.TIMED_OUT);
-      } else {
-        throw new TTransportException("Receiving from socket failed: " ~
-          socketErrnoString(errno), TTransportException.Type.UNKNOWN);
-      }
-    }
+  abstract size_t writeSome(in ubyte[] buf) out (written) {
+    // DMD @@BUG@@: Enabling this e.g. fails the contract in the
+    // async_test_server, because buf.length evaluates to 0 here, even though
+    // in the method body it correctly is 27 (equal to the return value).
+    version (none) assert(written <= buf.length, text("Implementation wrote " ~
+      "more data than requested to?! (", written, " vs. ", buf.length, ")"));
+  } body {
+    assert(0, "DMD bug? – Why would contracts work for interfaces, but not "
+      "for abstract methods? "
+      "(Error: function […] in and out contracts require function body");
   }
 
   /**
@@ -252,29 +117,271 @@ class TSocket : TBaseTransport {
     return peerPort_;
   }
 
+  /**
+   * The host the socket is connected to or will connect to. Null if an
+   * already connected socket was used to construct the object.
+   */
   string host() @property {
     return host_;
   }
 
+  /**
+   * The port the socket is connected to or will connect to. Zero if an
+   * already connected socket was used to construct the object.
+   */
   ushort port() @property {
     return port_;
   }
 
+  /// The socket send timeout.
   Duration sendTimeout() const @property {
     return sendTimeout_;
   }
 
+  /// Ditto
   void sendTimeout(Duration value) @property {
     sendTimeout_ = value;
-    setTimeout(SocketOption.SNDTIMEO, value);
   }
 
+  /// The socket receiving timeout. Values smaller than 500 ms are not
+  /// supported on Windows.
   Duration recvTimeout() const @property {
     return recvTimeout_;
   }
 
+  /// Ditto
   void recvTimeout(Duration value) @property {
     recvTimeout_ = value;
+  }
+
+  /**
+   * Returns the OS handle of the underlying socket.
+   *
+   * Should not usually be used directly, but access to it can be necessary
+   * to interface with C libraries.
+   */
+  typeof(socket_.handle()) socketHandle() @property {
+    return socket_.handle();
+  }
+
+protected:
+  InternetAddress peerAddress() @property {
+    if (!peerAddress_) {
+      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
+      assert(peerAddress_);
+    }
+    return peerAddress_;
+  }
+
+  /**
+   * Sets the needed socket options.
+   */
+  void setSocketOpts() {
+    try {
+      alias SocketOptionLevel.SOCKET lvlSock;
+      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+    } catch (SocketException e) {
+      stderr.writefln("Could not set socket option: %s", e);
+    }
+
+    // Just try to disable Nagle's algorithm – this will fail if we are passed
+    // in a non-TCP socket via the Socket-accepting constructor.
+    try {
+      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
+    } catch (SocketException e) {}
+  }
+
+  /// Remote host.
+  string host_;
+
+  /// Remote port.
+  ushort port_;
+
+  /// Timeout for sending.
+  Duration sendTimeout_;
+
+  /// Timeout for receiving.
+  Duration recvTimeout_;
+
+  /// Cached peer address.
+  InternetAddress peerAddress_;
+
+  /// Cached peer host name.
+  string peerHost_;
+
+  /// Cached peer port.
+  ushort peerPort_;
+
+  /// Wrapped socket object.
+  Socket socket_;
+}
+
+/**
+ * Socket implementation of the TTransport interface.
+ *
+ * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
+ * sockets or IPv6) are currently supported.
+ */
+class TSocket : TSocketBase {
+  ///
+  this(Socket socket) {
+    super(socket);
+  }
+
+  ///
+  this(string host, ushort port) {
+    super(host, port);
+  }
+
+  /**
+   * Connects the socket.
+   */
+  override void open() {
+    if (isOpen) return;
+
+    enforce(!host_.empty, new TTransportException(
+      TTransportException.Type.NOT_OPEN, "Cannot open null host."));
+    enforce(port_ != 0, new TTransportException(
+      TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
+
+    socket_ = new TcpSocket(AddressFamily.INET);
+    setSocketOpts();
+    try {
+      socket_.connect(new InternetAddress(host_, port_));
+    } catch (SocketException e) {
+      throw new TTransportException(TTransportException.Type.NOT_OPEN,
+        __FILE__, __LINE__, e);
+    }
+  }
+
+  /**
+   * Closes the socket.
+   */
+  override void close() {
+    if (isOpen) return;
+
+    socket_.close();
+    socket_ = null;
+  }
+
+  override bool peek() {
+    if (!isOpen) return false;
+
+    ubyte buf;
+    auto r = socket_.receive((&buf)[0 .. 1], SocketFlags.PEEK);
+    if (r == -1) {
+      auto lastErrno = getSocketErrno();
+      static if (connresetOnPeerShutdown) {
+        if (lastErrno == ECONNRESET) {
+          close();
+          return false;
+        }
+      }
+      throw new TTransportException("Peeking into socket failed: " ~
+        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
+    }
+    return (r > 0);
+  }
+
+  override size_t read(ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot read if socket is not open.", TTransportException.Type.NOT_OPEN));
+
+    typeof(getSocketErrno()) lastErrno;
+    ushort tries;
+    while (tries++ <= maxRecvRetries_) {
+      auto r = socket_.receive(cast(void[])buf);
+
+      // If recv went fine, immediately return.
+      if (r >= 0) return r;
+
+      // Something went wrong, find out how to handle it.
+      lastErrno = getSocketErrno();
+
+      // TODO: Handle EAGAIN like C++ does.
+
+      if (lastErrno == INTERRUPTED_ERRNO) {
+        // If the syscall was interrupted, just try again.
+        continue;
+      }
+
+      static if (connresetOnPeerShutdown) {
+        // See top comment.
+        if (lastErrno == ECONNRESET) {
+          return 0;
+        }
+      }
+
+      // Not an error which is handled in a special way, just leave the loop.
+      break;
+    }
+
+    if (lastErrno == TIMEOUT_ERRNO) {
+      throw new TTransportException(TTransportException.Type.TIMED_OUT);
+    } else {
+      throw new TTransportException("Receiving from socket failed: " ~
+        socketErrnoString(lastErrno), TTransportException.Type.UNKNOWN);
+    }
+  }
+
+  override void write(in ubyte[] buf) {
+    size_t sent;
+    while (sent < buf.length) {
+      auto b = writeSome(buf[sent .. $]);
+      if (b == 0) {
+        // Couldn't send due to lack of system resources, wait a bit and try
+        // again.
+        Thread.sleep(dur!"usecs"(50));
+      }
+      sent += b;
+    }
+    assert(sent == buf.length);
+  }
+
+  override size_t writeSome(in ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot write if file is not open.", TTransportException.Type.NOT_OPEN));
+
+    auto r = socket_.send(buf);
+
+    // Everything went well, just return the number of bytes written.
+    if (r > 0) return r;
+
+    // Handle error conditions. TODO: Windows.
+    if (r < 0) {
+      auto lastErrno = getSocketErrno();
+
+      if (lastErrno == WOULD_BLOCK_ERRNO) {
+        // Not an exceptional error per se – even with blocking sockets,
+        // EAGAIN apparently is returned sometimes on out-of-resource
+        // conditions (see the C++ implementation for details). Also, this
+        // allows using TSocket with non-blocking sockets e.g. in
+        // TNonblockingServer.
+        return 0;
+      }
+
+      auto type = TTransportException.Type.UNKNOWN;
+      if (lastErrno == EPIPE || lastErrno == ECONNRESET || lastErrno == ENOTCONN) {
+        type = TTransportException.Type.NOT_OPEN;
+        close();
+      }
+
+      throw new TTransportException("Sending to socket failed: " ~
+        socketErrnoString(lastErrno), type);
+    }
+
+    // send() should never return 0.
+    throw new TTransportException("Sending to socket failed (0 bytes written).",
+      TTransportException.Type.UNKNOWN);
+  }
+
+  override void sendTimeout(Duration value) @property {
+    super.sendTimeout(value);
+    setTimeout(SocketOption.SNDTIMEO, value);
+  }
+
+  override void recvTimeout(Duration value) @property {
+    super.recvTimeout(value);
     setTimeout(SocketOption.RCVTIMEO, value);
   }
 
@@ -286,45 +393,19 @@ class TSocket : TBaseTransport {
     return maxRecvRetries_;
   }
 
-  /// ditto
+  /// Ditto
   void maxRecvRetries(ushort value) @property {
     maxRecvRetries_ = value;
   }
 
+  /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
-protected:
-  typeof(socket_.handle()) socketHandle() @property {
-    return socket_.handle();
-  }
-
-  InternetAddress peerAddress() @property {
-    if (!peerAddress_) {
-      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
-      assert(peerAddress_);
-    }
-    return peerAddress_;
-  }
-
 private:
-  /**
-   * Sets the needed socket options.
-   */
-  void setSocketOpts() {
-    try {
-      alias SocketOptionLevel.SOCKET lvlSock;
-      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
-      socket_.setOption(lvlSock, SocketOption.SNDTIMEO, sendTimeout_);
-      socket_.setOption(lvlSock, SocketOption.RCVTIMEO, recvTimeout_);
-    } catch (SocketException e) {
-      stderr.writefln("Could not set socket option: %s", e);
-    }
-
-    // Just try to disable Nagle's algorithm – this will fail if we are passed
-    // in a non-TCP socket via the Socket-accepting constructor.
-    try {
-      socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
-    } catch (SocketException e) {}
+  override void setSocketOpts() {
+    super.setSocketOpts();
+    setTimeout(SocketOption.SNDTIMEO, sendTimeout_);
+    setTimeout(SocketOption.RCVTIMEO, recvTimeout_);
   }
 
   void setTimeout(SocketOption type, Duration value) {
@@ -353,30 +434,6 @@ private:
     }
   }
 
-  /// Remote host.
-  string host_;
-
-  /// Remote port.
-  ushort port_;
-
-  /// Timeout for sending.
-  Duration sendTimeout_;
-
-  /// Timeout for receiving.
-  Duration recvTimeout_;
-
-  /// Maximum number of receive() retries.
-  ushort maxRecvRetries_;
-
-  /// Cached peer address.
-  InternetAddress peerAddress_;
-
-  /// Cached peer host name.
-  string peerHost_;
-
-  /// Cached peer port.
-  ushort peerPort_;
-
-  /// Wrapped socket object.
-  Socket socket_;
+  /// Maximum number of recv() retries.
+  ushort maxRecvRetries_  = DEFAULT_MAX_RECV_RETRIES;
 }

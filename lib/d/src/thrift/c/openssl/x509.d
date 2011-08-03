@@ -1,11 +1,11 @@
-module thrift.util.openssl.x509;
+module thrift.c.openssl.x509;
 
 import core.stdc.config;
-import thrift.util.openssl.asn1;
-import thrift.util.openssl.loader;
+import thrift.c.openssl.asn1;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.x509)();
+  bindFunctions!(thrift.c.openssl.x509)();
 }
 
 __gshared:

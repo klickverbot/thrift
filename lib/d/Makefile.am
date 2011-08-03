@@ -23,12 +23,17 @@ d_thriftmodules = $(addprefix thrift/, base codegen hashset)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = $(addprefix src/, $(addsuffix .d,$(d_thriftmodules)))
 
+d_asyncmodules = $(addprefix thrift/async/, base libevent socket)
+d_asyncdir = $(d_thriftdir)/async
+d_async_DATA = $(addprefix src/, $(addsuffix .d,$(d_asyncmodules)))
+
 d_protocolmodules = $(addprefix thrift/protocol/, base binary compact json \
 	processor)
 d_protocoldir = $(d_thriftdir)/protocol
 d_protocol_DATA = $(addprefix src/, $(addsuffix .d,$(d_protocolmodules)))
 
-d_servermodules = $(addprefix thrift/server/, base simple threaded)
+d_servermodules = $(addprefix thrift/server/, base simple nonblocking \
+	taskpool threaded)
 d_serverdir = $(d_thriftdir)/server
 d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
 
@@ -38,26 +43,47 @@ d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
 	$(d_servertransportmodules)))
 
 d_transportmodules = $(addprefix thrift/transport/, base buffered file \
-	framed http memory socket ssl)
+	framed http memory piped range socket ssl zlib)
 d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
 
-d_opensslmodules = $(addprefix thrift/util/openssl/, asn1 bio crypto err \
+d_utilmodules = $(addprefix thrift/util/, endian socket)
+d_utildir = $(d_thriftdir)/util
+d_util_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
+
+d_cmodules = $(addprefix thrift/c/, loader)
+d_cdir = $(d_thriftdir)/c
+d_c_DATA = $(addprefix src/, $(addsuffix .d,$(d_cmodules)))
+
+d_eventmodules = $(addprefix thrift/c/event/, event event_compat loader)
+d_eventdir = $(d_thriftdir)/c/event
+d_event_DATA = $(addprefix src/, $(addsuffix .d,$(d_eventmodules)))
+
+d_opensslmodules = $(addprefix thrift/c/openssl/, asn1 bio crypto err \
 	loader objects rand safestack ssl stack x509 x509_vfy x509v3)
-d_openssldir = $(d_thriftdir)/util/openssl
+d_openssldir = $(d_thriftdir)/c/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
 
-d_modules = $(d_thriftmodules) $(d_protocolmodules) $(d_servermodules) \
-	$(d_opensslmodules) $(d_servertransportmodules) $(d_transportmodules)
+d_modules = $(d_thriftmodules) $(d_asyncmodules) $(d_protocolmodules) \
+	$(d_servermodules) $(d_servertransportmodules) $(d_transportmodules) \
+	$(d_utilmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)
 	$(DMD) -oflibthriftd -w -lib $(d_sources)
 
-all-local: libthriftd.a
+docs: $(d_sources)
+	$(DMD) -D -c -o- -Isrc -Dddocs $(d_thrift_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/async $(d_async_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/protocol $(d_protocol_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/server $(d_server_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/server/transport $(d_servertransport_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/transport $(d_transport_DATA)
+
+all-local: libthriftd.a docs
 
 clean-local:
-	$(RM) -rf libthriftd.a unittest
+	$(RM) -rf docs libthriftd.a unittest
 
 lib_LIBRARIES = libthriftd.a
 

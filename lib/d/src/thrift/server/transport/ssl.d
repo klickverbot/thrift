@@ -27,8 +27,9 @@ import thrift.transport.socket;
 import thrift.transport.ssl;
 
 /**
- * Provides an interface for servers to listen for connections and create
- * TTransports for client communication.
+ * A server transport implementation using SSL-encrypted sockets.
+ *
+ * See: thrift.transport.ssl.
  */
 class TSSLServerSocket : TServerSocket {
   /**

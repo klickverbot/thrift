@@ -20,7 +20,7 @@ module thrift.server.threaded;
 
 // stderr is used for error messages until something more sophisticated is
 // implemented.
-import std.stdio : stderr, writeln;
+import std.stdio : stderr;
 
 import core.thread;
 import thrift.base;
@@ -89,14 +89,16 @@ class TThreadedServer : TServer {
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
       } catch (TTransportException ttx) {
-        stderr.writefln("TServerTransport died on accept: %s", ttx);
+        if (!stop_) stderr.writefln(
+          "TThreadedServer: TServerTransport died on accept: %s", ttx);
         continue;
       } catch (TException tx) {
-        stderr.writefln("Some kind of accept exception: %s", tx);
+        stderr.writefln("TThreadedServer: Caught TException on accept: %s", tx);
         continue;
       } catch (Exception e) {
-        stderr.writefln("Some kind of accept exception: %s", e);
-        continue;
+        stderr.writefln(
+          "TThreadedServer: Unknown exception on accept, stopping: %s", e);
+        break;
       }
 
       auto worker = new WorkerThread(client, inputProtocol, outputProtocol,
@@ -109,7 +111,8 @@ class TThreadedServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TServerTransport failed on close: %s", ttx);
+        stderr.writefln(
+          "TThreadedServer: TServerTransport failed on close: %s", ttx);
       }
       workerThreads.joinAll();
       stop_ = false;
@@ -152,19 +155,18 @@ private class WorkerThread : Thread {
           eventHandler_.preProcess(connectionContext, client_);
         }
 
-        if (!processor_.process(inputProtocol_, outputProtocol_, connectionContext) ||
-          !inputProtocol_.getTransport().peek())
-        {
-          // Nothing more to process, close the connection.
+        if (!processor_.process(inputProtocol_, outputProtocol_,
+          connectionContext) || !inputProtocol_.transport.peek()
+        ) {
+          // Something went fundamentlly wrong or there is nothing more to
+          // process, close the connection.
           break;
         }
       }
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer client died: %s", ttx);
-    } catch (TException tx) {
-      stderr.writefln("TThreadedServer exception: %s", tx);
+      stderr.writefln("TThreadedServer: Client died: %s", ttx);
     } catch (Exception e) {
-      stderr.writefln("TThreadedServer uncaught exception: %s", e);
+      stderr.writefln("TThreadedServer: Uncaught exception: %s", e);
     }
 
     if (eventHandler_) {
@@ -173,19 +175,19 @@ private class WorkerThread : Thread {
     }
 
     try {
-      inputProtocol_.getTransport().close();
+      inputProtocol_.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer input close failed: %s", ttx);
+      stderr.writefln("TThreadedServer: Input close failed: %s", ttx);
     }
     try {
-      outputProtocol_.getTransport().close();
+      outputProtocol_.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer output close failed: %s", ttx);
+      stderr.writefln("TThreadedServer: Output close failed: %s", ttx);
     }
     try {
       client_.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer client close failed: %s", ttx);
+      stderr.writefln("TThreadedServer: Client close failed: %s", ttx);
     }
   }
 

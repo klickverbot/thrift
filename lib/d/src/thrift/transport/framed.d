@@ -44,6 +44,9 @@ final class TFramedTransport : TBaseTransport {
     transport_ = transport;
   }
 
+  /**
+   * Returns the wrapped transport.
+   */
   TTransport underlyingTransport() @property {
     return transport_;
   }
@@ -123,7 +126,9 @@ final class TFramedTransport : TBaseTransport {
   }
 
   override void consume(size_t len) {
-    rBuf_ = rBuf_[len..$];
+    enforce(len <= rBuf_.length, new TTransportException(
+      "Invalid consume length", TTransportException.Type.BAD_ARGS));
+    rBuf_ = rBuf_[len .. $];
   }
 
 private:
@@ -168,6 +173,9 @@ private:
   ubyte[] wBuf_;
 }
 
+/**
+ * Wraps given transports into TFramedTransports.
+ */
 alias TWrapperTransportFactory!TFramedTransport TFramedTransportFactory;
 
 version (unittest) {
@@ -175,8 +183,9 @@ version (unittest) {
   import thrift.transport.memory;
 }
 
+// Some basic random testing, always starting with the same seed for
+// deterministic unit test results – more tests in transport_test.
 unittest {
-  // Repeatable random-testing.
   auto randGen = Mt19937(42);
 
   // 32 kiB of data to work with.
@@ -294,32 +303,32 @@ unittest {
       assert(readData == data[0..readData.length]);
     }
   }
+}
 
-  // Test flush()ing an empty buffer.
-  {
-    auto buf = new TMemoryBuffer();
-    auto framed = new TFramedTransport(buf);
-    immutable out1 = [0, 0, 0, 1, 'a'];
-    immutable out2 = [0, 0, 0, 1, 'a', 0, 0, 0, 2, 'b', 'c'];
+// Test flush()ing an empty buffer.
+unittest {
+  auto buf = new TMemoryBuffer();
+  auto framed = new TFramedTransport(buf);
+  immutable out1 = [0, 0, 0, 1, 'a'];
+  immutable out2 = [0, 0, 0, 1, 'a', 0, 0, 0, 2, 'b', 'c'];
 
-    framed.flush();
-    assert(buf.getContents() == []);
-    framed.flush();
-    framed.flush();
-    assert(buf.getContents() == []);
-    framed.write(cast(ubyte[])"a");
-    assert(buf.getContents() == []);
-    framed.flush();
-    assert(buf.getContents() == out1);
-    framed.flush();
-    framed.flush();
-    assert(buf.getContents() == out1);
-    framed.write(cast(ubyte[])"bc");
-    assert(buf.getContents() == out1);
-    framed.flush();
-    assert(buf.getContents() == out2);
-    framed.flush();
-    framed.flush();
-    assert(buf.getContents() == out2);
-  }
+  framed.flush();
+  assert(buf.getContents() == []);
+  framed.flush();
+  framed.flush();
+  assert(buf.getContents() == []);
+  framed.write(cast(ubyte[])"a");
+  assert(buf.getContents() == []);
+  framed.flush();
+  assert(buf.getContents() == out1);
+  framed.flush();
+  framed.flush();
+  assert(buf.getContents() == out1);
+  framed.write(cast(ubyte[])"bc");
+  assert(buf.getContents() == out1);
+  framed.flush();
+  assert(buf.getContents() == out2);
+  framed.flush();
+  framed.flush();
+  assert(buf.getContents() == out2);
 }

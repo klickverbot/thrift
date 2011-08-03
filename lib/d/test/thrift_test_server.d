@@ -33,8 +33,6 @@ import thrift.protocol.binary;
 import thrift.protocol.compact;
 import thrift.protocol.json;
 import thrift.server.base;
-import thrift.server.simple;
-import thrift.server.threaded;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
 import thrift.transport.base;
@@ -42,6 +40,7 @@ import thrift.transport.buffered;
 import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.ssl;
+import test_utils;
 
 import thrift_test_common;
 import thrift.test.ThriftTest_types;
@@ -183,21 +182,18 @@ private:
   bool trace_;
 }
 
-enum ServerType {
-  simple,
-  threaded
-}
-
 void main(string[] args) {
   ushort port = 9090;
   ServerType serverType;
   ProtocolType protocolType;
+  size_t taskPoolSize = totalCPUs;
   TransportType transportType;
   bool ssl;
   bool trace;
 
   getopt(args, "port", &port, "protocol", &protocolType, "server-type",
-    &serverType, "ssl", &ssl, "trace", &trace, "transport", &transportType);
+    &serverType, "ssl", &ssl, "task-pool-size", &taskPoolSize,
+    "trace", &trace, "transport", &transportType);
 
   // We don't need every last bit of performance here, so specifying the
   // actual transport types is not really needed in this case, but this
@@ -239,32 +235,13 @@ void main(string[] args) {
     serverSocket = new TServerSocket(port);
   }
 
-  TTransportFactory transportFactory;
-  final switch (transportType) {
-    case TransportType.buffered:
-      transportFactory = new TBufferedTransportFactory;
-      break;
-    case TransportType.framed:
-      transportFactory = new TFramedTransportFactory;
-      break;
-    case TransportType.http:
-      transportFactory = new TServerHttpTransportFactory;
-      break;
-  }
+  auto transportFactory = createTransportFactory(transportType);
 
-  TServer server;
-  final switch (serverType) {
-    case ServerType.simple:
-      server = new TSimpleServer(processor, serverSocket,
-        transportFactory, protocolFactory);
-      break;
-    case ServerType.threaded:
-      server = new TThreadedServer(processor, serverSocket,
-        transportFactory, protocolFactory);
-      break;
-  }
+  auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
+    transportFactory, protocolFactory);
 
-  writefln("Starting %s server on port %s...", serverType, port);
+  writefln("Starting %s/%s %s ThriftTest server on port %s...", protocolType,
+    transportType, serverType, port);
   server.serve();
   writeln("done.");
 }

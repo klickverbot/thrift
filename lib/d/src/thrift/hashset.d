@@ -16,73 +16,89 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-/**
- * A quickly hacked together hash set implementation to have something to
- * compile Thrift's set<> to until std.container gains something suitable.
- * Breaks immutability, not really tested, slow, and NOT FOR PRODUCTION USE!
- */
 module thrift.hashset;
 
 import std.algorithm : join, map;
 import std.traits : isImplicitlyConvertible;
 import std.range : ElementType, isInputRange;
 
+/**
+ * A quickly hacked together hash set implementation to have something to
+ * compile Thrift's set<> to until std.container gains something suitable.
+ * Breaks immutability, not really tested, slow, etc.
+ */
+// Note: The funky pointer casts (i.e. *(cast(immutable(E)*)&e) instead of
+// just cast(immutable(E))e) are a workaround for LDC 2 compatibilty.
 final class HashSet(E) {
+  ///
   this() {}
+
+  ///
   this(E[] elems...) {
     insert(elems);
   }
 
+  ///
   void insert(Stuff)(Stuff stuff) if (isImplicitlyConvertible!(Stuff, E)) {
-    aa_[cast(immutable(E))stuff] = [];
+    aa_[*(cast(immutable(E)*)&stuff)] = [];
   }
 
+  ///
   void insert(Stuff)(Stuff stuff) if (
     isInputRange!Stuff && isImplicitlyConvertible!(ElementType!Stuff, E)
   ) {
     foreach (e; stuff) {
-      aa_[cast(immutable(E))e] = [];
+      aa_[*(cast(immutable(E)*)&e)] = [];
     }
   }
 
+  ///
   void opOpAssign(string op : "~", Stuff)(Stuff stuff) {
     insert(stuff);
   }
 
+  ///
   void remove(E e) {
-    aa_.remove(cast(immutable(E))e);
+    aa_.remove(*(cast(immutable(E)*)&e));
   }
   alias remove removeKey;
 
+  ///
   void removeAll() {
     aa_ = null;
   }
 
+  ///
   size_t length() @property const {
     return aa_.length;
   }
 
+  ///
   size_t empty() @property const {
     return !aa_.length;
   }
 
+  ///
   bool opBinaryRight(string op : "in")(E e) const {
     return (e in aa_) !is null;
   }
 
+  ///
   E[] opSlice() const {
     return cast(E[])(aa_.keys);
   }
 
+  ///
   int opApply(scope int delegate(ref E elem) dg) const {
     return aa_.byKey()(cast(int delegate(ref immutable(E) elem)) dg);
   }
 
+  ///
   override string toString() const {
     return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
   }
 
+  ///
   override bool opEquals(Object other) const {
     auto rhs = cast(const(HashSet))other;
     if (rhs) {

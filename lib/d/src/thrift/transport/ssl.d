@@ -29,28 +29,28 @@ import core.sync.mutex : Mutex;
 import core.memory : GC;
 import core.stdc.config;
 import core.stdc.stdlib : free, malloc;
-import std.conv : emplace, to;
+import std.ascii : toUpper;
 import std.array : empty, front, popFront;
-import std.ctype : toupper;
+import std.conv : emplace, to;
 import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
+import thrift.c.openssl.asn1;
+import thrift.c.openssl.bio;
+import thrift.c.openssl.crypto;
+import thrift.c.openssl.err;
+import thrift.c.openssl.objects;
+import thrift.c.openssl.rand;
+import thrift.c.openssl.safestack;
+import thrift.c.openssl.ssl;
+import thrift.c.openssl.x509;
+import thrift.c.openssl.x509_vfy;
+import thrift.c.openssl.x509v3;
 import thrift.transport.base;
 import thrift.transport.socket;
-import thrift.util.openssl.asn1;
-import thrift.util.openssl.bio;
-import thrift.util.openssl.crypto;
-import thrift.util.openssl.err;
-import thrift.util.openssl.objects;
-import thrift.util.openssl.rand;
-import thrift.util.openssl.safestack;
-import thrift.util.openssl.ssl;
-import thrift.util.openssl.x509;
-import thrift.util.openssl.x509_vfy;
-import thrift.util.openssl.x509v3;
 
 /**
- * OpenSSL implementation for SSL socket interface.
+ * SSL encrypted socket implementation using OpenSSL.
  */
 final class TSSLSocket : TSocket {
   override bool isOpen() @property {
@@ -83,6 +83,8 @@ final class TSSLSocket : TSocket {
   }
 
   override void close() {
+    if (!isOpen) return;
+
     if (ssl_ !is null) {
       auto rc = SSL_shutdown(ssl_);
       if (rc == 0) {
@@ -132,9 +134,8 @@ final class TSSLSocket : TSocket {
   }
 
   override void flush() {
-    if (ssl_ is null) return;
-
     checkHandshake();
+
     auto bio = SSL_get_wbio(ssl_);
     enforce(bio !is null, new TSSLException("SSL_get_wbio returned null"));
 
@@ -155,7 +156,7 @@ final class TSSLSocket : TSocket {
   }
 
   /**
-   * TAccessManager to use.
+   * The access manager to use.
    */
   void accessManager(TAccessManager value) @property {
     accessManager_ = value;
@@ -352,9 +353,10 @@ class TSSLSocketFactory {
   }
 
   /**
-   * Create an instance of TSSLSocket with the given socket.
+   * Create an SSL socket wrapping an existing std.socket.Socket.
    *
-   * @param socket An existing socket.
+   * Params:
+   *   socket = An existing socket.
    */
   TSSLSocket createSocket(Socket socket) {
     auto result = new TSSLSocket(ctx_, socket);
@@ -365,8 +367,9 @@ class TSSLSocketFactory {
    /**
    * Create an instance of TSSLSocket.
    *
-   * @param host  Remote host to be connected to
-   * @param port  Remote port to be connected to
+   * Params:
+   *   host = Remote host to connect to.
+   *   port = Remote port to connect to.
    */
   TSSLSocket createSocket(string host, ushort port) {
     auto result = new TSSLSocket(ctx_, host, port);
@@ -376,6 +379,9 @@ class TSSLSocketFactory {
 
   /**
    * Ciphers to be used in SSL handshake process.
+   *
+   * The string must be in the colon-delimited OpenSSL notation described in
+   * ciphers(1), for example: "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH".
    */
   void ciphers(string enable) @property {
     auto rc = SSL_CTX_set_cipher_list(ctx_.get(), toStringz(enable));
@@ -475,21 +481,13 @@ class TSSLSocketFactory {
   }
 
   /**
-   * Override default OpenSSL password callback with getPassword().
-   */
-  void overrideDefaultPasswordCallback() {
-    SSL_CTX_set_default_passwd_cb(ctx_.get(), &passwordCallback);
-    SSL_CTX_set_default_passwd_cb_userdata(ctx_.get(), cast(void*)this);
-  }
-
-  /**
    * Whether to use client or server side SSL handshake protocol.
    */
   bool serverSide() @property const {
     return serverSide_;
   }
 
-  /// Ditto.
+  /// Ditto
   void serverSide(bool value) @property {
     serverSide_ = value;
   }
@@ -501,7 +499,7 @@ class TSSLSocketFactory {
     return accessManager_;
   }
 
-  /// Ditto.
+  /// Ditto
   void accessManager(TAccessManager value) @property {
     accessManager_ = value;
   }
@@ -518,6 +516,15 @@ protected:
     assert(result.length < size);
   } body {
     return "";
+  }
+
+  /**
+   * Notifies OpenSSL to use getPassword() instead of the default password
+   * callback with getPassword().
+   */
+  void overrideDefaultPasswordCallback() {
+    SSL_CTX_set_default_passwd_cb(ctx_.get(), &passwordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(ctx_.get(), cast(void*)this);
   }
 
   SSLContext ctx_;
@@ -682,6 +689,11 @@ class TAccessManager {
   }
 }
 
+
+/**
+ * Default access manager implementation, which just checks the host name
+ * of the connection against the certificate.
+ */
 class TDefaultClientAccessManager : TAccessManager {
   override Decision verify(InternetAddress sa) {
     return Decision.SKIP;
@@ -716,7 +728,7 @@ private {
    */
   bool matchName(const(char)[] host, const(char)[] pattern) {
     while (!host.empty && !pattern.empty) {
-      if (toupper(pattern.front) == toupper(host.front)) {
+      if (toUpper(pattern.front) == toUpper(host.front)) {
         host.popFront;
         pattern.popFront;
       } else if (pattern.front == '*') {
@@ -740,7 +752,11 @@ private {
   }
 }
 
+/**
+ * SSL-level exception.
+ */
 class TSSLException : TTransportException {
+  ///
   this(string msg, string file = __FILE__, size_t line = __LINE__,
     Throwable next = null)
   {

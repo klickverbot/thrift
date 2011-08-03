@@ -37,6 +37,7 @@ import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
+import test_utils;
 
 import thrift_test_common;
 import thrift.test.ThriftTest;
@@ -56,7 +57,7 @@ TProtocol createProtocol(T)(T trans, ProtocolType type) {
 void main(string[] args) {
   string host = "localhost";
   ushort port = 9090;
-  int numTests = 1;
+  uint numTests = 1;
   bool ssl;
   ProtocolType protocolType;
   TransportType transportType;
@@ -101,6 +102,9 @@ void main(string[] args) {
       protocol = createProtocol(
         new TClientHttpTransport(socket, host, "/service"), protocolType);
       break;
+    case TransportType.raw:
+      protocol = createProtocol(socket, protocolType);
+      break;
   }
 
   auto client = createTClient!ThriftTest(protocol);
@@ -114,7 +118,7 @@ void main(string[] args) {
     sw.start();
 
     try {
-      protocol.getTransport().open();
+      protocol.transport.open();
     } catch (TTransportException ttx) {
       writef("Connect failed: %s", ttx.msg);
       if (ttx.next !is null) {
@@ -352,7 +356,7 @@ void main(string[] args) {
     if (tot > time_max) {
       time_max = tot;
     }
-    protocol.getTransport().close();
+    protocol.transport.close();
 
     sw.reset();
   }

@@ -16,6 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
+/**
+ * Transports for reading from/writing to Thrift »log files«.
+ *
+ * These transports are not »stupid« sources and sinks just reading and
+ * writing bytes from a file verbatim, but organize the contents in the form
+ * of so-called »events«, which refers to the data written between two flush()
+ * calls.
+ *
+ * Chunking is supported, events are guaranteed to never span chunk boundaries.
+ * As a consequence, an event can never be larger than the chunk size. The
+ * chunk size used is not saved with the file, so care has to be taken to make
+ * sure the same chunk size is used for reading and writing.
+ */
 module thrift.transport.file;
 
 import core.thread : Thread;
@@ -23,7 +37,7 @@ import std.array : empty;
 import std.algorithm : min;
 import std.concurrency;
 import std.conv : to;
-import std.datetime : AutoStart, dur, Clock, Duration, StopWatch;
+import std.datetime : AutoStart, dur, Duration, StopWatch;
 import std.exception;
 import std.stdio : stderr, File; // No proper error logging yet.
 import thrift.transport.base;
@@ -40,8 +54,8 @@ version (BigEndian) {
 }
 
 /**
- * A transport used to write files. It can never be read from, calling read()
- * throws.
+ * A transport used to read log files. It can never be written to, calling
+ * write() throws.
  *
  * Contrary to the C++ design, explicitly opening the transport/file before
  * using is necessary to allow manually closing the file without relying on the
@@ -96,12 +110,17 @@ final class TFileReaderTransport : TBaseTransport {
   }
 
   override void close() {
+    if (!isOpen) return;
+
     file_.close();
     isOpen_ = false;
     readState_.resetAllValues();
   }
 
   override size_t read(ubyte[] buf) {
+    enforce(isOpen, new TTransportException(
+      "Cannot read if file is not open.", TTransportException.Type.NOT_OPEN));
+
     // If there is no event currently processed, try fetching one from the
     // file.
     if (!currentEvent_) {
@@ -113,16 +132,20 @@ final class TFileReaderTransport : TBaseTransport {
       }
     }
 
-    // read as much of the current event as possible
     auto len = buf.length;
     auto remaining = currentEvent_.length - currentEventPos_;
+
     if (remaining <= len) {
+      // If less than the requested length is available, read as much as
+      // possible.
       buf[0 .. remaining] = currentEvent_[currentEventPos_ .. $];
       currentEvent_ = null;
+      currentEventPos_ = 0;
       return remaining;
     }
 
-    // read as much as possible
+    // There will still be data left in the buffer after reading, pass out len
+    // bytes.
     buf[] = currentEvent_[currentEventPos_ .. currentEventPos_ + len];
     currentEventPos_ += len;
     return len;
@@ -245,7 +268,7 @@ final class TFileReaderTransport : TBaseTransport {
   /// ditto
   enum DEFAULT_READ_TIMEOUT = dur!"msecs"(500);
 
-  /*
+  /**
    * Read buffer size, in bytes.
    *
    * Defaults to 1 MiB.
@@ -336,6 +359,10 @@ private:
         offset_ += readState_.bufferLen_;
 
         try {
+          // Need to clear eof flag before reading, otherwise tailing a file
+          // does not work.
+          file_.clearerr();
+
           auto usedBuf = file_.rawRead(readBuffer_);
           readState_.bufferLen_ = usedBuf.length;
         } catch (Exception e) {
@@ -493,6 +520,7 @@ private:
         // successful point and punt on the error.
         readState_.resetState(readState_.lastDispatchPos_);
         currentEvent_ = null;
+        currentEventPos_ = 0;
 
         throw new TTransportException("File corrupted at offset: " ~
           to!string(offset_ + readState_.lastDispatchPos_),
@@ -554,8 +582,8 @@ private:
 }
 
 /**
- * A transport used to write files. It can never be read from, calling read()
- * throws.
+ * A transport used to write log files. It can never be read from, calling
+ * read() throws.
  *
  * Contrary to the C++ design, explicitly opening the transport/file before
  * using is necessary to allow manually closing the file without relying on the
@@ -609,6 +637,8 @@ final class TFileWriterTransport : TBaseTransport {
    * Closes the transport, i.e. the underlying file and the writer thread.
    */
   override void close() {
+    if (!isOpen) return;
+
     prioritySend(writerThread_, ShutdownMessage()); // FIXME: Should use normal send here.
     receive((ShutdownMessage msg, Tid tid){});
     isOpen_ = false;
@@ -625,7 +655,8 @@ final class TFileWriterTransport : TBaseTransport {
    */
   override void write(in ubyte[] buf) {
     enforce(isOpen, new TTransportException(
-      "Cannot write to non-open transport.", TTransportException.Type.NOT_OPEN));
+      "Cannot write to non-open file.", TTransportException.Type.NOT_OPEN));
+
     if (buf.empty) {
       stderr.writeln("TFileWriterTransport: Cannot write empty event, skipping.");
       return;
@@ -647,6 +678,9 @@ final class TFileWriterTransport : TBaseTransport {
    * Throws: TTransportException if an error occurs.
    */
   override void flush() {
+    enforce(isOpen, new TTransportException(
+      "Cannot flush file if not open.", TTransportException.Type.NOT_OPEN));
+
     send(writerThread_, FlushMessage());
     receive((FlushMessage msg, Tid tid){});
   }
@@ -885,12 +919,23 @@ private {
 
       if (hasIOError) continue;
 
-      if (forceFlush || shutdownRequested ||
-        cast(Duration)flushTimer.peek > maxFlushInterval ||
-        unflushedByteCount > maxFlushBytes
-      ) {
+      bool flush;
+      if (forceFlush || shutdownRequested || unflushedByteCount > maxFlushBytes) {
+        flush = true;
+      } else if (cast(Duration)flushTimer.peek > maxFlushInterval) {
+        if (unflushedByteCount == 0) {
+          // If the flush timer is due, but no data has been written, don't
+          // needlessly fsync, but do reset the timer.
+          flushTimer.reset();
+        } else {
+          flush = true;
+        }
+      }
+
+      if (flush) {
         file.flush();
         flushTimer.reset();
+        unflushedByteCount = 0;
         if (forceFlush) send(owner, FlushMessage(), thisTid());
       }
     }

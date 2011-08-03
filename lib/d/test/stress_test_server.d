@@ -20,15 +20,16 @@ module stress_test_server;
 
 import std.getopt;
 import std.stdio;
+import std.typetuple;
 import thrift.codegen;
 import thrift.hashset;
 import thrift.protocol.binary;
 import thrift.server.base;
-import thrift.server.simple;
-import thrift.server.threaded;
 import thrift.server.transport.socket;
 import thrift.transport.buffered;
+import thrift.transport.memory;
 import thrift.transport.socket;
+import test_utils;
 
 import thrift.test.stress.Service;
 
@@ -50,35 +51,28 @@ class ServiceHandler : public Service {
   }
 }
 
-enum ServerType {
-  simple,
-  threaded
-}
-
 void main(string[] args) {
   ushort port = 9091;
+  size_t taskPoolSize = totalCPUs;
   auto serverType = ServerType.threaded;
+  TransportType transportType;
 
-  getopt(args, "port", &port, "server-type", &serverType);
+  getopt(args, "port", &port, "server-type", &serverType,
+    "transport-type", &transportType, "task-pool-size", &taskPoolSize);
 
-  auto processor = new TServiceProcessor!Service(new ServiceHandler());
+  alias TypeTuple!(TBufferedTransport, TMemoryBuffer) AvailableTransports;
+
+  auto processor = new TServiceProcessor!(Service,
+    staticMap!(TBinaryProtocol, AvailableTransports))(new ServiceHandler());
   auto serverSocket = new TServerSocket(port);
-  auto transportFactory = new TBufferedTransportFactory;
-  auto protocolFactory = new TBinaryProtocolFactory!TBufferedTransport;
+  auto transportFactory = createTransportFactory(transportType);
+  auto protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
 
-  TServer server;
-  final switch (serverType) {
-    case ServerType.simple:
-      server = new TSimpleServer(processor, serverSocket,
-        transportFactory, protocolFactory);
-      break;
-    case ServerType.threaded:
-      server = new TThreadedServer(processor, serverSocket,
-        transportFactory, protocolFactory);
-      break;
-  }
+  auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
+    transportFactory, protocolFactory);
 
-  writefln("Starting %s server on port %s...", serverType, port);
+  writefln("Starting %s %s StressTest server on port %s...", transportType,
+    serverType, port);
   server.serve();
   writeln("done.");
 }

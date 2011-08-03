@@ -47,16 +47,22 @@ $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 
 # The actual test targets.
 
-targets = serialization_benchmark stress_test_server \
-	thrift_test_client thrift_test_server
+targets = async_test_client async_test_server serialization_benchmark \
+	stress_test_server thrift_test_client thrift_test_server transport_test
+
+async_test_client async_test_server: %: %.d async_test_common.d
+	$(DMD) $(d_test_flags) -of$@ $^
 
 serialization_benchmark: %: %.d $(debug_proto_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
-stress_test_server: %: %.d $(stress_test_gen)
+stress_test_server: %: %.d test_utils.d $(stress_test_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
-thrift_test_client thrift_test_server: %: %.d thrift_test_common.d $(thrift_test_gen)
+thrift_test_client thrift_test_server: %: %.d thrift_test_common.d test_utils.d $(thrift_test_gen)
+	$(DMD) $(d_test_flags) -of$@ $^
+
+transport_test: %: %.d
 	$(DMD) $(d_test_flags) -of$@ $^
 
 check-local: $(targets)

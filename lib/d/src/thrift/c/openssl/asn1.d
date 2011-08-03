@@ -1,9 +1,9 @@
-module thrift.util.openssl.asn1;
+module thrift.c.openssl.asn1;
 
-import thrift.util.openssl.loader;
+import thrift.c.openssl.loader;
 
 shared static this() {
-  bindFunctions!(thrift.util.openssl.asn1)();
+  bindFunctions!(thrift.c.openssl.asn1)();
 }
 
 __gshared:
