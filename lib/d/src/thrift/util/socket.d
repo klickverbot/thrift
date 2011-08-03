@@ -44,7 +44,8 @@ version (Win32) {
   enum WSAENOTCONN = 10057;
   enum WSAETIMEDOUT = 10060;
 } else {
-  import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINPROGRESS, EINTR;
+  import core.stdc.errno : getErrno, EAGAIN, ECONNRESET, EINPROGRESS, EINTR,
+    ENOTCONN, EPIPE;
   import core.stdc.string : strerror;
 }
 
@@ -54,13 +55,17 @@ version (Win32) {
  * INTERRUPTED_ERRNO: set when blocking system calls are interrupted by
  *   signals or similar.
  * TIMEOUT_ERRNO: set when a socket timeout has been exceeded.
+ * WOULD_BLOCK_ERRNO: set when send/recv would block on non-blocking sockets.
+ *
+ * isSocetCloseErrno(errno): returns true if errno indicates that the socket
+ *   is logically in closed state now.
  */
 version (Win32) {
   alias WSAGetLastError getSocketErrno;
   enum CONNECT_INPROGRESS_ERRNO = WSAEWOULDBLOCK;
   enum INTERRUPTED_ERRNO = WSAEINTR;
-  enum WOULD_BLOCK_ERRNO = WSAEWOULDBLOCK;
   enum TIMEOUT_ERRNO = WSAETIMEDOUT;
+  enum WOULD_BLOCK_ERRNO = WSAEWOULDBLOCK;
 
   bool isSocketCloseErrno(typeof(getSocketErrno()) errno) {
     return (errno == WSAECONNRESET || errno == WSAENOTCONN);
