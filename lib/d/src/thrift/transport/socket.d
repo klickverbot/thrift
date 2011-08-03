@@ -24,7 +24,7 @@ import std.array : empty;
 import std.conv : text, to;
 import std.exception : enforce;
 import std.socket;
-import std.stdio : stderr; // No proper logging support yet.
+import thrift.base;
 import thrift.transport.base;
 import thrift.util.socket;
 
@@ -180,7 +180,7 @@ protected:
       alias SocketOptionLevel.SOCKET lvlSock;
       socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
     } catch (SocketException e) {
-      stderr.writefln("Could not set socket option: %s", e);
+      logError("Could not set socket option: %s", e);
     }
 
     // Just try to disable Nagle's algorithm – this will fail if we are passed
@@ -315,7 +315,11 @@ class TSocket : TSocketBase {
       break;
     }
 
-    if (lastErrno == TIMEOUT_ERRNO) {
+    if (isSocketCloseErrno(lastErrno)) {
+      close();
+      throw new TTransportException("Receiving failed, closing socket: " ~
+        socketErrnoString(lastErrno), TTransportException.Type.NOT_OPEN);
+    } else if (lastErrno == TIMEOUT_ERRNO) {
       throw new TTransportException(TTransportException.Type.TIMED_OUT);
     } else {
       throw new TTransportException("Receiving from socket failed: " ~
@@ -411,7 +415,7 @@ private:
     assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
     version (Win32) {
       if (value > dur!"hnsecs"(0) && value < dur!"msecs"(500)) {
-        stderr.writefln(
+        logError(
           "Socket %s timeout of %s ms might be raised to 500 ms on Windows.",
           (type == SocketOption.SNDTIMEO) ? "send" : "receive",
           value.total!"msecs"

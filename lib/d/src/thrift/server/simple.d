@@ -18,10 +18,6 @@
  */
 module thrift.server.simple;
 
-// stderr is used for error messages until something more sophisticated is
-// implemented.
-import std.stdio : stderr;
-
 import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;
@@ -63,7 +59,7 @@ class TSimpleServer : TServer {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writefln("TSimpleServer: listen() failed: %s", ttx);
+      logError("listen() failed: %s", ttx);
       return;
     }
 
@@ -90,18 +86,16 @@ class TSimpleServer : TServer {
 
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
-      }   catch (TTransportException ttx) {
-          if (!stop_) stderr.writefln(
-            "TSimpleServer: TServerTransport died on accept: %s", ttx);
-          continue;
-        } catch (TException tx) {
-          stderr.writefln("TSimpleServer: Caught TException on accept: %s", tx);
-          continue;
-        } catch (Exception e) {
-          stderr.writefln(
-            "TSimpleServer: Unknown exception on accept, stopping: %s", e);
-          break;
-        }
+      } catch (TTransportException ttx) {
+        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
+        continue;
+      } catch (TException tx) {
+        logError("Caught TException on accept: %s", tx);
+        continue;
+      } catch (Exception e) {
+        logError("Unknown exception on accept, stopping: %s", e);
+        break;
+      }
 
       Variant connectionContext;
       if (eventHandler) {
@@ -124,9 +118,9 @@ class TSimpleServer : TServer {
           }
         }
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer: Client died: %s", ttx);
+        logError("Client died: %s", ttx);
       } catch (Exception e) {
-        stderr.writefln("TSimpleServer: Uncaught exception: %s", e);
+        logError("Uncaught exception: %s", e);
       }
 
       if (eventHandler) {
@@ -137,17 +131,17 @@ class TSimpleServer : TServer {
       try {
         inputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer: Input close failed: %s", ttx);
+        logError("Input close failed: %s", ttx);
       }
       try {
         outputTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer: Output close failed: %s", ttx);
+        logError("Output close failed: %s", ttx);
       }
       try {
         client.close();
       } catch (TTransportException ttx) {
-        stderr.writefln("TSimpleServer: Client close failed: %s", ttx);
+        logError("Client close failed: %s", ttx);
       }
     }
 
@@ -155,8 +149,7 @@ class TSimpleServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln(
-          "TSimpleServer: TServerTransport failed on close: %s", ttx);
+        logError("TServerTransport failed on close: %s", ttx);
       }
       stop_ = false;
     }

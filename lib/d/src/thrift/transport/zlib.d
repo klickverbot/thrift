@@ -25,7 +25,7 @@ import std.algorithm : min;
 import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;
-import std.stdio : stderr; // No proper logging support yet.
+import thrift.base;
 import thrift.transport.base;
 
 /**
@@ -323,7 +323,7 @@ private:
 
   static void zlibLogError(int status, z_stream* stream) {
     if (status != Z_OK) {
-      stderr.writeln("TZlibTransport: zlib failure in destructor: " ~
+      logError("TZlibTransport: zlib failure in destructor: %s",
         TZlibException.errorMessage(status, stream.msg));
     }
   }

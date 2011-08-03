@@ -18,10 +18,6 @@
  */
 module thrift.server.taskpool;
 
-// stderr is used for error messages until something more sophisticated is
-// implemented.
-import std.stdio : stderr;
-
 import core.sync.condition;
 import core.sync.mutex;
 import std.exception : enforce;
@@ -71,7 +67,7 @@ class TTaskPoolServer : TServer {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writefln("TTaskPoolServer: listen() failed: %s", ttx);
+      logError("listen() failed: %s", ttx);
       return;
     }
 
@@ -103,15 +99,13 @@ class TTaskPoolServer : TServer {
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
       } catch (TTransportException ttx) {
-        if (!stop_) stderr.writefln(
-          "TTaskPoolServer: TServerTransport died on accept: %s", ttx);
+        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
         continue;
       } catch (TException tx) {
-        stderr.writefln("TTaskPoolServer: Caught TException on accept: %s", tx);
+        logError("Caught TException on accept: %s", tx);
         continue;
       } catch (Exception e) {
-        stderr.writefln(
-          "TTaskPoolServer: Unknown exception on accept, stopping: %s", e);
+        logError("Unknown exception on accept, stopping: %s", e);
         break;
       }
 
@@ -127,8 +121,7 @@ class TTaskPoolServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln(
-          "TTaskPoolServer: TServerTransport failed on close: %s", ttx);
+        logError("TServerTransport failed on close: %s", ttx);
       }
 
       // Then, wait until all active connections are finished.
@@ -238,9 +231,9 @@ protected:
         }
       }
     } catch (TTransportException ttx) {
-      stderr.writefln("TTaskPoolServer: Client died: %s", ttx);
+      logError("Client died: %s", ttx);
     } catch (Exception e) {
-      stderr.writefln("TTaskPoolServer: Uncaught exception: %s", e);
+      logError("Uncaught exception: %s", e);
     }
 
     if (eventHandler) {
@@ -251,17 +244,17 @@ protected:
     try {
       inputProtocol.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TTaskPoolServer: Input close failed: %s", ttx);
+      logError("Input close failed: %s", ttx);
     }
     try {
       outputProtocol.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TTaskPoolServer: Output close failed: %s", ttx);
+      logError("Output close failed: %s", ttx);
     }
     try {
       client.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TTaskPoolServer: Client close failed: %s", ttx);
+      logError("Client close failed: %s", ttx);
     }
   }
 // }

@@ -23,7 +23,6 @@ import std.array;
 import std.base64;
 import std.conv;
 import std.range;
-import std.stdio;
 import std.string : format;
 import std.traits : isIntegral;
 import std.typetuple : allSatisfy, TypeTuple;

@@ -39,7 +39,8 @@ import std.concurrency;
 import std.conv : to;
 import std.datetime : AutoStart, dur, Duration, StopWatch;
 import std.exception;
-import std.stdio : stderr, File; // No proper error logging yet.
+import std.stdio : File;
+import thrift.base;
 import thrift.transport.base;
 
 /// The default chunk size, in bytes.
@@ -186,7 +187,7 @@ final class TFileReaderTransport : TBaseTransport {
     }
 
     if (chunk < 0) {
-      stderr.writefln("Incorrect chunk number for reverse seek, seeking to " ~
+      logError("Incorrect chunk number for reverse seek, seeking to " ~
        "beginning instead: %s", chunk);
       chunk = 0;
     }
@@ -194,7 +195,7 @@ final class TFileReaderTransport : TBaseTransport {
     bool seekToEnd;
     long minEndOffset;
     if (chunk >= numChunks) {
-      stderr.writefln("Trying to seek to non-existing chunk, seeking to " ~
+      logError("Trying to seek to non-existing chunk, seeking to " ~
        "end of file instead: %s", chunk);
       seekToEnd = true;
       chunk = numChunks - 1;
@@ -463,24 +464,22 @@ private:
   }
 
   bool isEventCorrupted() {
-    // an error is triggered if:
     if ((maxEventSize_ > 0) && (readState_.eventLen_ > maxEventSize_)) {
-      // 1. Event size is larger than user-speficied max-event size
-      stderr.writefln("Read corrupt event. Event size(%s) greater than max " ~
+      // Event size is larger than user-speficied max-event size
+      logError("Corrupt event read: Event size (%s) greater than max " ~
         "event size (%s)", readState_.eventLen_, maxEventSize_);
       return true;
     } else if (readState_.eventLen_ > chunkSize_) {
-      // 2. Event size is larger than chunk size
-      stderr.writefln("Read corrupt event. Event size(%s) greater than " ~
-        "chunk size (%s)", readState_.eventLen_, chunkSize_);
+      // Event size is larger than chunk size
+      logError("Corrupt event read: Event size (%s) greater than chunk " ~
+        "size (%s)", readState_.eventLen_, chunkSize_);
       return true;
     } else if (((offset_ + readState_.bufferPos_ - EventSize.sizeof) / chunkSize_) !=
       ((offset_ + readState_.bufferPos_ + readState_.eventLen_ - EventSize.sizeof) / chunkSize_))
     {
-      // 3. size indicates that event crosses chunk boundary
-      stderr.writefln("Read corrupt event. Event crosses chunk boundary. " ~
-        "Event size: %s. Offset: %s",
-        readState_.eventLen_,
+      // Size indicates that event crosses chunk boundary
+      logError("Read corrupt event. Event crosses chunk boundary. " ~
+        "Event size: %s. Offset: %s", readState_.eventLen_,
         (offset_ + readState_.bufferPos_ + EventSize.sizeof)
       );
 
@@ -658,7 +657,7 @@ final class TFileWriterTransport : TBaseTransport {
       "Cannot write to non-open file.", TTransportException.Type.NOT_OPEN));
 
     if (buf.empty) {
-      stderr.writeln("TFileWriterTransport: Cannot write empty event, skipping.");
+      logError("Cannot write empty event, skipping.");
       return;
     }
 
@@ -832,8 +831,7 @@ private {
       file = File(path, "ab");
       offset = file.tell();
     } catch (Exception e) {
-      stderr.writeln("TFileWriterTransport: Error on opening output file " ~
-        "in writer thread: %s", e);
+      logError("Error on opening output file in writer thread: %s", e);
       hasIOError = true;
     }
 
@@ -848,10 +846,8 @@ private {
       receiveTimeout(maxFlushInterval - flushTimer.peek,
         (immutable(ubyte)[] data) {
           while (hasIOError) {
-            stderr.writefln("TFileWriterTransport: Writer thread going to " ~
-              "sleep for %s µs due to IO errors",
-              ioErrorSleepDuration.fracSec.usecs
-            );
+            logError("Writer thread going to sleep for %s µs due to IO errors",
+              ioErrorSleepDuration.fracSec.usecs);
 
             // Sleep for ioErrorSleepDuration, being ready to be interrupted
             // by shutdown requests.
@@ -868,11 +864,11 @@ private {
               file = File(path, "ab");
               unflushedByteCount = 0;
               hasIOError = false;
-              stderr.writefln("TFileWriterTransport: Output file %s reopened " ~
-                "during writer thread error recovery", path);
+              logError("Output file %s reopened during writer thread error " ~
+                "recovery", path);
             } catch (Exception e) {
-              stderr.writefln("TFileWriterTransport: Unable to reopen output " ~
-                "file %s during writer thread error recovery", path);
+              logError("Unable to reopen output file %s during writer " ~
+                "thread error recovery", path);
             }
           }
 

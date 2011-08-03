@@ -28,7 +28,6 @@ import std.array : empty, front, popFront;
 import std.conv : text, to;
 import std.exception : enforce;
 import std.socket : Socket, socketPair;
-import std.stdio : stderr;
 import thrift.base;
 import thrift.async.base;
 import thrift.c.event.event;
@@ -151,8 +150,7 @@ private:
       if (bytesRead < 0) {
         auto errno = getSocketErrno();
         if (errno != WOULD_BLOCK_ERRNO) {
-          stderr.writefln("TLibeventAsyncManager.receiveWork(): read " ~
-            "failed, some work item will never be executed: %s",
+          logError("read failed, some work item will never be executed: %s",
             socketErrnoString(errno));
         }
       }
@@ -179,9 +177,8 @@ private:
     // If the last read was successful, but didn't read enough bytes, we got
     // a problem.
     if (bytesRead > 0) {
-      stderr.writefln("TLibeventAsyncManager.receiveWork(): Unexpected " ~
-        "partial read (%s bytes instead of %s), some work item will never" ~
-        "be executed.", bytesRead, workItem.sizeof);
+      logError("Unexpected partial read (%s bytes instead of %s), some " ~
+        "work item will never be executed.", bytesRead, workItem.sizeof);
     }
   }
 

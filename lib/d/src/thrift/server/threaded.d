@@ -18,10 +18,6 @@
  */
 module thrift.server.threaded;
 
-// stderr is used for error messages until something more sophisticated is
-// implemented.
-import std.stdio : stderr;
-
 import core.thread;
 import thrift.base;
 import thrift.protocol.base;
@@ -66,7 +62,7 @@ class TThreadedServer : TServer {
       // Start the server listening
       serverTransport.listen();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer listen() failed: %s", ttx);
+      logError("listen() failed: %s", ttx);
       return;
     }
 
@@ -89,15 +85,13 @@ class TThreadedServer : TServer {
         inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
         outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
       } catch (TTransportException ttx) {
-        if (!stop_) stderr.writefln(
-          "TThreadedServer: TServerTransport died on accept: %s", ttx);
+        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
         continue;
       } catch (TException tx) {
-        stderr.writefln("TThreadedServer: Caught TException on accept: %s", tx);
+        logError("Caught TException on accept: %s", tx);
         continue;
       } catch (Exception e) {
-        stderr.writefln(
-          "TThreadedServer: Unknown exception on accept, stopping: %s", e);
+        logError("Unknown exception on accept, stopping: %s", e);
         break;
       }
 
@@ -111,8 +105,7 @@ class TThreadedServer : TServer {
       try {
         serverTransport.close();
       } catch (TTransportException ttx) {
-        stderr.writefln(
-          "TThreadedServer: TServerTransport failed on close: %s", ttx);
+        logError("TServerTransport failed on close: %s", ttx);
       }
       workerThreads.joinAll();
       stop_ = false;
@@ -164,9 +157,9 @@ private class WorkerThread : Thread {
         }
       }
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer: Client died: %s", ttx);
+      logError("Client died: %s", ttx);
     } catch (Exception e) {
-      stderr.writefln("TThreadedServer: Uncaught exception: %s", e);
+      logError("Uncaught exception: %s", e);
     }
 
     if (eventHandler_) {
@@ -177,17 +170,17 @@ private class WorkerThread : Thread {
     try {
       inputProtocol_.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer: Input close failed: %s", ttx);
+      logError("Input close failed: %s", ttx);
     }
     try {
       outputProtocol_.transport.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer: Output close failed: %s", ttx);
+      logError("Output close failed: %s", ttx);
     }
     try {
       client_.close();
     } catch (TTransportException ttx) {
-      stderr.writefln("TThreadedServer: Client close failed: %s", ttx);
+      logError("Client close failed: %s", ttx);
     }
   }
 

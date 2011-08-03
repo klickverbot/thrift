@@ -24,11 +24,12 @@ import core.stdc.string : strerror;
 import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;
-import std.stdio : stderr; // No proper logging support yet.
 import std.socket;
+import thrift.base;
 import thrift.server.transport.base;
 import thrift.transport.base;
 import thrift.transport.socket;
+import thrift.util.socket;
 
 /**
  * Server socket implementation of TServerTransport.
@@ -159,12 +160,11 @@ protected:
           try {
             auto result = intRecvSocket_.receive(buf);
             if (result == Socket.ERROR) {
-              stderr.writefln("TServerSocket.acceptImpl(): Error receiving " ~
-                "interrupt message: %s", strerror(errno));
+              logError("Error receiving interrupt message: %s",
+                socketErrnoString(getSocketErrno()));
             }
           } catch (SocketException e) {
-            stderr.writefln("TServerSocket.acceptImpl(): Error receiving " ~
-              "interrupt message: %s", e);
+            logError("Error receiving interrupt message: %s", e);
           }
           throw new TTransportException(TTransportException.Type.INTERRUPTED);
         }
@@ -260,8 +260,7 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   // Set TCP_NODELAY. Do not fail hard as root privileges might be required
   // on Linux to set the option.
   try {
-    socket.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY,
-      true);
+    socket.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
   } catch (SocketException e) {
     throw new TTransportException("Could not disable Nagle's algorithm: " ~
       to!string(e), TTransportException.Type.NOT_OPEN);
@@ -335,6 +334,7 @@ unittest {
         if (e.type == TTransportException.Type.TIMED_OUT) {
           hasTimedOut = true;
         } else {
+          import std.stdio;
           stderr.writeln(e);
         }
       }

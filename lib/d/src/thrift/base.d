@@ -31,3 +31,73 @@ class TException : Exception {
 }
 
 enum VERSION = "0.7.0 dev";
+
+/**
+ * Thrift-internal logging functions.
+ *
+ * By default, the formatted messages are written to stdout/stderr, but this
+ * behavior can be overwritten by providing custom g_{Info, Error}LogSink
+ * handlers.
+ *
+ * Examples:
+ * ---
+ * logInfo("An informative message.")
+ * logError("Some error occured: %s", e);
+ * ---
+ */
+alias logFormatted!g_infoLogSink logInfo;
+alias logFormatted!g_errorLogSink logError; /// Ditto
+
+/**
+ * Error and info log message sinks.
+ *
+ * These delegates are called with the log message passed as const(char)[]
+ * argument, and can be overwritten to hook the Thrift libraries up with a
+ * custom logging system. By default, they forward all output to stdout/stderr.
+ */
+__gshared void delegate(const(char)[]) g_infoLogSink;
+__gshared void delegate(const(char)[]) g_errorLogSink; /// Ditto
+
+shared static this() {
+  import std.stdio;
+
+  g_infoLogSink = (const(char)[] text) {
+    stdout.writeln(text);
+  };
+
+  g_errorLogSink = (const(char)[] text) {
+    stderr.writeln(text);
+  };
+}
+
+// This should be private, if it could still be used through the aliases then.
+template logFormatted(alias target) {
+  void logFormatted(string file = __FILE__, int line = __LINE__,
+    T...)(string format, T args) if (
+    __traits(compiles, { target(""); })
+  ) {
+    import std.format, std.stdio;
+    if (target !is null) {
+      scope(exit) g_formatBuffer.clear();
+
+      // Phobos @@BUG@@: If the empty string put() is removed, Appender.data
+      // stays empty.
+      g_formatBuffer.put("");
+
+      formattedWrite(g_formatBuffer, "%s:%s: ", file, line);
+
+      static if (T.length == 0) {
+        g_formatBuffer.put(format);
+      } else {
+        formattedWrite(g_formatBuffer, format, args);
+      }
+      target(g_formatBuffer.data);
+    }
+  }
+}
+
+private {
+  // Use a global, but thread-local buffer for constructing log messages.
+  import std.array : Appender;
+  Appender!(char[]) g_formatBuffer;
+}

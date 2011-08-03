@@ -41,7 +41,6 @@ import core.time : Duration, dur;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
 import std.socket;
-import std.stdio : stdout, stderr; // No proper logging support yet.
 import thrift.base;
 import thrift.c.event.event;
 import thrift.c.event.event_compat;
@@ -137,12 +136,11 @@ class TNonblockingServer : TServer {
     listenSocket_.blocking = false;
 
     // Log the libevent version and backend and the size of the task pool used.
-    stdout.writefln("TNonblockingServer: libevent version %s, using method %s",
+    logInfo("libevent version %s, using method %s.",
       to!string(event_get_version()), to!string(event_base_get_method(eventBase_)));
 
     if (taskPool_) {
-      stdout.writefln("TNonblockingServer: Using task pool with size: %s",
-        taskPool_.size);
+      logInfo("Using task pool with size: %s.", taskPool_.size);
     }
 
     // Register the event for the listening socket.
@@ -330,8 +328,7 @@ private:
         clientSocket = listenSocket_.accept();
       } catch (SocketAcceptException e) {
         if (e.errorCode != WOULD_BLOCK_ERRNO) {
-          stderr.writefln("TNonblockingServer.handleEvent(): Error " ~
-            "accepting connection: %s", e);
+          logError("Error accepting connection: %s", e);
         }
         break;
       }
@@ -350,8 +347,7 @@ private:
       try {
         clientSocket.blocking = false;
       } catch (SocketException e) {
-        stderr.writefln("TNonblockingServer.handleEvent(): Couldn't set " ~
-          "client socket to non-blocking mode: %s", e);
+        logError("Couldn't set client socket to non-blocking mode: %s", e);
         clientSocket.close();
         return;
       }
@@ -390,16 +386,16 @@ private:
     if (numActiveProcessors_ > maxActiveProcessors ||
         activeConnections > maxConnections) {
       if (!overloaded_) {
-        stdout.writeln("TNonblockingServer: Entering overloaded state.");
+        logInfo("Entering overloaded state.");
         overloaded_ = true;
       }
     } else {
       if (overloaded_ &&
-          (numActiveProcessors_ <= overloadHysteresis_ * maxActiveProcessors) &&
-          (activeConnections <= overloadHysteresis_ * maxConnections)) {
-        stdout.writefln("TNonblockingServer: Exiting overloaded state, %s " ~
-          "connections dropped (% total).", nConnectionsDropped_,
-          nTotalConnectionsDropped_);
+        (numActiveProcessors_ <= overloadHysteresis_ * maxActiveProcessors) &&
+        (activeConnections <= overloadHysteresis_ * maxConnections))
+      {
+        logInfo("Exiting overloaded state, %s connection(s) dropped (% total).",
+          nConnectionsDropped_, nTotalConnectionsDropped_);
         nConnectionsDropped_ = 0;
         overloaded_ = false;
       }
@@ -436,10 +432,9 @@ private:
       if (bytesRead < 0) {
         auto errno = getSocketErrno();
 
-        // TODO: Windows.
         if (errno != WOULD_BLOCK_ERRNO) {
-          stderr.writefln("TNonblockingServer.taskCompletionCallback(): read " ~
-            "failed, resources will be leaked: %s", socketErrnoString(errno));
+          logError("Reading from completion socket failed, some connection " ~
+            "will never be properly terminated: %s", socketErrnoString(errno));
         }
       }
 
@@ -449,9 +444,8 @@ private:
     }
 
     if (bytesRead > 0) {
-      stderr.writefln("TNonblockingServer.taskCompletionCallback(): " ~
-        "Unexpected partial read (%s bytes instead of %s)",
-        bytesRead, Connection.sizeof);
+      logError("Unexpected partial read from completion socket " ~
+        "(%s bytes instead of %s).", bytesRead, Connection.sizeof);
     }
   }
 
@@ -815,8 +809,8 @@ private {
         server_.completionSendSocket_.send(cast(ubyte[])((&this)[0 .. 1]));
 
       if (bytesSent != Connection.sizeof) {
-        stderr.writeln(
-          "TNonblockingServer: Sending completion notification failed.");
+        logError("Sending completion notification failed, connection will " ~
+          "not be properly terminated.");
       }
     }
 
@@ -844,8 +838,7 @@ private {
 
             readBufferPos_ += bytesRead;
           } catch (TTransportException te) {
-            stderr.writefln(
-              "Connection.workSocket(): Failed to read frame size %s", te);
+            logError("Failed to read frame size from client connection: %s", te);
             close();
             return;
           }
@@ -859,8 +852,8 @@ private {
 
           auto size = netToHost(frameSize);
           if (size <= 0) {
-            stderr.writefln("Connection.workSocket(): Negative frame size " ~
-              "(%s), client not using TFramedTransport?", size);
+            logError("Negative frame size (%s), client not using " ~
+              "TFramedTransport?", size);
             close();
             return;
           }
@@ -880,9 +873,8 @@ private {
             // Read as much as possible from the socket.
             bytesRead = socket_.read(readBuffer_[readBufferPos_ .. readWant_]);
           } catch (TTransportException te) {
-            stderr.writefln("Connection.workSocket(): %s", te);
+            logError("Failed to read from client socket: %s", te);
             close();
-
             return;
           }
 
@@ -907,8 +899,7 @@ private {
 
           if (writeBufferPos_ == writeBuffer_.length) {
             // Nothing left to send – this shouldn't happen, just move on.
-            stderr.writeln("Connection.workSocket(): WARNING: In send state, " ~
-              "but no data to send.\n");
+            logInfo("WARNING: In send state, but no data to send.\n");
             transition();
             return;
           }
@@ -917,7 +908,7 @@ private {
           try {
             bytesSent = socket_.writeSome(writeBuffer_[writeBufferPos_ .. $]);
           } catch (TTransportException te) {
-            stderr.writefln("Connection.workSocket(): %s ", te);
+            logError("Failed to write to client socket: %s", te);
             close();
             return;
           }
@@ -962,7 +953,7 @@ private {
 
       // Add the event
       if (event_add(event_, null) == -1) {
-        stderr.writeln("Connection.registerEvent(): could not event_add.");
+        logError("event_add() for client socket failed.");
       }
     }
 
@@ -983,7 +974,7 @@ private {
       if (event_ && eventFlags_ != 0) {
         eventFlags_ = 0;
         if (event_del(event_) == -1) {
-          stderr.writeln("Connection.unregisterEvent(): event_del failed.");
+          logError("event_del() for client socket failed.");
           return;
         }
       }
@@ -1106,9 +1097,9 @@ void processRequest(Connection connection) {
       }
     }
   } catch (TTransportException ttx) {
-    stderr.writefln("TNonblockingServer: Client died: %s", ttx);
+    logError("Client died: %s", ttx);
   } catch (Exception e) {
-    stderr.writefln("TNonblockingServer: Uncaught exception: %s", e);
+    logError("Uncaught exception: %s", e);
   }
 
   connection.notifyServer();

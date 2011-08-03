@@ -24,7 +24,6 @@ import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;
 import std.socket;
-import std.stdio : stderr; // No proper logging support yet.
 import thrift.async.base;
 import thrift.transport.base;
 import thrift.transport.socket : TSocketBase;
