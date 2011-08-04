@@ -23,6 +23,8 @@ import core.time : Duration, dur;
 import core.exception : onOutOfMemoryError;
 import core.memory : GC;
 import core.thread : Fiber, Thread;
+import core.sync.condition;
+import core.sync.mutex;
 import core.stdc.stdlib : free, malloc;
 import std.array : empty, front, popFront;
 import std.conv : text, to;
@@ -36,7 +38,6 @@ import thrift.util.socket;
 /**
  * A TAsyncManager implementation based on libevent.
  */
-// TODO: Provide some means to shut down the socket manager worker thread.
 class TLibeventAsyncManager : TAsyncSocketManager {
   this() {
     eventBase_ = event_base_new();
@@ -51,25 +52,30 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     workReceiveEvent_ = event_new(eventBase_, workReceiveSocket_.handle,
       EV_READ | EV_PERSIST, &workReceiveCallback, cast(void*)this);
     event_add(workReceiveEvent_, null);
+
+    queuedCountMutex_ = new Mutex;
+    zeroQueuedCondition_ = new Condition(queuedCountMutex_);
   }
 
   ~this() {
+    stop(dur!"hnsecs"(0));
     event_free(workReceiveEvent_);
     event_base_free(eventBase_);
     eventBase_ = null;
   }
 
   override void execute(TAsyncWorkItem workItem) {
+    // Keep track that there is a new work item to be processed.
+    synchronized (queuedCountMutex_) {
+      ++queuedCount_;
+    }
+
     // Technically, only half barriers would be required here, but adding the
     // argument seems to trigger a DMD template argument deduction @@BUG@@.
     if (!atomicLoad(cast(shared)workerThread_)) {
       synchronized (this) {
         if (!workerThread_) {
           auto thread = new Thread({ event_base_loop(eventBase_, 0); });
-          // TODO: Once a mechanism for controlled shutting down of the worker
-          // thread has been added, no longer daemonize it to avoid crashes  during
-          // shutdown. Also, try restarting the worker thread if it crashed?
-          thread.isDaemon = true;
           thread.start();
           atomicStore(*(cast(shared)&workerThread_), cast(shared)thread);
         }
@@ -111,6 +117,40 @@ class TLibeventAsyncManager : TAsyncSocketManager {
         tv_usec: timeout.fracSec.usecs };
       addOneshotListenerImpl(socket, eventType, &tv, listener);
     }
+  }
+
+  override bool stop(Duration waitFinishTimeout = dur!"hnsecs"(-1)) {
+    bool cleanExit = true;
+
+    synchronized (this) {
+      if (workerThread_) {
+        synchronized (queuedCountMutex_) {
+          if (waitFinishTimeout > dur!"hnsecs"(0)) {
+            if (queuedCount_ > 0) {
+              zeroQueuedCondition_.wait(waitFinishTimeout);
+            }
+          } else if (waitFinishTimeout < dur!"hnsecs"(0)) {
+            synchronized (queuedCountMutex_) {
+              while (queuedCount_ > 0) zeroQueuedCondition_.wait();
+            }
+          } else {
+            // waitFinishTimeout is zero, immediately exit in all cases.
+          }
+          cleanExit = (queuedCount_ == 0);
+
+          // We are going to nuke all currently enqueued items, so set the
+          // count to zero.
+          queuedCount_ = 0;
+        }
+
+        event_base_loopbreak(eventBase_);
+        workSendSocket_.send((&TAsyncWorkItem.init)[0 .. 1]);
+        workerThread_.join();
+        atomicStore(*(cast(shared)&workerThread_), cast(shared(Thread))null);
+      }
+    }
+
+    return cleanExit;
   }
 
 private:
@@ -158,6 +198,10 @@ private:
 
       // Everything went fine, we got a brand new work item.
 
+      // If the item is empty, ignore it, it was just for waking us up to
+      // terminate.
+      if (workItem == workItem.init) continue;
+
       // Now that the work item is back in the D world, we don't need the
       // extra GC root for the context pointer anymore (see execute()).
       GC.removeRoot(workItem.work.ptr);
@@ -177,13 +221,13 @@ private:
     // If the last read was successful, but didn't read enough bytes, we got
     // a problem.
     if (bytesRead > 0) {
-      logError("Unexpected partial read (%s bytes instead of %s), some " ~
+      logError("Unexpected partial read (%s byte(s) instead of %s), some " ~
         "work item will never be executed.", bytesRead, workItem.sizeof);
     }
   }
 
   /**
-   * Executes a work item and all folliwing items waiting in the same queue.
+   * Executes a work item and all following items waiting in the same queue.
    */
   void executeWork(TAsyncWorkItem workItem) {
     (new Fiber({
@@ -191,7 +235,11 @@ private:
       while (true) {
         // Execute the actual work. It will possibly add listeners to the
         // event loop and yield away if it has to wait for blocking operations.
-        item.work();
+        try {
+          item.work();
+        } catch (Exception e) {
+          logError("Exception thrown by work item: %s", e);
+        }
 
         // Remove the item from the work queue.
         // Note: Due to the value semantics of array slices, we have to
@@ -202,6 +250,17 @@ private:
         assert(queue.front == item);
         queue.popFront();
         workQueues_[workItem.transport] = queue;
+
+        // Now that the work item is done, no longer count it as queued.
+        synchronized (queuedCountMutex_) {
+          assert(queuedCount_ > 0);
+          --queuedCount_;
+          if (queuedCount_ == 0) {
+            assert(queue.empty, "If queued count is zero, the queue for the " ~
+              "current transport should be empty as well.");
+            zeroQueuedCondition_.notifyAll();
+          }
+        }
 
         if (queue.empty) break;
 
@@ -242,7 +301,8 @@ private:
   event_base* eventBase_;
 
   /// The socket used for receiving new work items in the event loop. Paired
-  /// with workSendSocket_.
+  /// with workSendSocket_. Invalid (i.e. TAsyncWorkItem.init) items are
+  /// ignored and can be used to wake up the worker thread.
   Socket workReceiveSocket_;
   event* workReceiveEvent_;
 
@@ -256,4 +316,14 @@ private:
   // TODO: This should really be of some queue type, not an array, but
   // std.container doesn't have anything.
   TAsyncWorkItem[][TAsyncTransport] workQueues_;
+
+  /// The total number of work items not yet finished (queued and currently
+  /// excecuted).
+  uint queuedCount_;
+
+  /// Protects queuedCount_.
+  Mutex queuedCountMutex_;
+
+  /// Triggered when queuedCount_ reaches zero, protected by queuedCountMutex_.
+  Condition zeroQueuedCondition_;
 }

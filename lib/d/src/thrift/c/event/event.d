@@ -23,7 +23,7 @@ version (Posix) {
 } else static assert(false, "Don't know timeval on this platform.");
 
 version (Windows) {
-  alias ptrdiff_t evutil_socket_t;  
+  alias ptrdiff_t evutil_socket_t;
 } else {
   alias int evutil_socket_t;
 }
@@ -58,6 +58,9 @@ event_base_get_method_t event_base_get_method;
 
 alias extern(C) int function(event_base*, int) event_base_loop_t;
 event_base_loop_t event_base_loop;
+
+alias extern(C) int function(event_base*) event_base_loopbreak_t;
+event_base_loopbreak_t event_base_loopbreak;
 
 alias extern(C) int function(event_base*, evutil_socket_t, short, event_callback_fn, void*, const(timeval)*) event_base_once_t;
 event_base_once_t event_base_once;

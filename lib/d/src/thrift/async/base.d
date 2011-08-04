@@ -46,7 +46,7 @@ module thrift.async.base;
 
 import core.sync.condition;
 import core.sync.mutex;
-import core.time : Duration;
+import core.time : Duration, dur;
 import std.socket;
 import thrift.base;
 import thrift.transport.base;
@@ -65,6 +65,8 @@ import thrift.transport.base;
  * horribly wrong for example when issuing multiple RPC calls over the same
  * connection in rapid succession, so that more than one piece of client code
  * tries to write to the socket at the same time.
+ *
+ * All methods are thread-safe.
  */
 interface TAsyncManager {
   /**
@@ -73,10 +75,26 @@ interface TAsyncManager {
    * Note: The work item will likely be executed in a different thread, so make
    *   sure the code it relies on is thread-safe. An exception are the async
    *   transports themselves, to which access is serialized, as noted above.
-   *
-   * On a related note, this method itself is also thread-safe.
    */
   void execute(TAsyncWorkItem work);
+
+  /**
+   * Shuts down all background threads or other facilities that might have
+   * been started in order to execute work items. This function is typically
+   * called during program shutdown.
+   *
+   * If there are still tasks to be executed when the timeout expires, any
+   * currently executed work items will never receive any notifications
+   * for async transports managed by this instance, and queued work items will
+   * be silently dropped.
+   *
+   * Params:
+   *   waitFinishTimeout = If positive, waits for all work items to be
+   *     finished for the specified amount of time, if negative, waits for
+   *     completion without ever timing out, if zero, immediately shuts down
+   *     the background facilities.
+   */
+  bool stop(Duration waitFinishTimeout = dur!"hnsecs"(-1));
 }
 
 /**
@@ -100,6 +118,10 @@ struct TAsyncWorkItem {
   /// The task to execute. While pretty much anything could be passed in
   /// theory, it should be something which relies on the given transport
   /// in practice for the concept to make sense.
+  /// Note: Executing the task should never throw, errors should be handled
+  /// in another way. nothrow semantics are difficult to enforce in combination
+  /// with fibres though, so exceptions are typically just swallowed by
+  /// TAsyncManager implementations.
   void delegate() work;
 }
 

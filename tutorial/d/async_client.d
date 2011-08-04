@@ -18,6 +18,7 @@
  */
 module async_client;
 
+import std.exception;
 import std.stdio;
 import thrift.async.libevent;
 import thrift.async.socket;
@@ -31,6 +32,12 @@ import tutorial.tutorial_types;
 
 void main() {
   auto asyncManager = new TLibeventAsyncManager;
+  scope (exit) {
+    // If we are done, gracefully stop the async manager (and make sure it
+    // succeeds, just to be correct) to avoid hanging on appplication shutdown.
+    enforce(asyncManager.stop());
+  }
+
   auto socket = new TAsyncSocket(asyncManager, "localhost", 9090);
   auto client = new TAsyncClient!Calculator(
     socket,
