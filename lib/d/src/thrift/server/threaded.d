@@ -30,6 +30,7 @@ import thrift.transport.base;
  * A simple threaded server which spawns a new thread per connection.
  */
 class TThreadedServer : TServer {
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -39,6 +40,7 @@ class TThreadedServer : TServer {
     super(processor, serverTransport, transportFactory, protocolFactory);
   }
 
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,

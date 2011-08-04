@@ -33,6 +33,7 @@ import thrift.transport.base;
  * then repeating. It is a good example of how to extend the TServer interface.
  */
 class TSimpleServer : TServer {
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -42,6 +43,7 @@ class TSimpleServer : TServer {
     super(processor, serverTransport, transportFactory, protocolFactory);
   }
 
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,

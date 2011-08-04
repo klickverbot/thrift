@@ -33,6 +33,7 @@ import thrift.transport.base;
  * A server which dispatches client request to a std.parallelism TaskPool.
  */
 class TTaskPoolServer : TServer {
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -43,6 +44,7 @@ class TTaskPoolServer : TServer {
       protocolFactory, protocolFactory);
   }
 
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -161,7 +163,7 @@ class TTaskPoolServer : TServer {
    * no limit, which is the default.
    *
    * If this limit is reached, no clients are accept()ed from the server
-   * transport any longer until a connection has been closed again.
+   * transport any longer until another connection has been closed again.
    */
   size_t maxActiveConns;
 
