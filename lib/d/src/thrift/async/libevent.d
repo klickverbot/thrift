@@ -37,6 +37,13 @@ import thrift.util.socket;
 
 /**
  * A TAsyncManager implementation based on libevent.
+ *
+ * The libevent loop for handling non-blocking sockets is run in a background
+ * thread, which is lazily spawned. The thread is not daemonized to avoid
+ * crashes on program shutdown, it is only stopped when the manager instance
+ * is destroyed. So, to ensure a clean program teardown, either make sure this
+ * instance gets destroyed (e.g. by using scope), or manually call stop() at
+ * the end.
  */
 class TLibeventAsyncManager : TAsyncSocketManager {
   this() {
@@ -58,7 +65,12 @@ class TLibeventAsyncManager : TAsyncSocketManager {
   }
 
   ~this() {
+    // stop() should be safe to call, because either we don't have a worker
+    // thread running and it is a no-op anyway, or it is guaranteed to be
+    // still running (blocked in event_base_loop), and thus guaranteed not to
+    // be garbage collected yet.
     stop(dur!"hnsecs"(0));
+
     event_free(workReceiveEvent_);
     event_base_free(eventBase_);
     eventBase_ = null;

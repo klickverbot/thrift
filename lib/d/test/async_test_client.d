@@ -49,8 +49,7 @@ void main(string[] args) {
     }
   );
 
-  auto asyncManager = new TLibeventAsyncManager;
-  scope (exit) asyncManager.stop();
+  scope asyncManager = new TLibeventAsyncManager;
   auto socket = new TAsyncSocket(asyncManager, host, port);
   auto client = new TAsyncClient!AsyncTest(
     socket,
