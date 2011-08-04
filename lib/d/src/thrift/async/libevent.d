@@ -302,9 +302,9 @@ private:
   static short libeventEventType(TAsyncEventType type) {
     final switch (type) {
       case TAsyncEventType.READ:
-        return EV_READ;
+        return EV_READ | EV_ET;
       case TAsyncEventType.WRITE:
-        return EV_WRITE;
+        return EV_WRITE | EV_ET;
     }
   }
 
