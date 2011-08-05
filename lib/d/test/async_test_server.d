@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift_test_server;
+module async_test_server;
 
 import core.thread : dur, Thread;
 import std.getopt;
