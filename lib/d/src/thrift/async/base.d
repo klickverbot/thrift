@@ -44,6 +44,7 @@
  */
 module thrift.async.base;
 
+import core.atomic;
 import core.sync.condition;
 import core.sync.mutex;
 import core.time : Duration, dur;
@@ -173,41 +174,62 @@ enum TAsyncEventReason : byte {
  * Represents an operation which is executed asynchronously and the result of
  * which will become available at some point in the future.
  *
- * All methods are thread-safe.
+ * Once a operation is completed, the result of the operation can be fetched
+ * via the get() family of methods. There are three possible cases: Either the
+ * operation succeeded, then its return value is returned, or it failed by
+ * throwing, in which case the exception is rethrown, or it was cancelled
+ * before, then a TOperationCancelledException is thrown.
  *
- * Note: Currently, no support for canceling operations is implemented yet,
- *   although this will likely change soon.
+ * All methods are thread-safe, but keep in mind that any exception object or
+ * result (if it is a reference type, of course) is shared between all
+ * get()-family invocations.
  */
 interface TFuture(ResultType) {
-  /**
-   * Whether the result is already available.
-   */
-  bool done() const @property;
+  ///
+  enum Status : byte {
+    RUNNING, /// The operation is still running.
+    SUCCEEDED, /// The operation completed without throwing an exception.
+    FAILED, /// The operation completed by throwing an exception.
+    CANCELLED /// The operation was cancelled.
+  }
 
   /**
-   * Waits until the operation is completed.
+   * The status the operation is currently in.
    *
-   * The result is guaranteed to be available afterwards.
+   * An operation starts out in RUNNING state, and changes state to one of the
+   * others at most once afterwards.
+   */
+  Status status() const @property;
+
+  /**
+   * Waits until the result is available.
+   *
+   * Calling wait() on an operation that is already completed is a no-op.
    */
   void wait() out {
     // DMD @@BUG6108@.
-    version(none) assert(done);
+    version(none) assert(state != RUNNING);
   }
 
  /**
-  * Waits until the operation is completed or the specified timeout expired.
+  * Waits until the result is available, or the specified timeout expired.
   *
-  * Returns: true if the result became available in time (done is guaranteed
-  *   to be set then), false otherwise.
+  * Calling wait() on an operation that is already completed is a no-op.
+  *
+  * Returns: false if the operation was still running after waiting the
+  *   specified duration, true otherwise.
   */
   bool wait(Duration timeout) out (result) {
     // DMD @@BUG6108@.
-    version(none) assert(!result || done);
+    version(none) assert(!result || state != RUNNING);
   }
 
   /**
-   * Waits until the operation is completed and returns its result, or
-   * rethrows any exception if it fails.
+   * Waits until the result is available and returns it (resp. throws an
+   * exception for the failed/cancelled cases).
+   *
+   * If the operation has already completed, the result is immediately
+   * returned.
    *
    * The result of this method is »alias this«'d to the interface, so that
    * TFuture can be used as a drop-in replacement for a simple value in
@@ -217,26 +239,42 @@ interface TFuture(ResultType) {
   alias waitGet this;
 
   /**
-   * Waits until the operation is completed or the timeout expires.
+   * Waits until the result is available or the timeout expires.
    *
-   * If the operation is completed in time, returns its result, or rethrows
-   * any exception if it failed. If not, throws a TFutureException.
+   * If the operation completes in time, returns its result (resp. throws an
+   * exception for the failed/cancelled cases). If not, throws a
+   * TFutureException.
    */
   ResultType waitGet(Duration timeout);
 
   /**
    * Returns the result of the operation.
    *
-   * Throws: TFutureException if not yet done; the set exception if any.
+   * Throws: TFutureException if the operation has been cancelled,
+   *   TOperationCancelledException if it is not yet done; the set exception
+   *   if it failed.
    */
   ResultType get();
 
   /**
    * Returns the captured exception if the operation failed, or null otherwise.
    *
-   * Throws: TFutureException if not yet done.
+   * Throws: TFutureException if not yet done, TOperationCancelledException
+   *   if the operation has been cancelled.
    */
   Exception getException();
+
+  /**
+   * Requests cancellation for the operation, i.e. indicates that the result
+   * will not be needed and the operation can be stopped to free resources,
+   * if possible.
+   *
+   * If cancel() is called on a not yet completed operation, subsequent calls
+   * to the get() family of functions are expected, but not required, to fail
+   * with a TOperationCancelledException. If it is called on an already
+   * compled operation, nothing happens.
+   */
+  void cancel();
 }
 
 /**
@@ -245,70 +283,73 @@ interface TFuture(ResultType) {
  *
  * All methods are thread-safe, but usually, complete()/fail() are only called
  * from a single thread (different from the thread(s) waiting for the result
- * using the TFuture interface).
+ * using the TFuture interface, though).
  */
 class TPromise(ResultType) : TFuture!ResultType {
   this() {
-    doneMutex_ = new Mutex;
-    doneCondition_ = new Condition(doneMutex_);
+    statusMutex_ = new Mutex;
+    statusCondition_ = new Condition(statusMutex_);
   }
 
-  /+override+/ void wait() {
-    // If we are already done, return early to avoid needlessly acquiring the
-    // lock.
-    if (done_) return;
-
-    synchronized (doneMutex_) {
-      while (!done_) doneCondition_.wait();
+  override void wait() {
+    synchronized (statusMutex_) {
+      while (atomicLoad(status_) == Status.RUNNING) statusCondition_.wait();
     }
   }
 
-  /+override+/ bool wait(Duration timeout) {
-    // If we are already done, return early to avoid needlessly acquiring the
-    // lock.
-    if (done_) return true;
-
-    synchronized (doneMutex_) {
-      doneCondition_.wait(timeout);
+  override bool wait(Duration timeout) {
+    synchronized (statusMutex_) {
+      statusCondition_.wait(timeout);
     }
-
-    // Return done_ instead of directly the return value of Condition.wait()
-    // so that we never return true if the result is not available, even in
-    // case of spurious wakeups. I am not sure if they can actually happen for
-    // a timed wait as well, but in any case they should be rare enough to not
-    // warrant more expensive timeout checking (e.g. calculating the expected
-    // wakeup time from the current system clock would be possible).
-    return done_;
+    // Make return value depend on the actual status_ instead of the return
+    // value of Condition.wait() so that we never return true if the result
+    // is not available, even in case of spurious wakeups. I am not sure if
+    // they can actually happen for timed waits as well, but in any case they
+    // should be rare enough to not warrant more expensive timeout checking.
+    return atomicLoad(status_) != Status.RUNNING;
   }
 
-  /+override+/ ResultType waitGet() {
+  override ResultType waitGet() {
     wait();
-
-    if (exception_) throw exception_;
-    static if (!is(ResultType == void)) {
-      return result_;
-    }
+    return get();
   }
 
-  /+override+/ ResultType waitGet(Duration timeout) {
+  override ResultType waitGet(Duration timeout) {
     enforce(wait(timeout), new TFutureException(
-      "Result was not available in time."));
+      "Operation did not complete in time."));
+    return get();
+  }
 
-    if (exception_) throw exception_;
+  override Status status() const @property {
+    return atomicLoad(status_);
+  }
+
+  override ResultType get() {
+    auto status = atomicLoad(status_);
+    enforce(status != Status.RUNNING,
+      new TFutureException("Operation not yet completed."));
+
+    if (status == Status.CANCELLED) throw new TOperationCancelledException;
+    if (status == Status.FAILED) throw exception_;
+
     static if (!is(ResultType == void)) {
       return result_;
     }
   }
 
-  /+override+/ bool done() const @property {
-    return done_;
+  override Exception getException() {
+    auto status = atomicLoad(status_);
+    enforce(status == Status.RUNNING,
+      new TFutureException("Operation not yet completed."));
+
+    if (status == Status.CANCELLED) throw new TOperationCancelledException;
+
+    return exception_;
   }
 
-  /+override+/ ResultType get() {
-    enforce(done_, new TFutureException("Result not yet available."));
-    if (exception_) throw exception_;
-    static if (!is(ResultType == void)) {
-      return result_;
+  override void cancel() {
+    synchronized (statusMutex_) {
+      cas(&status_, Status.RUNNING, Status.CANCELLED);
     }
   }
 
@@ -317,55 +358,71 @@ class TPromise(ResultType) : TFuture!ResultType {
      * Sets the result of the operation, marks it as done, and notifies any
      * waiters.
      *
+     * If the operation has been cancelled before, nothing happens.
+     *
      * Throws: TFutureException if the operation is already completed.
      */
     void complete(ResultType result) {
-      synchronized (doneMutex_) {
-        enforce(!done_, new TFutureException("Operation already done."));
+      synchronized (statusMutex_) {
+        auto status = atomicLoad(status_);
+        if (status == Status.CANCELLED) return;
+
+        enforce(status == Status.RUNNING,
+          new TFutureException("Operation already done."));
         result_ = result;
-        done_ = true;
-        doneCondition_.notifyAll();
+
+        atomicStore(status_, Status.SUCCEEDED);
+        statusCondition_.notifyAll();
       }
     }
   } else {
     void complete() {
-      synchronized (doneMutex_) {
-        enforce(!done_, new TFutureException("Operation already done."));
-        done_ = true;
-        doneCondition_.notifyAll();
+      synchronized (statusMutex_) {
+        auto status = atomicLoad(status_);
+        if (status == Status.CANCELLED) return;
+
+        enforce(status == Status.RUNNING,
+          new TFutureException("Operation already done."));
+
+        atomicStore(status_, Status.SUCCEEDED);
+        statusCondition_.notifyAll();
       }
     }
-  }
-
-  /+override+/ Exception getException() {
-    enforce(done_, new TFutureException("Result not yet available."));
-    return exception_;
   }
 
   /**
    * Marks the operation as failed with the specified exception and notifies
    * any waiters.
    *
+   * If the operation was already cancelled, nothing happens.
+   *
    * Throws: TFutureException if the operation is already completed.
    */
   void fail(Exception exception) {
-    synchronized (doneMutex_) {
-      enforce(!done_, new TFutureException("Operation already done."));
+    synchronized (statusMutex_) {
+      auto status = atomicLoad(status_);
+      if (status == Status.CANCELLED) return;
+
+      enforce(status == Status.RUNNING,
+        new TFutureException("Operation already done."));
       exception_ = exception;
-      done_ = true;
-      doneCondition_.notifyAll();
+
+      atomicStore(status_, Status.FAILED);
+      statusCondition_.notifyAll();
     }
   }
 
 private:
-  shared bool done_;
-  static if (!is(ResultType == void)) {
-    ResultType result_;
+  shared Status status_;
+  union {
+    static if (!is(ResultType == void)) {
+      ResultType result_;
+    }
+    Exception exception_;
   }
-  Exception exception_;
 
-  Mutex doneMutex_;
-  Condition doneCondition_;
+  Mutex statusMutex_;
+  Condition statusCondition_;
 }
 
 ///
@@ -378,3 +435,12 @@ class TFutureException : TException {
   }
 }
 
+///
+class TOperationCancelledException : TException {
+  ///
+  this(string msg = "", string file = __FILE__, size_t line = __LINE__,
+    Throwable next = null)
+  {
+    super(msg, file, line, next);
+  }
+}
