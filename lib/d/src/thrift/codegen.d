@@ -686,9 +686,9 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that required nullable members are non-null.
     // WORKAROUND: To stop LDC from emitting the manifest constant »meta« below
-    // into the writeStruct function body (this is an LDC bug, and will
-    // allocate allocate a new array on each method invocation at runtime),
-    // this is inside the string mixin block – the code wouldn't depend on it.
+    // into the writeStruct function body this is inside the string mixin
+    // block – the code wouldn't depend on it (this is an LDC bug, and because
+    // of it a new array would be allocate on each method invocation at runtime).
     foreach (name; __traits(derivedMembers, T)) {
       static if (is(MemberType!(T, name)) &&
         !isSomeFunction!(MemberType!(T, name)))
@@ -1179,8 +1179,11 @@ template TPresultStruct(Interface, string methodName) {
  * also derived from TClient!BaseInterface. The sequence id of the method
  * calls starts at zero and is automatically incremented after each call.
  *
- * TClient takes two additional template parameters for the protocol types
- * that must be a subclass of TProtocol, which is also the default.
+ * TClient takes two optional template arguments which can be used for
+ * specifying the actual TProtocol implementation used for optimization
+ * purposes, as virtual calls can completely be eliminated then. If
+ * OutputProtocol is not specified, it is assumed to be the same as
+ * InputProtocol.
  */
 template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
   is(Interface _ == interface) && isTProtocol!InputProtocol &&
@@ -1348,10 +1351,55 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
 }
 
 /**
+ * TClient construction helper to avoid having to explicitly specify
+ * the protocol types, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
+ */
+TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
+  is(Interface _ == interface) && isTProtocol!Prot
+) {
+  return new TClient!(Interface, Prot)(prot);
+}
+
+/// Ditto
+TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
+  (IProt iprot, OProt oprot) if (
+  is(Interface _ == interface) && isTProtocol!IProt && isTProtocol!OProt
+) {
+  return new TClient!(Interface, IProt, OProt)(iprot, oprot);
+}
+
+/**
  * Asynchronous Thrift service client, which just like TClient implements an
  * interface by calling a server, but instead of synchronously invoking the
- * methods, it returns the result as a TFuture and uses a TAsyncManager to
+ * methods, it returns the results as TFuture and uses a TAsyncManager to
  * perform the actual work.
+ *
+ * The generated class »almost« implements the given interface, with the
+ * exception of returning TFutures instead of the plain return values, and
+ * offers two constructors with the following signatures:
+ * ---
+ * this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf);
+ * this(TAsyncTransport trans, TTransportFactory itf, TTransportFactory otf,
+ *   TProtocolFactory ipf, TProtocolFactory opf);
+ * ---
+ *
+ * As you can see, TAsyncClient requires a TAsyncTransport to be passed, which
+ * is understandable, because it needs a way to access the associated
+ * TAsyncManager. To set up any wrapper transports (e.g. buffered, framed) on
+ * top of it and to instanciate the protocols to use, the constructors accept
+ * TTransportFactory and TProtocolFactory instances – the three argument
+ * constructor is a shortcut if the same transport and protocol are to be used
+ * for both input and output, which is probably the most common case.
+ *
+ * Just as TClient does, TAsyncClient also takes two optional template
+ * arguments which can be used for specifying the actual TProtocol
+ * implementation used for optimization purposes, as virtual calls can
+ * completely be eliminated then. If the actual types of the protocols
+ * instantiated by the factories used does not match the ones statically
+ * specified in the template parameters, a TException is thrown during
+ * construction.
  */
 template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
   is(Interface _ == interface) && isTProtocol!InputProtocol &&
@@ -1465,26 +1513,6 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
     code ~= "}\n";
     return code;
   }());
-}
-
-/**
- * TClient construction helper to avoid having to explicitly specify
- * the protocol types, i.e. to allow the constructor being called using IFTI
- * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
- * enhancement requet 6082)).
- */
-TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
-  is(Interface _ == interface) && isTProtocol!Prot
-) {
-  return new TClient!(Interface, Prot)(prot);
-}
-
-/// Ditto
-TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
-  (IProt iprot, OProt oprot) if (
-  is(Interface _ == interface) && isTProtocol!IProt && isTProtocol!OProt
-) {
-  return new TClient!(Interface, IProt, OProt)(iprot, oprot);
 }
 
 /**
