@@ -185,14 +185,6 @@ enum TAsyncEventReason : byte {
  * get()-family invocations.
  */
 interface TFuture(ResultType) {
-  ///
-  enum Status : byte {
-    RUNNING, /// The operation is still running.
-    SUCCEEDED, /// The operation completed without throwing an exception.
-    FAILED, /// The operation completed by throwing an exception.
-    CANCELLED /// The operation was cancelled.
-  }
-
   /**
    * The status the operation is currently in.
    *
@@ -208,7 +200,7 @@ interface TFuture(ResultType) {
    */
   void wait() out {
     // DMD @@BUG6108@.
-    version(none) assert(state != RUNNING);
+    version(none) assert(state != TFutureStatus.RUNNING);
   }
 
  /**
@@ -221,7 +213,7 @@ interface TFuture(ResultType) {
   */
   bool wait(Duration timeout) out (result) {
     // DMD @@BUG6108@.
-    version(none) assert(!result || state != RUNNING);
+    version(none) assert(!result || state != TFutureStatus.RUNNING);
   }
 
   /**
@@ -278,6 +270,16 @@ interface TFuture(ResultType) {
 }
 
 /**
+ * The states the operation offering a future interface can be in.
+ */
+enum TFutureStatus : byte {
+  RUNNING, /// The operation is still running.
+  SUCCEEDED, /// The operation completed without throwing an exception.
+  FAILED, /// The operation completed by throwing an exception.
+  CANCELLED /// The operation was cancelled.
+}
+
+/**
  * A TFuture covering the simple but common case where the result is simply
  * set by a call to succeed()/fail().
  *
@@ -293,7 +295,7 @@ class TPromise(ResultType) : TFuture!ResultType {
 
   override void wait() {
     synchronized (statusMutex_) {
-      while (atomicLoad(status_) == Status.RUNNING) statusCondition_.wait();
+      while (atomicLoad(status_) == S.RUNNING) statusCondition_.wait();
     }
   }
 
@@ -306,7 +308,7 @@ class TPromise(ResultType) : TFuture!ResultType {
     // is not available, even in case of spurious wakeups. I am not sure if
     // they can actually happen for timed waits as well, but in any case they
     // should be rare enough to not warrant more expensive timeout checking.
-    return atomicLoad(status_) != Status.RUNNING;
+    return atomicLoad(status_) != S.RUNNING;
   }
 
   override ResultType waitGet() {
@@ -326,11 +328,11 @@ class TPromise(ResultType) : TFuture!ResultType {
 
   override ResultType get() {
     auto status = atomicLoad(status_);
-    enforce(status != Status.RUNNING,
+    enforce(status != S.RUNNING,
       new TFutureException("Operation not yet completed."));
 
-    if (status == Status.CANCELLED) throw new TOperationCancelledException;
-    if (status == Status.FAILED) throw exception_;
+    if (status == S.CANCELLED) throw new TOperationCancelledException;
+    if (status == S.FAILED) throw exception_;
 
     static if (!is(ResultType == void)) {
       return result_;
@@ -339,17 +341,17 @@ class TPromise(ResultType) : TFuture!ResultType {
 
   override Exception getException() {
     auto status = atomicLoad(status_);
-    enforce(status == Status.RUNNING,
+    enforce(status == S.RUNNING,
       new TFutureException("Operation not yet completed."));
 
-    if (status == Status.CANCELLED) throw new TOperationCancelledException;
+    if (status == S.CANCELLED) throw new TOperationCancelledException;
 
     return exception_;
   }
 
   override void cancel() {
     synchronized (statusMutex_) {
-      cas(&status_, Status.RUNNING, Status.CANCELLED);
+      cas(&status_, S.RUNNING, S.CANCELLED);
     }
   }
 
@@ -365,13 +367,13 @@ class TPromise(ResultType) : TFuture!ResultType {
     void succeed(ResultType result) {
       synchronized (statusMutex_) {
         auto status = atomicLoad(status_);
-        if (status == Status.CANCELLED) return;
+        if (status == S.CANCELLED) return;
 
-        enforce(status == Status.RUNNING,
-          new TFutureException("Operation already done."));
+        enforce(status == S.RUNNING,
+          new TFutureException("Operation already completed."));
         result_ = result;
 
-        atomicStore(status_, Status.SUCCEEDED);
+        atomicStore(status_, S.SUCCEEDED);
         statusCondition_.notifyAll();
       }
     }
@@ -379,12 +381,12 @@ class TPromise(ResultType) : TFuture!ResultType {
     void succeed() {
       synchronized (statusMutex_) {
         auto status = atomicLoad(status_);
-        if (status == Status.CANCELLED) return;
+        if (status == S.CANCELLED) return;
 
-        enforce(status == Status.RUNNING,
-          new TFutureException("Operation already done."));
+        enforce(status == S.RUNNING,
+          new TFutureException("Operation already completed."));
 
-        atomicStore(status_, Status.SUCCEEDED);
+        atomicStore(status_, S.SUCCEEDED);
         statusCondition_.notifyAll();
       }
     }
@@ -401,19 +403,22 @@ class TPromise(ResultType) : TFuture!ResultType {
   void fail(Exception exception) {
     synchronized (statusMutex_) {
       auto status = atomicLoad(status_);
-      if (status == Status.CANCELLED) return;
+      if (status == S.CANCELLED) return;
 
-      enforce(status == Status.RUNNING,
-        new TFutureException("Operation already done."));
+      enforce(status == S.RUNNING,
+        new TFutureException("Operation already completed."));
       exception_ = exception;
 
-      atomicStore(status_, Status.FAILED);
+      atomicStore(status_, S.FAILED);
       statusCondition_.notifyAll();
     }
   }
 
 private:
-  shared Status status_;
+  // Convenience alias because TFutureStatus is ubiquitous in this class.
+  alias TFutureStatus S;
+
+  shared S status_;
   union {
     static if (!is(ResultType == void)) {
       ResultType result_;
