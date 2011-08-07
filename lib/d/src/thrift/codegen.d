@@ -352,15 +352,21 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
           // We hit something strange like the TStructHelpers template itself,
           // just ignore.
         } else {
-          if (first) {
-            first = false;
+          import std.traits;
+          static if (isCallable!(MemberType!(This, name))) {
+            // We don't want to pick up e.g. the __ctor member for exceptions.
+            // Cannot use continue here due to »unreachable statement« warnings.
           } else {
-            code ~= "result ~= `, `;\n";
+            if (first) {
+              first = false;
+            } else {
+              code ~= "result ~= `, `;\n";
+            }
+            code ~= "result ~= `" ~ name ~ ": ` ~ to!string(this." ~ name ~ ");\n";
+            code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
+            code ~= "result ~= ` (unset)`;\n";
+            code ~= "}\n";
           }
-          code ~= "result ~= `" ~ name ~ ": ` ~ to!string(this." ~ name ~ ");\n";
-          code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
-          code ~= "result ~= ` (unset)`;\n";
-          code ~= "}\n";
         }
       }
       return code;
