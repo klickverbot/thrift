@@ -914,7 +914,7 @@ template TArgsStruct(Interface, string methodName) {
  * Like TArgsStruct, represents the arguments of a Thrift method call, but as
  * pointers to the (const) parameter type to avoid copying.
  *
- * For the struct from the TArgsStruct example, TPargsStruct!Foo would be
+ * For the interface from the TArgsStruct example, TPargsStruct!Foo would be
  * equivalent to:
  * ---
  * struct FooBarPargs {
