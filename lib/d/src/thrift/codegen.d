@@ -42,10 +42,13 @@
  */
 module thrift.codegen;
 
-import std.algorithm : find, max;
+import core.time : Duration, TickDuration;
+import std.algorithm : find, max, map, min, reduce, remove;
 import std.array : empty, front;
 import std.conv : to;
 import std.exception : enforce;
+import std.random : randomCover, rndGen;
+import std.range;
 import std.traits;
 import std.typetuple : allSatisfy, TypeTuple;
 import std.variant : Variant;
@@ -1169,28 +1172,56 @@ template TPresultStruct(Interface, string methodName) {
  * Thrift service client, which implements an interface by synchronously
  * calling a server over a TProtocol.
  *
- * The generated class implements the specified interface and additionally
- * offers the following methods:
- * ---
- * this(InputProtocol iprot, OutputProtocol oprot);
- * // Only if is(InputProtocol == OutputProtocol), to use the same protocol
- * // for both input and output:
- * this(InputProtocol prot);
+ * TClientBase simply extends Interface with generic input/output protocol
+ * properties to serve as a supertype for all TClients for the same service,
+ * which might be instantiated with different concrete protocol types (there
+ * is no covariance for template type parameters). If Interface is derived
+ * from another interface BaseInterface, it also extends
+ * TClientBase!BaseInterface.
  *
- * InputProtocol inputProtocol() @property;
- * OutputProtocol outputProtocol() @property;
- * ---
- *
- * If Interface is derived from another interface BaseInterface, this class is
- * also derived from TClient!BaseInterface. The sequence id of the method
- * calls starts at zero and is automatically incremented after each call.
+ * TClient is the class that actually implements TClientBase. Just as
+ * TClientBase, it is also derived from TClient!BaseInterface for inheriting
+ * services.
  *
  * TClient takes two optional template arguments which can be used for
  * specifying the actual TProtocol implementation used for optimization
  * purposes, as virtual calls can completely be eliminated then. If
  * OutputProtocol is not specified, it is assumed to be the same as
- * InputProtocol.
+ * InputProtocol. The protocol properties defined by TClientBase are exposed
+ * with their concrete type (return type covariance).
+ *
+ * In addition to implementing TClientBase!Interface, TClient offers the
+ * following constructors:
+ * ---
+ * this(InputProtocol iprot, OutputProtocol oprot);
+ * // Only if is(InputProtocol == OutputProtocol), to use the same protocol
+ * // for both input and output:
+ * this(InputProtocol prot);
+ * ---
+ *
+ * The sequence id of the method calls starts at zero and is automatically
+ * incremented.
  */
+interface TClientBase(Interface) if (is(Interface _ == interface) &&
+  (!is(Interface BaseInterfaces == super) || BaseInterfaces.length == 0)
+ ) : Interface {
+  /**
+   * The input protocol used by the client.
+   */
+  TProtocol inputProtocol() @property;
+
+  /**
+   * The output protocol used by the client.
+   */
+  TProtocol outputProtocol() @property;
+}
+
+/// Ditto
+interface TClientBase(Interface) if (is(Interface _ == interface) &&
+  is(Interface BaseInterfaces == super) && BaseInterfaces.length == 1
+) : TClientBase!(BaseTypeTuple!Interface[0]), Interface {}
+
+/// Ditto
 template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
   is(Interface _ == interface) && isTProtocol!InputProtocol &&
   (isTProtocol!OutputProtocol || is(OutputProtocol == void))
@@ -1201,7 +1232,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
         "Services cannot be derived from more than one parent.");
 
       string code = "class TClient : TClient!(BaseTypeTuple!(Interface)[0], " ~
-        "InputProtocol, OutputProtocol), Interface {\n";
+        "InputProtocol, OutputProtocol), TClientBase!Interface {\n";
       code ~= q{
         this(IProt iprot, OProt oprot) {
           super(iprot, oprot);
@@ -1212,9 +1243,18 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             super(prot);
           }
         }
+
+        // DMD @@BUG@@: If these are not present in this class (would be)
+        // inherited anyway, »not implemented« errors are raised.
+        override IProt inputProtocol() @property {
+          return super.inputProtocol;
+        }
+        override OProt outputProtocol() @property {
+          return super.outputProtocol;
+        }
       };
     } else {
-      string code = "class TClient : Interface {";
+      string code = "class TClient : TClientBase!Interface {";
       code ~= q{
         alias InputProtocol IProt;
         static if (isTProtocol!OutputProtocol) {
@@ -1302,7 +1342,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             code ~= "result.success = &_return;\n";
           }
 
-          // TODO: The C++ implementation checks for matching name here,
+          // TODO: The C++ implementation checks for matching method name here,
           // should we do as well?
           code ~= q{
             auto msg = iprot_.readMessageBegin();
@@ -1374,6 +1414,295 @@ TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
   is(Interface _ == interface) && isTProtocol!IProt && isTProtocol!OProt
 ) {
   return new TClient!(Interface, IProt, OProt)(iprot, oprot);
+}
+
+/**
+ * Manages a pool of TClients for the given interface, forwarding RPC calls to
+ * members of the pool.
+ *
+ * If a request fails, another client from the pool is tried, and optionally,
+ * a client is disabled for a configurable amount of time if it fails too
+ * often.
+ *
+ * If Interface extends another BaseInterface, TClientPool!Interface is also
+ * derived from TClientPool!BaseInterface.
+ */
+// Note: The implementation is a bit peculiar in places to avoid copy/pasting
+// the implementations between the derived and non-derived versions.
+class TClientPool(Interface) if (is(Interface _ == interface) &&
+  (!is(Interface BaseInterfaces == super) || BaseInterfaces.length == 0)
+) : Interface {
+  /// Shorthand for TClientBase!Interface, the client type this instance
+  /// operates on.
+  alias TClientBase!Interface Client;
+
+  /**
+   * Creates a new instance and adds the given clients to the pool.
+   */
+  this(Client[] clients) {
+    clients_ = clients;
+
+    isRpcException = (Exception e) {
+      return (
+        (cast(TTransportException)e !is null) ||
+        (cast(TApplicationException)e !is null)
+      );
+    };
+  }
+
+  /**
+   * Executes an operation on the first currently active client.
+   *
+   * If the operation fails (throws an exception for which isRpcException is
+   * true), the failure is recorded and the next client in the pool is tried.
+   *
+   * Example:
+   * ---
+   * interface Foo { string bar(); }
+   * auto poolClient = createTClientPool([new createTClient!Foo(someProtocol)]);
+   * auto result = poolClient.execute((c){ return c.bar(); });
+   * ---
+   */
+  ResultType execute(ResultType)(scope ResultType delegate(Client) work) {
+    return executeOnPool(clients, work);
+  }
+
+  /**
+   * Adds a client to the pool.
+   */
+  void addClient(Client client) {
+    clients_ ~= client;
+  }
+
+  /**
+   * Removes a client from the pool.
+   *
+   * Returns: Whether the client was found in the pool.
+   */
+  bool removeClient(Client client) {
+    auto removed = remove!((a){ return a is client; })(clients_).length;
+    clients_ = clients_[0 .. $ - removed];
+
+    if (removed > 0) faultInfos_.remove(client);
+
+    return (removed > 0);
+  }
+
+  mixin(poolForwardCode!Interface());
+
+  /// Whether to use a random permutation of the client pool on every call to
+  /// execute(). This can be used e.g. as a simple form of load balancing.
+  ///
+  /// Defaults to false.
+  bool permuteClients = false;
+
+  /// Whether to open the underlying transports of a client before trying to
+  /// execute a method if they are not open. This is usually desirable
+  /// because it allows e.g. to automatically reconnect to a remote server
+  /// if the network connection is dropped.
+  ///
+  /// Defaults to true.
+  bool reopenTransports = true;
+
+  /// Called to determine whether an exception comes from a client from the
+  /// pool not working properly, or if it an exception thrown at the
+  /// application level.
+  ///
+  /// If the delegate returns true, the server/connection is considered to be
+  /// at fault, if it returns false, the exception is just passed on to the
+  /// caller.
+  ///
+  /// By default, returns true for instances of TTransportException and
+  /// TApplicationException, false otherwise.
+  bool delegate(Exception) isRpcException;
+
+  /// Whether to keep trying to find a working client if all have failed in a
+  /// row.
+  ///
+  /// Defaults to false.
+  bool keepTrying = false;
+
+  /// The number of consecutive faults after which a client is disabled until
+  /// faultDisableDuration has passed. 0 to disable.
+  ///
+  /// Defaults to 0.
+  ushort faultDisableCount = 0;
+
+  /// The duration for which a client is no longer considered after it has
+  /// failed too often.
+  ///
+  /// Defaults to one second.
+  Duration faultDisableDuration = dur!"seconds"(1);
+
+protected:
+  // Actual implementation of execute(). Takes the list of clients as
+  // parameter to avoid duplicating it in derived classes for the derived
+  // client types.
+  ResultType executeOnPool(ClientType, ResultType)(
+    ClientType[] allClients,
+    scope ResultType delegate(ClientType) work
+  ) {
+    if (allClients.empty) {
+      throw new TException("No clients available to try.");
+    }
+
+    while (true) {
+      ForwardRange!ClientType clients = inputRangeObject(allClients);
+
+      if (permuteClients) {
+        clients = inputRangeObject(randomCover(allClients, rndGen));
+      }
+
+      size_t clientsTried;
+
+      while (!clients.empty) {
+        auto client = clients.front;
+        clients.popFront;
+        auto faultInfo = client in faultInfos_;
+
+        if (faultInfo && faultInfo.resetTime != faultInfo.resetTime.init) {
+          // The argument to < needs to be an lvalue…
+          auto currentTick = TickDuration.currSystemTick;
+          if (faultInfo.resetTime < currentTick) {
+            // The timeout expired, remove the client from the list and go
+            // ahead trying it.
+            faultInfos_.remove(client);
+          } else {
+            // The timeout didn't expire yet, try the next client.
+            continue;
+          }
+        }
+
+        ++clientsTried;
+
+        try {
+          scope (success) {
+            if (faultInfo) faultInfos_.remove(client);
+          }
+
+          if (reopenTransports) {
+            client.inputProtocol.transport.open();
+            client.outputProtocol.transport.open();
+          }
+
+          return work(client);
+        } catch (Exception e) {
+          if (isRpcException && isRpcException(e)) {
+            // If something went wrong on the transport layer, increment the
+            // fault count.
+            if (!faultInfo) {
+              faultInfos_[client] = FaultInfo();
+              faultInfo = client in faultInfos_;
+            }
+
+            ++faultInfo.count;
+            if (faultInfo.count >= faultDisableCount) {
+              // If the client has hit the fault count limit, disable it for
+              // specified duration.
+              faultInfo.resetTime = TickDuration.currSystemTick +
+                cast(TickDuration)faultDisableDuration;
+            }
+          } else {
+            // We are dealing with a normal exception thrown by the
+            // server-side method, just pass it on. As far as we are
+            // concerned, the method call succeded.
+            if (faultInfo) faultInfos_.remove(client);
+            throw e;
+          }
+        }
+      }
+
+      // If we get here, no client succeeded during the current iteration.
+      if (!keepTrying) {
+        // TODO: Would it make sense to collect all client exceptions and pass
+        // them out here?
+        throw new TException("All clients failed.");
+      }
+
+      if (clientsTried == 0) {
+        // All clients are currently disabled, sleep until a timeout expires
+        // to avoid spinning.
+        auto first = reduce!"min(a, b)"(map!"a.resetTime"(faultInfos_.values));
+        auto toSleep = to!Duration(first - TickDuration.currSystemTick);
+        if (toSleep > dur!"hnsecs"(0)) {
+          import core.thread;
+          Thread.sleep(toSleep);
+        }
+      }
+    }
+  }
+
+  // Returns the list of clients in the pool. This is a kludge to enable the
+  // same string mixins to be used for both base and derived classes via
+  // return type covariance.
+  @property Client[] clients() {
+    return clients_;
+  }
+
+private:
+  Client[] clients_;
+
+  static struct FaultInfo {
+    ushort count;
+    TickDuration resetTime;
+  }
+  FaultInfo[Client] faultInfos_;
+}
+
+/// Ditto
+class TClientPool(Interface) if (is(Interface _ == interface) &&
+  is(Interface BaseInterfaces == super) && BaseInterfaces.length == 1
+) : TClientPool!(BaseTypeTuple!Interface[0]), Interface {
+  alias TClientBase!Interface Client;
+
+  this(Client[] clients) {
+    super(clients);
+  }
+
+  ResultType execute(ResultType)(scope ResultType delegate(Client) work) {
+    return execute(clients, work);
+  }
+
+  mixin(poolForwardCode!Interface());
+protected:
+  override @property Client[] clients() {
+    // We know that the clients of the super class are actually of the
+    // derived type, since we put them there in our constructor.
+    return cast(Client[])super.clients;
+  }
+}
+
+private {
+  // Cannot use an anonymous delegate literal for this because they aren't
+  // allowed in class scope.
+  static string poolForwardCode(Interface)() {
+    string code = "";
+
+    foreach (methodName; __traits(derivedMembers, Interface)) {
+      enum qn = "Interface." ~ methodName;
+      static if (isSomeFunction!(mixin(qn))) {
+        code ~= "ReturnType!(" ~ qn ~ ") " ~ methodName ~
+          "(ParameterTypeTuple!(" ~ qn ~ ") args) {\n";
+        code ~= "return executeOnPool(clients, " ~
+          "(Client c){ return c." ~ methodName ~ "(args); });\n";
+        code ~= "}\n";
+      }
+    }
+
+    return code;
+  }
+}
+
+/**
+ * TClientPool construction helper to avoid having to explicitly specify
+ * the interface type, i.e. to allow the constructor being called using IFTI
+ * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
+ * enhancement requet 6082)).
+ */
+TClientPool!Interface createTClientPool(Interface)(
+  TClientBase!Interface[] clients)
+{
+  return new typeof(return)(clients);
 }
 
 /**
