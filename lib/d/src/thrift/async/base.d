@@ -279,9 +279,9 @@ interface TFuture(ResultType) {
 
 /**
  * A TFuture covering the simple but common case where the result is simply
- * set by a call to complete()/fail().
+ * set by a call to succeed()/fail().
  *
- * All methods are thread-safe, but usually, complete()/fail() are only called
+ * All methods are thread-safe, but usually, succeed()/fail() are only called
  * from a single thread (different from the thread(s) waiting for the result
  * using the TFuture interface, though).
  */
@@ -362,7 +362,7 @@ class TPromise(ResultType) : TFuture!ResultType {
      *
      * Throws: TFutureException if the operation is already completed.
      */
-    void complete(ResultType result) {
+    void succeed(ResultType result) {
       synchronized (statusMutex_) {
         auto status = atomicLoad(status_);
         if (status == Status.CANCELLED) return;
@@ -376,7 +376,7 @@ class TPromise(ResultType) : TFuture!ResultType {
       }
     }
   } else {
-    void complete() {
+    void succeed() {
       synchronized (statusMutex_) {
         auto status = atomicLoad(status_);
         if (status == Status.CANCELLED) return;

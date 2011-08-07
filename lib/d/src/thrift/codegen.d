@@ -1826,11 +1826,11 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
         code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
           ") == void)) {\n";
         code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
-        code ~= "promise.complete();\n";
+        code ~= "promise.succeed();\n";
         code ~= "} else {\n";
         code ~= "auto result = client_." ~ methodName ~ "(" ~
           ctfeJoin(paramNames) ~ ");\n";
-        code ~= "promise.complete(result);\n";
+        code ~= "promise.succeed(result);\n";
         code ~= "}\n";
         code ~= "} catch (Exception e) {\n";
         code ~= "promise.fail(e);\n";
