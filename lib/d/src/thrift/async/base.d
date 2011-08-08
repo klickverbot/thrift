@@ -267,6 +267,18 @@ interface TFuture(ResultType) {
    * compled operation, nothing happens.
    */
   void cancel();
+
+  /**
+   * Registers a callback that is called if the operation completes.
+   *
+   * The delegate will likely be invoked from a different thread, and should
+   * not perform expensive work as a typical implementation will usually call
+   * them in a synchronous fashion.
+   *
+   * If the operation is already completed, the delegate is immediately
+   * executed in the current thread.
+   */
+  void addCompletionCallback(void delegate(TFuture) dg);
 }
 
 /**
@@ -355,6 +367,23 @@ class TPromise(ResultType) : TFuture!ResultType {
     }
   }
 
+  void addCompletionCallback(void delegate(TFuture!ResultType) dg) {
+    // We have to avoid that the operation completes after we have checked
+    // that it is running, but before we have added the delegate to the list.
+    statusMutex_.lock();
+    scope (failure) statusMutex_.unlock();
+
+    auto status = atomicLoad(status_);
+    if (status != S.RUNNING) {
+      statusMutex_.unlock();
+      dg(this);
+      return;
+    }
+
+    completionCallbacks_ ~= dg;
+    statusMutex_.unlock();
+  }
+
   static if (!is(ResultType == void)) {
     /**
      * Sets the result of the operation, marks it as done, and notifies any
@@ -376,6 +405,8 @@ class TPromise(ResultType) : TFuture!ResultType {
         atomicStore(status_, S.SUCCEEDED);
         statusCondition_.notifyAll();
       }
+
+      foreach (c; completionCallbacks_) c(this);
     }
   } else {
     void succeed() {
@@ -387,8 +418,11 @@ class TPromise(ResultType) : TFuture!ResultType {
           new TFutureException("Operation already completed."));
 
         atomicStore(status_, S.SUCCEEDED);
+
         statusCondition_.notifyAll();
       }
+
+      foreach (c; completionCallbacks_) c(this);
     }
   }
 
@@ -412,7 +446,10 @@ class TPromise(ResultType) : TFuture!ResultType {
       atomicStore(status_, S.FAILED);
       statusCondition_.notifyAll();
     }
+
+    foreach (c; completionCallbacks_) c(this);
   }
+
 
   /**
    * Marks this operation as completed and takes over the outcome of another
@@ -426,8 +463,9 @@ class TPromise(ResultType) : TFuture!ResultType {
    *   this operation is already completed.
    */
   void complete(TFuture!ResultType future) {
+    S status;
     synchronized (statusMutex_) {
-      auto status = atomicLoad(status_);
+      status = atomicLoad(status_);
       if (status == S.CANCELLED) return;
       enforce(status == S.RUNNING,
         new TFutureException("Operation already completed."));
@@ -445,22 +483,39 @@ class TPromise(ResultType) : TFuture!ResultType {
       atomicStore(status_, status);
       statusCondition_.notifyAll();
     }
+
+    if (status != S.CANCELLED) {
+      foreach (c; completionCallbacks_) c(this);
+    }
   }
 
 private:
   // Convenience alias because TFutureStatus is ubiquitous in this class.
   alias TFutureStatus S;
 
+  // The status the promise is currently in.
   shared S status_;
+
   union {
     static if (!is(ResultType == void)) {
+      // Set if status_ is SUCCEEDED.
       ResultType result_;
     }
+    // Set if status_ is FAILED.
     Exception exception_;
   }
 
+  // Protects status_ and, indirectly, completionCallbacks_.
+  // As for result_ and exception_: They are only set once, while status_ is
+  // still RUNNING, so given that the operation has already completed, reading
+  // them is safe without holding some kind of lock.
   Mutex statusMutex_;
+
+  // Triggered if status_ has changed from RUNNING.
   Condition statusCondition_;
+
+  // The callbacks registerd to be invoked on completion.
+  void delegate(TFuture!ResultType)[] completionCallbacks_;
 }
 
 ///
