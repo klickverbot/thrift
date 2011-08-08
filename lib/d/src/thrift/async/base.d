@@ -363,7 +363,8 @@ class TPromise(ResultType) : TFuture!ResultType {
 
   override void cancel() {
     synchronized (statusMutex_) {
-      cas(&status_, S.RUNNING, S.CANCELLED);
+      auto status = atomicLoad(status_);
+      if (status == S.RUNNING) atomicStore(status, S.CANCELLED);
     }
   }
 
@@ -474,9 +475,12 @@ class TPromise(ResultType) : TFuture!ResultType {
         "The passed TFuture is not yet completed."));
 
       status = future.status;
-      if (status == S.FAILED) {
+      if (status == S.CANCELLED) {
+        status = S.FAILED;
+        exception_ = new TOperationCancelledException;
+      } else if (status == S.FAILED) {
         exception_ = future.getException();
-      } else {
+      } else static if (!is(ResultType == void)) {
         result_ = future.get();
       }
 
