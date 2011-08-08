@@ -121,8 +121,8 @@ struct TAsyncWorkItem {
   /// in practice for the concept to make sense.
   /// Note: Executing the task should never throw, errors should be handled
   /// in another way. nothrow semantics are difficult to enforce in combination
-  /// with fibres though, so exceptions are typically just swallowed by
-  /// TAsyncManager implementations.
+  /// with fibres though, so currently exceptions are typically just swallowed
+  /// by TAsyncManager implementations.
   void delegate() work;
 }
 
@@ -275,6 +275,10 @@ interface TFuture(ResultType) {
    * not perform expensive work as a typical implementation will usually call
    * them in a synchronous fashion.
    *
+   * The completion callback must never throw, but nothrow semantics are
+   * difficult to enforce, so currently exceptions are just swallowed by
+   * TFuture implementations.
+   *
    * If the operation is already completed, the delegate is immediately
    * executed in the current thread.
    */
@@ -353,7 +357,7 @@ class TPromise(ResultType) : TFuture!ResultType {
 
   override Exception getException() {
     auto status = atomicLoad(status_);
-    enforce(status == S.RUNNING,
+    enforce(status != S.RUNNING,
       new TFutureException("Operation not yet completed."));
 
     if (status == S.CANCELLED) throw new TOperationCancelledException;
@@ -407,7 +411,7 @@ class TPromise(ResultType) : TFuture!ResultType {
         statusCondition_.notifyAll();
       }
 
-      foreach (c; completionCallbacks_) c(this);
+      executeCallbacks();
     }
   } else {
     void succeed() {
@@ -423,7 +427,7 @@ class TPromise(ResultType) : TFuture!ResultType {
         statusCondition_.notifyAll();
       }
 
-      foreach (c; completionCallbacks_) c(this);
+      executeCallbacks();
     }
   }
 
@@ -448,7 +452,7 @@ class TPromise(ResultType) : TFuture!ResultType {
       statusCondition_.notifyAll();
     }
 
-    foreach (c; completionCallbacks_) c(this);
+    executeCallbacks();
   }
 
 
@@ -489,11 +493,22 @@ class TPromise(ResultType) : TFuture!ResultType {
     }
 
     if (status != S.CANCELLED) {
-      foreach (c; completionCallbacks_) c(this);
+      executeCallbacks();
     }
   }
 
 private:
+  void executeCallbacks() {
+    assert(status != S.CANCELLED);
+    foreach (c; completionCallbacks_){
+      try {
+        c(this);
+      } catch (Exception e) {
+        logError("Exception thrown by completion callback: %s", e);
+      }
+    }
+  }
+
   // Convenience alias because TFutureStatus is ubiquitous in this class.
   alias TFutureStatus S;
 
