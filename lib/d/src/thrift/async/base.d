@@ -414,6 +414,39 @@ class TPromise(ResultType) : TFuture!ResultType {
     }
   }
 
+  /**
+   * Marks this operation as completed and takes over the outcome of another
+   * TFuture of the same type.
+   *
+   * If this operation was already cancelled, nothing happens. If the other
+   * operation was cancelled, this operation is marked as failed with a
+   * TOperationCancelledException.
+   *
+   * Throws: TFutureException if the passed in future was not completed or
+   *   this operation is already completed.
+   */
+  void complete(TFuture!ResultType future) {
+    synchronized (statusMutex_) {
+      auto status = atomicLoad(status_);
+      if (status == S.CANCELLED) return;
+      enforce(status == S.RUNNING,
+        new TFutureException("Operation already completed."));
+
+      enforce(future.status != S.RUNNING, new TFutureException(
+        "The passed TFuture is not yet completed."));
+
+      status = future.status;
+      if (status == S.FAILED) {
+        exception_ = future.getException();
+      } else {
+        result_ = future.get();
+      }
+
+      atomicStore(status_, status);
+      statusCondition_.notifyAll();
+    }
+  }
+
 private:
   // Convenience alias because TFutureStatus is ubiquitous in this class.
   alias TFutureStatus S;
