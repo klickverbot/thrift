@@ -1434,7 +1434,7 @@ class TClientPool(Interface) if (isBaseService!Interface) : Interface {
   this(Client[] clients) {
     clients_ = clients;
 
-    isRpcException = (Exception e) {
+    rpcFaultFilter = (Exception e) {
       return (
         (cast(TTransportException)e !is null) ||
         (cast(TApplicationException)e !is null)
@@ -1445,7 +1445,7 @@ class TClientPool(Interface) if (isBaseService!Interface) : Interface {
   /**
    * Executes an operation on the first currently active client.
    *
-   * If the operation fails (throws an exception for which isRpcException is
+   * If the operation fails (throws an exception for which rpcFaultFilter is
    * true), the failure is recorded and the next client in the pool is tried.
    *
    * Example:
@@ -1506,7 +1506,7 @@ class TClientPool(Interface) if (isBaseService!Interface) : Interface {
   ///
   /// By default, returns true for instances of TTransportException and
   /// TApplicationException, false otherwise.
-  bool delegate(Exception) isRpcException;
+  bool delegate(Exception) rpcFaultFilter;
 
   /// Whether to keep trying to find a working client if all have failed in a
   /// row.
@@ -1579,7 +1579,7 @@ protected:
 
           return work(client);
         } catch (Exception e) {
-          if (isRpcException && isRpcException(e)) {
+          if (rpcFaultFilter && rpcFaultFilter(e)) {
             // If something went wrong on the transport layer, increment the
             // fault count.
             if (!faultInfo) {
