@@ -191,7 +191,7 @@ interface TFuture(ResultType) {
    * An operation starts out in RUNNING state, and changes state to one of the
    * others at most once afterwards.
    */
-  Status status() const @property;
+  TFutureStatus status() const @property;
 
   /**
    * Waits until the result is available.
@@ -322,7 +322,7 @@ class TPromise(ResultType) : TFuture!ResultType {
     return get();
   }
 
-  override Status status() const @property {
+  override S status() const @property {
     return atomicLoad(status_);
   }
 
