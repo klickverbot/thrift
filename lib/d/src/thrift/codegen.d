@@ -1202,9 +1202,7 @@ template TPresultStruct(Interface, string methodName) {
  * The sequence id of the method calls starts at zero and is automatically
  * incremented.
  */
-interface TClientBase(Interface) if (is(Interface _ == interface) &&
-  (!is(Interface BaseInterfaces == super) || BaseInterfaces.length == 0)
- ) : Interface {
+interface TClientBase(Interface) if (isBaseService!Interface) : Interface {
   /**
    * The input protocol used by the client.
    */
@@ -1217,21 +1215,17 @@ interface TClientBase(Interface) if (is(Interface _ == interface) &&
 }
 
 /// Ditto
-interface TClientBase(Interface) if (is(Interface _ == interface) &&
-  is(Interface BaseInterfaces == super) && BaseInterfaces.length == 1
-) : TClientBase!(BaseTypeTuple!Interface[0]), Interface {}
+interface TClientBase(Interface) if (isDerivedService!Interface) :
+  TClientBase!(BaseService!Interface), Interface {}
 
 /// Ditto
 template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
-  is(Interface _ == interface) && isTProtocol!InputProtocol &&
+  isService!Interface && isTProtocol!InputProtocol &&
   (isTProtocol!OutputProtocol || is(OutputProtocol == void))
 ) {
   mixin({
-    static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
-      static assert(BaseInterfaces.length == 1,
-        "Services cannot be derived from more than one parent.");
-
-      string code = "class TClient : TClient!(BaseTypeTuple!(Interface)[0], " ~
+    static if (isDerivedService!Interface) {
+      string code = "class TClient : TClient!(BaseService!Interface, " ~
         "InputProtocol, OutputProtocol), TClientBase!Interface {\n";
       code ~= q{
         this(IProt iprot, OProt oprot) {
@@ -1403,7 +1397,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
  * enhancement requet 6082)).
  */
 TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
-  is(Interface _ == interface) && isTProtocol!Prot
+  isService!Interface && isTProtocol!Prot
 ) {
   return new TClient!(Interface, Prot)(prot);
 }
@@ -1411,7 +1405,7 @@ TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
 /// Ditto
 TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
   (IProt iprot, OProt oprot) if (
-  is(Interface _ == interface) && isTProtocol!IProt && isTProtocol!OProt
+  isService!Interface && isTProtocol!IProt &&isTProtocol!OProt
 ) {
   return new TClient!(Interface, IProt, OProt)(iprot, oprot);
 }
@@ -1429,9 +1423,7 @@ TClient!(Interface, IProt, Oprot) createTClient(Interface, IProt, OProt)
  */
 // Note: The implementation is a bit peculiar in places to avoid copy/pasting
 // the implementations between the derived and non-derived versions.
-class TClientPool(Interface) if (is(Interface _ == interface) &&
-  (!is(Interface BaseInterfaces == super) || BaseInterfaces.length == 0)
-) : Interface {
+class TClientPool(Interface) if (isBaseService!Interface) : Interface {
   /// Shorthand for TClientBase!Interface, the client type this instance
   /// operates on.
   alias TClientBase!Interface Client;
@@ -1650,9 +1642,9 @@ private:
 }
 
 /// Ditto
-class TClientPool(Interface) if (is(Interface _ == interface) &&
-  is(Interface BaseInterfaces == super) && BaseInterfaces.length == 1
-) : TClientPool!(BaseTypeTuple!Interface[0]), Interface {
+class TClientPool(Interface) if (isDerivedService!Interface) :
+  TClientPool!(BaseService!Interface), Interface
+{
   alias TClientBase!Interface Client;
 
   this(Client[] clients) {
@@ -1700,8 +1692,8 @@ private {
  * enhancement requet 6082)).
  */
 TClientPool!Interface createTClientPool(Interface)(
-  TClientBase!Interface[] clients)
-{
+  TClientBase!Interface[] clients
+) if (isService!Interface) {
   return new typeof(return)(clients);
 }
 
@@ -1737,7 +1729,7 @@ TClientPool!Interface createTClientPool(Interface)(
  * construction.
  */
 template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if (
-  is(Interface _ == interface) && isTProtocol!InputProtocol &&
+  isService!Interface && isTProtocol!InputProtocol &&
   (isTProtocol!OutputProtocol || is(OutputProtocol == void))
 ) {
   mixin({
@@ -1745,8 +1737,8 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
       static assert(BaseInterfaces.length == 1,
         "Services cannot be derived from more than one parent.");
 
-      string code = "class TAsyncClient : TAsyncClient!(BaseTypeTuple!(" ~
-        "Interface)[0], InputProtocol, OutputProtocol) {\n";
+      string code = "class TAsyncClient : TAsyncClient!(" ~
+        "BaseService!Interface, InputProtocol, OutputProtocol) {\n";
       code ~= q{
         this(TAsyncTransport trans, TTransportFactory tf, TProtocolFactory pf) {
           this(trans, tf, tf, pf, pf);
@@ -1871,7 +1863,7 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
  * can be used in the Protocols list.
  */
 template TServiceProcessor(Interface, Protocols...) if (
-  is(Interface _ == interface) && allSatisfy!(isTProtocolOrPair, Protocols)
+  isService!Interface && allSatisfy!(isTProtocolOrPair, Protocols)
 ) {
   mixin({
     static if (is(Interface BaseInterfaces == super) && BaseInterfaces.length > 0) {
@@ -1879,7 +1871,7 @@ template TServiceProcessor(Interface, Protocols...) if (
         "Services cannot be derived from more than one parent.");
 
       string code = "class TServiceProcessor : " ~
-        "TServiceProcessor!(BaseTypeTuple!(Interface)[0]) {\n";
+        "TServiceProcessor!(BaseService!Interface) {\n";
       code ~= "private Interface iface_;\n";
 
       string constructorCode = "this(Interface iface) {\n";
@@ -2109,6 +2101,46 @@ template TServiceProcessor(Interface, Protocols...) if (
 struct ProtocolPair(InputProtocol, OutputProtocol) if (
   isTProtocol!InputProtocol && isTProtocol!OutputProtocol
 ) {}
+
+/**
+ * true if T represents a Thrift service.
+ */
+template isService(T) {
+  enum isService = isBaseService!T || isDerivedService!T;
+}
+
+/**
+ * true if T represents a Thrift service not derived from another service.
+ */
+template isBaseService(T) {
+  static if(is(T _ == interface) &&
+    (!is(T TBases == super) || TBases.length == 0)
+  ) {
+    enum isBaseService = true;
+  } else {
+    enum isBaseService = false;
+  }
+}
+
+/**
+ * true if T represents a Thrift service derived from another service.
+ */
+template isDerivedService(T) {
+  static if(is(T _ == interface) &&
+    is(T TBases == super) && TBases.length == 1
+  ) {
+    enum isDerivedService = true;
+  } else {
+    enum isDerivedService = false;
+  }
+}
+
+/**
+ * For derived services, gets the base service interface.
+ */
+template BaseService(T) if (isDerivedService!T) {
+  alias BaseTypeTuple!T[0] BaseService;
+}
 
 /*
  * Removes all type qualifiers from T.
