@@ -75,26 +75,23 @@ d_opensslmodules = $(addprefix thrift/internal/c/openssl/, asn1 bio crypto err \
 d_openssldir = $(d_cdir)/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d, $(d_opensslmodules)))
 
-d_modules = $(d_thriftmodules) $(d_asyncmodules) \
+
+d_publicmodules = $(d_thriftmodules) $(d_asyncmodules) \
 	$(d_codegenmodules) $(d_protocolmodules) $(d_servermodules) \
-	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules) \
+	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules)
+d_publicsources = $(addprefix src/, $(addsuffix .d, $(d_publicmodules)))
+
+d_modules = $($d_publicmodules) \
 	$(d_internalmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -w -wi -lib $(d_sources)
+	$(DMD) -oflibthriftd -w -wi -lib $^
 
-docs: $(d_sources)
-	$(DMD) -D -c -o- -Isrc -Dddocs $(d_thrift_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/async $(d_async_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/codegen $(d_codegen_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/protocol $(d_protocol_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/server $(d_server_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/server/transport $(d_servertransport_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/transport $(d_transport_DATA)
-	$(DMD) -D -c -o- -Isrc -Dddocs/util $(d_util_DATA)
+docs: $(d_publicsources) src/thrift/index.d
+	dil ddoc docs -hl --kandil $^
 
-all-local: libthriftd.a docs
+all-local: libthriftd.a
 
 clean-local:
 	$(RM) -rf docs libthriftd.a unittest
