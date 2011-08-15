@@ -27,8 +27,8 @@ import std.socket;
 import thrift.async.base;
 import thrift.transport.base;
 import thrift.transport.socket : TSocketBase;
-import thrift.util.endian;
-import thrift.util.socket;
+import thrift.internal.endian;
+import thrift.internal.socket;
 
 version (Windows) {
   import std.c.windows.winsock : connect, sockaddr, sockaddr_in;
@@ -135,11 +135,20 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     // is being established in the background. Queue up a work item with the
     // async manager which just defers any other operations on this
     // TAsyncSocket instance until the socket is ready.
-    asyncManager_.execute(TAsyncWorkItem(this, {
+    asyncManager_.execute(this, {
       auto fiber = Fiber.getThis();
+      TAsyncEventReason reason;
       asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
-        (TAsyncEventReason reason){ fiber.call(); });
+        connectTimeout,
+        (TAsyncEventReason r){ reason = r; fiber.call(); }
+      );
       Fiber.yield();
+
+      if (reason == TAsyncEventReason.TIMED_OUT) {
+        // Close the connection, so that subsequent work items fail immediately.
+        close();
+        return;
+      }
 
       int errorFlag;
       socket_.getOption(SocketOptionLevel.SOCKET, cast(SocketOption)SO_ERROR,
@@ -149,7 +158,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
         // Close the connection, so that subsequent work items fail immediately.
         close();
       }
-    }));
+    });
   }
 
   /**
@@ -190,7 +199,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
 
     typeof(getSocketErrno()) lastErrno;
 
-    auto r = yieldOnEagain(socket_.receive(cast(void[])buf),
+    auto r = yieldOnBlock(socket_.receive(cast(void[])buf),
       TAsyncEventType.READ);
 
     // If recv went fine, immediately return.
@@ -222,7 +231,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     enforce(isOpen, new TTransportException(
       "Cannot write if socket is not open.", TTransportException.Type.NOT_OPEN));
 
-    auto r = yieldOnEagain(socket_.send(buf), TAsyncEventType.WRITE);
+    auto r = yieldOnBlock(socket_.send(buf), TAsyncEventType.WRITE);
 
     // Everything went well, just return the number of bytes written.
     if (r > 0) return r;
@@ -246,8 +255,12 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       TTransportException.Type.UNKNOWN);
   }
 
+  /// The amount of time in which a conncetion must be established before the
+  /// open() call times out.
+  Duration connectTimeout = dur!"seconds"(5);
+
 private:
-  T yieldOnEagain(T)(lazy T call, TAsyncEventType eventType) {
+  T yieldOnBlock(T)(lazy T call, TAsyncEventType eventType) {
     while (true) {
       auto result = call();
       if (result != Socket.ERROR || getSocketErrno() != WOULD_BLOCK_ERRNO) return result;
@@ -276,6 +289,8 @@ private:
         }
       );
 
+      // Yields execution back to the async manager, will return back here once
+      // the above listener is called.
       Fiber.yield();
 
       if (eventReason == TAsyncEventReason.TIMED_OUT) {
@@ -284,8 +299,8 @@ private:
         // to send the requested data later, or we could have already been half-
         // way into writing a request. Thus, we close the connection to make any
         // possibly queued up work items fail immediately. Besides, the server
-        // is unlikely to immediately recover after a socket-level timeout has
-        // experienced anyway.
+        // is not very likely to immediately recover after a socket-level
+        // timeout has expired anyway.
         close();
 
         throw new TTransportException(

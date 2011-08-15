@@ -24,13 +24,16 @@ import thrift.protocol.processor;
 import thrift.server.base;
 import thrift.server.transport.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
  * The most basic server.
  *
- * It is single-threaded and runs a continuous loop of accepting a single
- * connection, processing requests on that connection until it closes, and
- * then repeating. It is a good example of how to extend the TServer interface.
+ * It is single-threaded and after it accepts a connections, it processes
+ * requests on it until it closes, then waiting for the next connection.
+ *
+ * It is not so much of use in production than it is for writin unittests, or
+ * as an example on how to provide a custom TServer implementation.
  */
 class TSimpleServer : TServer {
   ///
@@ -56,20 +59,12 @@ class TSimpleServer : TServer {
       outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
   }
 
-  override void serve() {
-    try {
-      // Start the server listening
-      serverTransport.listen();
-    } catch (TTransportException ttx) {
-      logError("listen() failed: %s", ttx);
-      return;
-    }
+  override void serve(TCancellation cancellation = null) {
+    serverTransport_.listen();
 
-    if (eventHandler) eventHandler.preServe();
+    if (eventHandler_) eventHandler_.preServe();
 
-    // While we didn't get notified to stop, just accept a client connection
-    // after the next and process it.
-    while (!stop_) {
+    while (true) {
       TTransport client;
       TTransport inputTransport;
       TTransport outputTransport;
@@ -77,41 +72,40 @@ class TSimpleServer : TServer {
       TProtocol outputProtocol;
 
       try {
-        client = serverTransport.accept();
+        client = serverTransport_.accept(cancellation);
         scope(failure) client.close();
 
-        inputTransport = inputTransportFactory.getTransport(client);
+        inputTransport = inputTransportFactory_.getTransport(client);
         scope(failure) inputTransport.close();
 
-        outputTransport = outputTransportFactory.getTransport(client);
+        outputTransport = outputTransportFactory_.getTransport(client);
         scope(failure) outputTransport.close();
 
-        inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
-        outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
+        inputProtocol = inputProtocolFactory_.getProtocol(inputTransport);
+        outputProtocol = outputProtocolFactory_.getProtocol(outputTransport);
+      } catch (TCancelledException tcx) {
+        break;
       } catch (TTransportException ttx) {
-        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
+        logError("TServerTransport failed on accept: %s", ttx);
         continue;
       } catch (TException tx) {
         logError("Caught TException on accept: %s", tx);
         continue;
-      } catch (Exception e) {
-        logError("Unknown exception on accept, stopping: %s", e);
-        break;
       }
 
       Variant connectionContext;
-      if (eventHandler) {
+      if (eventHandler_) {
         connectionContext =
-          eventHandler.createContext(inputProtocol, outputProtocol);
+          eventHandler_.createContext(inputProtocol, outputProtocol);
       }
 
       try {
         while (true) {
-          if (eventHandler) {
-            eventHandler.preProcess(connectionContext, client);
+          if (eventHandler_) {
+            eventHandler_.preProcess(connectionContext, client);
           }
 
-          if (!processor.process(inputProtocol, outputProtocol,
+          if (!processor_.process(inputProtocol, outputProtocol,
             connectionContext) || !inputProtocol.transport.peek()
           ) {
             // Something went fundamentlly wrong or there is nothing more to
@@ -125,8 +119,8 @@ class TSimpleServer : TServer {
         logError("Uncaught exception: %s", e);
       }
 
-      if (eventHandler) {
-        eventHandler.deleteContext(connectionContext, inputProtocol,
+      if (eventHandler_) {
+        eventHandler_.deleteContext(connectionContext, inputProtocol,
           outputProtocol);
       }
 
@@ -147,21 +141,10 @@ class TSimpleServer : TServer {
       }
     }
 
-    if (stop_) {
-      try {
-        serverTransport.close();
-      } catch (TTransportException ttx) {
-        logError("TServerTransport failed on close: %s", ttx);
-      }
-      stop_ = false;
+    try {
+      serverTransport_.close();
+    } catch (TServerTransportException e) {
+      logError("Server transport failed to close(): %s", e);
     }
   }
-
-  override void stop() {
-    stop_ = true;
-    serverTransport.interrupt();
-  }
-
-protected:
-  bool stop_;
 }

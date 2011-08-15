@@ -26,10 +26,14 @@ import std.conv : to;
 import std.exception : enforce;
 import std.socket;
 import thrift.base;
+import thrift.internal.socket;
 import thrift.server.transport.base;
 import thrift.transport.base;
 import thrift.transport.socket;
-import thrift.util.socket;
+import thrift.util.awaitable;
+import thrift.util.cancellation;
+
+private alias TServerTransportException STE;
 
 /**
  * Server socket implementation of TServerTransport.
@@ -53,6 +57,8 @@ class TServerSocket : TServerTransport {
     port_ = port;
     sendTimeout_ = sendTimeout;
     recvTimeout_ = recvTimeout;
+
+    cancellationNotifier_ = new TSocketNotifier;
   }
 
   /// The port the server socket listens at.
@@ -91,82 +97,60 @@ class TServerSocket : TServerTransport {
   }
 
   override void listen() {
-    try {
-      auto pair = socketPair();
-      intSendSocket_ = pair[0];
-      intRecvSocket_ = pair[1];
-    } catch (SocketException e) {
-      throw new TTransportException("Could not create interrupt socket pair: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
-    }
+    enforce(!isListening, new STE(STE.Type.ALREADY_LISTENING));
 
     serverSocket_ = makeSocketAndListen(port_, ACCEPT_BACKLOG, retryLimit_,
       retryDelay_, tcpSendBuffer_, tcpRecvBuffer_);
   }
 
   override void close() {
-    assert(serverSocket_, "Called close() on non-listening TServerSocket.");
+    enforce(isListening, new STE(STE.Type.NOT_LISTENING));
+
     serverSocket_.shutdown(SocketShutdown.BOTH);
     serverSocket_.close();
     serverSocket_ = null;
-
-    intSendSocket_.close();
-    intSendSocket_ = null;
-
-    intRecvSocket_.close();
-    intRecvSocket_ = null;
   }
 
-  override void interrupt() {
-    assert(intSendSocket_, "Called interrupt() on non-listening TServerSocket.");
-    // Just ping the interrupt socket to throw acceptImpl() out of the
-    // select() call.
-    intSendSocket_.send(cast(void[])[0]);
+  override bool isListening() {
+    return serverSocket_ !is null;
   }
 
   /// Number of connections listen() backlogs.
   enum ACCEPT_BACKLOG = 1024;
 
-protected:
-  override TTransport acceptImpl() {
-    assert(serverSocket_, "Called accept() on non-listening TServerSocket.");
+  override TTransport accept(TCancellation cancellation = null) {
+    enforce(isListening, new STE(STE.Type.NOT_LISTENING));
 
-    // EINTR needs to be handled manually and we can tolerate a certain
-    // number.
+    if (cancellation) cancellationNotifier_.attach(cancellation.triggering);
+    scope (exit) if (cancellation) cancellationNotifier_.detach();
+
+
+    // Too many EINTRs is a fault condition and would need to be handled
+    // manually by our caller, but we can tolerate a certain number.
     enum MAX_EINTRS = 5;
-
     uint numEintrs;
 
     while (true) {
+      // Avoid reallocating this?
       auto set = new SocketSet(2);
       set.add(serverSocket_);
-      set.add(intRecvSocket_);
+      set.add(cancellationNotifier_.socket);
 
       auto ret = Socket.select(set, null, null);
-      enforce(ret != 0, new TTransportException("Socket.select() returned 0.",
-        TTransportException.Type.UNKNOWN));
+      enforce(ret != 0, new STE("Socket.select() returned 0.",
+        STE.Type.RESOURCE_FAILED));
 
       if (ret < 0) {
         // error cases
         if (errno == EINTR && (numEintrs++ < MAX_EINTRS)) {
           continue;
         }
-        throw new TTransportException("Unknown error on Socket.select()",
-          TTransportException.Type.UNKNOWN, errno);
+        throw new STE("Unknown error on Socket.select(): " ~
+          socketErrnoString(getSocketErrno()), STE.Type.RESOURCE_FAILED);
       } else {
         // Check for a ping on the interrupt socket.
-        if (set.isSet(intRecvSocket_)) {
-          ubyte[1] buf;
-          try {
-            auto result = intRecvSocket_.receive(buf);
-            if (result == Socket.ERROR) {
-              logError("Error receiving interrupt message: %s",
-                socketErrnoString(getSocketErrno()));
-            }
-          } catch (SocketException e) {
-            logError("Error receiving interrupt message: %s", e);
-          }
-          throw new TTransportException(TTransportException.Type.INTERRUPTED);
+        if (set.isSet(cancellationNotifier_.socket)) {
+          cancellation.throwIfTriggered();
         }
 
         // Check for the actual server socket having a connection waiting.
@@ -182,8 +166,8 @@ protected:
       client.recvTimeout = recvTimeout_;
       return client;
     } catch (SocketException e) {
-      throw new TTransportException("Unknown error on accepting: " ~
-        to!string(e), TTransportException.Type.UNKNOWN);
+      throw new STE("Unknown error on accepting: " ~ to!string(e),
+        STE.Type.RESOURCE_FAILED);
     }
   }
 
@@ -204,8 +188,7 @@ private:
   uint tcpRecvBuffer_;
 
   Socket serverSocket_;
-  Socket intRecvSocket_;
-  Socket intSendSocket_;
+  TSocketNotifier cancellationNotifier_;
 }
 
 Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
@@ -216,8 +199,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
     socket = new Socket(AddressFamily.INET, SocketType.STREAM,
       ProtocolType.TCP);
   } catch (SocketException e) {
-    throw new TTransportException("Could not create accepting socket: " ~
-      to!string(e), TTransportException.Type.NOT_OPEN);
+    throw new STE("Could not create accepting socket: " ~ to!string(e),
+      STE.Type.RESOURCE_FAILED);
   }
 
   alias SocketOptionLevel.SOCKET lvlSock;
@@ -226,8 +209,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   try {
     socket.setOption(lvlSock, SocketOption.REUSEADDR, true);
   } catch (SocketException e) {
-    throw new TTransportException("Could not set REUSEADDR socket option: " ~
-      to!string(e), TTransportException.Type.NOT_OPEN);
+    throw new STE("Could not set REUSEADDR socket option: " ~ to!string(e),
+      STE.Type.RESOURCE_FAILED);
   }
 
   // Set TCP buffer sizes.
@@ -235,8 +218,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
     try {
       socket.setOption(lvlSock, SocketOption.SNDBUF, tcpSendBuffer);
     } catch (SocketException e) {
-      throw new TTransportException("Could not set socket send buffer size: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
+      throw new STE("Could not set socket send buffer size: " ~ to!string(e),
+        STE.Type.RESOURCE_FAILED);
     }
   }
 
@@ -244,8 +227,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
     try {
       socket.setOption(lvlSock, SocketOption.RCVBUF, tcpRecvBuffer);
     } catch (SocketException e) {
-      throw new TTransportException("Could not set receive send buffer size: " ~
-        to!string(e), TTransportException.Type.NOT_OPEN);
+      throw new STE("Could not set receive send buffer size: " ~ to!string(e),
+        STE.Type.RESOURCE_FAILED);
     }
   }
 
@@ -253,8 +236,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   try {
     socket.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
   } catch (SocketException e) {
-    throw new TTransportException("Could not disable socket linger: " ~
-      to!string(e), TTransportException.Type.NOT_OPEN);
+    throw new STE("Could not disable socket linger: " ~ to!string(e),
+      STE.Type.RESOURCE_FAILED);
   }
 
   // Set TCP_NODELAY. Do not fail hard as root privileges might be required
@@ -262,8 +245,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   try {
     socket.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
   } catch (SocketException e) {
-    throw new TTransportException("Could not disable Nagle's algorithm: " ~
-      to!string(e), TTransportException.Type.NOT_OPEN);
+    throw new STE("Could not disable Nagle's algorithm: " ~ to!string(e),
+      STE.Type.RESOURCE_FAILED);
   }
 
   // TODO: Find IPv6 address once std.socket is no longer IPv4-only.
@@ -281,8 +264,7 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
     if (retries < retryLimit) {
       Thread.sleep(retryDelay);
     } else {
-      throw new TTransportException("Could not bind.",
-        TTransportException.Type.NOT_OPEN);
+      throw new STE("Could not bind.", STE.Type.RESOURCE_FAILED);
     }
   }
 
@@ -297,19 +279,17 @@ unittest {
     sock.listen();
     scope (exit) sock.close();
 
+    auto cancellation = new TCancellationOrigin;
+
     auto intThread = new Thread({
       // Sleep for a bit until the socket is accepting.
-      Thread.sleep(dur!"msecs"(1));
-      sock.interrupt();
+      Thread.sleep(dur!"msecs"(50));
+      cancellation.trigger();
     });
     intThread.start();
 
-    try {
-      sock.accept();
-      throw new Exception("Didn't interrupt, test failed.");
-    } catch (TTransportException e) {
-      if (e.type != TTransportException.Type.INTERRUPTED) throw e;
-    }
+    import std.exception;
+    assertThrown!TCancelledException(sock.accept(cancellation));
   }
 
   // Test receive() timeout on accepted client sockets.

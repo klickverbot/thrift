@@ -19,7 +19,7 @@
 module async_test_common;
 
 import thrift.base;
-import thrift.codegen;
+import thrift.codegen.base;
 
 interface AsyncTest {
   string echo(string value);

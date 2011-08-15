@@ -18,51 +18,116 @@
  */
 module thrift.server.transport.base;
 
+import thrift.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
- * An interface enabling servers to listen for incoming client connections and
- * to create TTransports for them.
+ * Some kind of I/O device enabling servers to listen for incoming client
+ * connections and communicate with them via a TTransport interface.
  */
-abstract class TServerTransport {
+interface TServerTransport {
   /**
    * Starts listening for server connections.
    *
-   * As usual, does not block.
+   * Just as simliar functions commonly found in socket libraries, this
+   * function does not block.
+   *
+   * If the socket is already listening, nothing happens.
+   *
+   * Throws: TServerTransportException if listening failed or the transport
+   *   was already listening.
    */
-  abstract void listen();
+  void listen();
+
+  /**
+   * Closes the server transport, causing it to stop listening.
+   *
+   * Throws: TServerTransportException if the transport was not listening.
+   */
+  void close();
+
+  /**
+   * Returns whether the server transport is currently listening.
+   */
+  bool isListening();
 
   /**
    * Accepts a client connection and returns an opened TTransport for it,
    * never returning null.
    *
-   * Like your average accept() call, blocks until a client connection is
-   * available.
+   * Blocks until a client connection is available.
    *
-   * Throws: TTransportException if accepting failed.
+   * Params:
+   *   cancellation = If triggered, requests the call to stop blocking and
+   *     return with a TCancelledException. Implementations are free to
+   *     ignore this if they cannot provide a reasonable.
+   *
+   * Throws: TServerTransportException if accepting failed,
+   *   TCancelledException if it was cancelled.
    */
-  final TTransport accept() {
-    auto transport = acceptImpl();
-    if (transport is null) {
-      throw new TTransportException("accept() may not return null.");
-    }
-    return transport;
+  TTransport accept(TCancellation cancellation = null) out (result) {
+    assert(result !is null);
+  }
+}
+
+/**
+ * Server transport exception.
+ */
+class TServerTransportException : TException {
+  /**
+   * Error codes for the various types of exceptions.
+   */
+  enum Type {
+    ///
+    UNKNOWN,
+
+    /// The server socket is not listening, but excepted to be.
+    NOT_LISTENING,
+
+    /// The server socket is already listening, but expected not to be.
+    ALREADY_LISTENING,
+
+    /// An operation on the primary underlying resource, e.g. a socket used
+    /// for accepting connections, failed.
+    RESOURCE_FAILED
   }
 
-  /**
-   * Closes the server transport, causing it to stop listening.
-   */
-  abstract void close();
+  ///
+  this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
+    string msg = "TTransportException: ";
+    switch (type) {
+      case Type.UNKNOWN: msg ~= "Unknown server transport exception"; break;
+      case Type.NOT_LISTENING: msg ~= "Server transport not listening"; break;
+      case Type.ALREADY_LISTENING: msg ~= "Server transport already listening"; break;
+      case Type.RESOURCE_FAILED: msg ~= "An underlying resource failed"; break;
+      default: msg ~= "(Invalid exception type)"; break;
+    }
 
-  /**
-   * Optional method implementation. This signals to the server transport
-   * that it should break out of any accept() or listen() that it is currently
-   * blocked on. This method, if implemented, MUST be thread safe, as it may
-   * be called from a different thread context than the other TServerTransport
-   * methods.
-   */
-  void interrupt() {}
+    this(msg, type, file, line, next);
+  }
+
+  ///
+  this(string msg, string file = __FILE__, size_t line = __LINE__,
+    Throwable next = null)
+  {
+    this(msg, Type.UNKNOWN, file, line, next);
+  }
+
+  ///
+  this(string msg, Type type, string file = __FILE__, size_t line = __LINE__,
+    Throwable next = null)
+  {
+    super(msg, file, line, next);
+    type_ = type;
+  }
+
+  ///
+  Type type() const nothrow @property {
+    return type_;
+  }
 
 protected:
-  abstract TTransport acceptImpl();
+  Type type_;
 }
+

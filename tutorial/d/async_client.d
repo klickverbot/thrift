@@ -23,7 +23,8 @@ import std.stdio;
 import thrift.async.libevent;
 import thrift.async.socket;
 import thrift.base;
-import thrift.codegen;
+import thrift.codegen.async_client;
+import thrift.codegen.async_client_pool;
 import thrift.protocol.binary;
 import thrift.transport.buffered;
 
@@ -38,11 +39,11 @@ void main() {
   scope (exit) asyncManager.stop();
 
   auto socket = new TAsyncSocket(asyncManager, "localhost", 9090);
-  auto client = new TAsyncClient!Calculator(
+  auto client = new TAsyncFallbackClientPool!Calculator([new TAsyncClient!Calculator(
     socket,
     new TBufferedTransportFactory,
     new TBinaryProtocolFactory!(TBufferedTransport)
-  );
+  )]);
 
   socket.open();
 

@@ -24,6 +24,7 @@ import thrift.protocol.binary;
 import thrift.protocol.processor;
 import thrift.server.transport.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
  * Base class for all Thrift servers.
@@ -39,33 +40,20 @@ class TServer {
    * Blocks until the server finishes, i.e. stop() has been called or a
    * problem occured.
    */
-  abstract void serve();
-
-  /**
-   * Signals the server to shut down.
-   */
-  void stop() {}
-
-  TProcessor processor; ///
-  TServerTransport serverTransport; ///
-  TTransportFactory inputTransportFactory; ///
-  TTransportFactory outputTransportFactory; ///
-  TProtocolFactory inputProtocolFactory; ///
-  TProtocolFactory outputProtocolFactory; ///
-  TServerEventHandler eventHandler; ///
+  abstract void serve(TCancellation cancellation = null);
 
 protected:
   this(TProcessor processor) {
-    this.processor = processor;
-    this.inputTransportFactory = new TTransportFactory;
-    this.outputTransportFactory = new TTransportFactory;
-    this.inputProtocolFactory = new TBinaryProtocolFactory!();
-    this.outputProtocolFactory = new TBinaryProtocolFactory!();
+    processor_ = processor;
+    inputTransportFactory_ = new TTransportFactory;
+    outputTransportFactory_ = new TTransportFactory;
+    inputProtocolFactory_ = new TBinaryProtocolFactory!();
+    outputProtocolFactory_ = new TBinaryProtocolFactory!();
   }
 
   this(TProcessor processor, TServerTransport serverTransport) {
     this(processor);
-    this.serverTransport = serverTransport;
+    serverTransport_ = serverTransport;
   }
 
   this(
@@ -74,12 +62,12 @@ protected:
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory
   ) {
-    this.processor = processor;
-    this.serverTransport = serverTransport;
-    this.inputTransportFactory = transportFactory;
-    this.outputTransportFactory = transportFactory;
-    this.inputProtocolFactory = protocolFactory;
-    this.outputProtocolFactory = protocolFactory;
+    processor_ = processor;
+    serverTransport_ = serverTransport;
+    inputTransportFactory_ = transportFactory;
+    outputTransportFactory_ = transportFactory;
+    inputProtocolFactory_ = protocolFactory;
+    outputProtocolFactory_ = protocolFactory;
   }
 
   this(
@@ -90,13 +78,21 @@ protected:
     TProtocolFactory inputProtocolFactory,
     TProtocolFactory outputProtocolFactory
   ) {
-    this.processor = processor;
-    this.serverTransport = serverTransport;
-    this.inputTransportFactory = inputTransportFactory;
-    this.outputTransportFactory = outputTransportFactory;
-    this.inputProtocolFactory = inputProtocolFactory;
-    this.outputProtocolFactory = outputProtocolFactory;
+    processor_ = processor;
+    serverTransport_ = serverTransport;
+    inputTransportFactory_ = inputTransportFactory;
+    outputTransportFactory_ = outputTransportFactory;
+    inputProtocolFactory_ = inputProtocolFactory;
+    outputProtocolFactory_ = outputProtocolFactory;
   }
+
+  TProcessor processor_;
+  TServerTransport serverTransport_;
+  TTransportFactory inputTransportFactory_;
+  TTransportFactory outputTransportFactory_;
+  TProtocolFactory inputProtocolFactory_;
+  TProtocolFactory outputProtocolFactory_;
+  TServerEventHandler eventHandler_;
 }
 
 /**

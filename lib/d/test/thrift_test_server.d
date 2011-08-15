@@ -26,8 +26,7 @@ import std.string;
 import std.stdio;
 import std.typetuple : TypeTuple, staticMap;
 import thrift.base;
-import thrift.codegen;
-import thrift.hashset;
+import thrift.codegen.processor;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.compact;
@@ -40,6 +39,7 @@ import thrift.transport.buffered;
 import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.ssl;
+import thrift.util.hashset;
 import test_utils;
 
 import thrift_test_common;

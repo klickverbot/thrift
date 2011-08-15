@@ -23,9 +23,10 @@ import std.exception : collectException, enforce;
 import std.getopt;
 import std.stdio;
 import std.string;
-import thrift.codegen;
 import thrift.async.libevent;
 import thrift.async.socket;
+import thrift.codegen.async_client;
+import thrift.codegen.async_client_pool;
 import thrift.protocol.binary;
 import thrift.transport.base;
 import thrift.transport.buffered;
@@ -51,11 +52,11 @@ void main(string[] args) {
 
   scope asyncManager = new TLibeventAsyncManager;
   auto socket = new TAsyncSocket(asyncManager, host, port);
-  auto client = new TAsyncClient!AsyncTest(
+  auto client = createTAsyncFastestClientPool([new TAsyncClient!AsyncTest(
     socket,
     new TBufferedTransportFactory,
     new TBinaryProtocolFactory!TBufferedTransport
-  );
+  )]);
 
   foreach (i; 0 .. numIterations) {
     socket.open();
@@ -70,9 +71,9 @@ void main(string[] args) {
     {
       if (trace) write(`Calling delayedEcho("bar", 100 ms)... `);
       auto a = client.delayedEcho("bar", 100);
-      enforce(!a.wait(dur!"msecs"(10)), "wait() succeded early.");
-      enforce(!a.wait(dur!"msecs"(10)), "wait() succeded early.");
-      enforce(a.wait(dur!"msecs"(100)), "wait() didn't succeed as expected.");
+      enforce(!a.completion.wait(dur!"msecs"(10)), "wait() succeded early.");
+      enforce(!a.completion.wait(dur!"msecs"(10)), "wait() succeded early.");
+      enforce(a.completion.wait(dur!"msecs"(100)), "wait() didn't succeed as expected.");
       enforce(a.get() == "bar");
       if (trace) writeln(`done.`);
     }
@@ -87,9 +88,9 @@ void main(string[] args) {
     {
       if (trace) write(`Calling delayedFail("bar", 100 ms)... `);
       auto a = client.delayedFail("bar", 100);
-      enforce(!a.wait(dur!"msecs"(10)), "wait() succeded early.");
-      enforce(!a.wait(dur!"msecs"(10)), "wait() succeded early.");
-      enforce(a.wait(dur!"msecs"(100)), "wait() didn't succeed as expected.");
+      enforce(!a.completion.wait(dur!"msecs"(10)), "wait() succeded early.");
+      enforce(!a.completion.wait(dur!"msecs"(10)), "wait() succeded early.");
+      enforce(a.completion.wait(dur!"msecs"(100)), "wait() didn't succeed as expected.");
       auto e = cast(AsyncTestException)collectException(a.get());
       enforce(e && e.reason == "bar");
       if (trace) writeln(`done.`);

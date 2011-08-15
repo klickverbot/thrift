@@ -37,7 +37,7 @@ interface TTransport {
    *
    * While a transport should always be open when trying to read/write data,
    * the related functions do not necessarily fail when called for a closed
-   * transport. Situations like this could occur e. g. with a wrapper
+   * transport. Situations like this could occur e.g. with a wrapper
    * transport which buffers data when the underlying transport has already
    * been closed (possibly because the connection was abruptly closed), but
    * there is still data left to be read in the buffers. This choice has been
@@ -272,9 +272,11 @@ protected:
 }
 
 /**
- * Makes a TTransport given a source transport. This is commonly used inside
- * server implementations to wrap the raw client connections into e.g. a
- * buffered or compressed transport.
+ * Makes a TTransport wrapping a given source transport in some way.
+ *
+ * A common use case is inside server implementations, where the raw client
+ * connections accepted from e.g. TServerSocket need to be wrapped into
+ * buffered or compressed transports.
  */
 class TTransportFactory {
   /**
@@ -289,13 +291,11 @@ class TTransportFactory {
  * Transport factory for transports which simply wrap an underlying TTransport
  * without requiring additional configuration.
  */
-template TWrapperTransportFactory(T) if (
+class TWrapperTransportFactory(T) if (
   is(T : TTransport) && __traits(compiles, new T(TTransport.init))
-) {
-  class TWrapperTransportFactory : TTransportFactory {
-    override T getTransport(TTransport trans) {
-      return new T(trans);
-    }
+)  : TTransportFactory {
+  override T getTransport(TTransport trans) {
+    return new T(trans);
   }
 }
 
@@ -350,13 +350,6 @@ class TTransportException : TException {
   {
     super(msg, file, line, next);
     type_ = type;
-  }
-
-  ///
-  this(string msg, Type type, int errno, string file = __FILE__,
-    size_t line = __LINE__, Throwable next = null)
-  {
-    this(text(": ", strerror(errno)), type, file, line, next);
   }
 
   ///

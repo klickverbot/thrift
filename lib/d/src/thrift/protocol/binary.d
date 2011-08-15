@@ -22,7 +22,7 @@ import std.array : uninitializedArray;
 import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
-import thrift.util.endian;
+import thrift.internal.endian;
 
 /**
  * TProtocol implementation of the Binary Thrift protocol.
@@ -286,7 +286,7 @@ private:
 
 /**
  * TBinaryProtocol construction helper to avoid having to explicitly specify
- * the protocol types, i.e. to allow the constructor being called using IFTI
+ * the transport type, i.e. to allow the constructor being called using IFTI
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */

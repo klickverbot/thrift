@@ -20,7 +20,7 @@ module server;
 
 import std.conv : to;
 import std.stdio;
-import thrift.codegen;
+import thrift.codegen.processor;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;

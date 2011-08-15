@@ -25,6 +25,7 @@ import thrift.protocol.processor;
 import thrift.server.base;
 import thrift.server.transport.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
  * A simple threaded server which spawns a new thread per connection.
@@ -33,94 +34,81 @@ class TThreadedServer : TServer {
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport,
+    TServerTransport serverTransport_,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory
   ) {
-    super(processor, serverTransport, transportFactory, protocolFactory);
+    super(processor, serverTransport_, transportFactory, protocolFactory);
   }
 
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport,
-    TTransportFactory inputTransportFactory,
-    TTransportFactory outputTransportFactory,
-    TProtocolFactory inputProtocolFactory,
-    TProtocolFactory outputProtocolFactory
+    TServerTransport serverTransport_,
+    TTransportFactory inputTransportFactory_,
+    TTransportFactory outputTransportFactory_,
+    TProtocolFactory inputProtocolFactory_,
+    TProtocolFactory outputProtocolFactory_
   ) {
-    super(processor, serverTransport, inputTransportFactory,
-      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
+    super(processor, serverTransport_, inputTransportFactory_,
+      outputTransportFactory_, inputProtocolFactory_, outputProtocolFactory_);
   }
 
-  override void serve() {
-    TTransport client;
-    TTransport inputTransport;
-    TTransport outputTransport;
-    TProtocol inputProtocol;
-    TProtocol outputProtocol;
-
+  override void serve(TCancellation cancellation = null) {
     try {
       // Start the server listening
-      serverTransport.listen();
+      serverTransport_.listen();
     } catch (TTransportException ttx) {
       logError("listen() failed: %s", ttx);
       return;
     }
 
-    if (eventHandler) eventHandler.preServe();
+    if (eventHandler_) eventHandler_.preServe();
 
     auto workerThreads = new ThreadGroup();
 
-    // Fetch client from server
-    while (!stop_) {
+    while (true) {
+      TTransport client;
+      TTransport inputTransport;
+      TTransport outputTransport;
+      TProtocol inputProtocol;
+      TProtocol outputProtocol;
+
       try {
-        client = serverTransport.accept();
+        client = serverTransport_.accept(cancellation);
         scope(failure) client.close();
 
-        inputTransport = inputTransportFactory.getTransport(client);
+        inputTransport = inputTransportFactory_.getTransport(client);
         scope(failure) inputTransport.close();
 
-        outputTransport = outputTransportFactory.getTransport(client);
+        outputTransport = outputTransportFactory_.getTransport(client);
         scope(failure) outputTransport.close();
 
-        inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
-        outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
+        inputProtocol = inputProtocolFactory_.getProtocol(inputTransport);
+        outputProtocol = outputProtocolFactory_.getProtocol(outputTransport);
+      } catch (TCancelledException tce) {
+        break;
       } catch (TTransportException ttx) {
-        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
+        logError("TServerTransport failed on accept: %s", ttx);
         continue;
       } catch (TException tx) {
         logError("Caught TException on accept: %s", tx);
         continue;
-      } catch (Exception e) {
-        logError("Unknown exception on accept, stopping: %s", e);
-        break;
       }
 
       auto worker = new WorkerThread(client, inputProtocol, outputProtocol,
-        processor, eventHandler);
+        processor_, eventHandler_);
       workerThreads.add(worker);
       worker.start();
     }
 
-    if (stop_) {
-      try {
-        serverTransport.close();
-      } catch (TTransportException ttx) {
-        logError("TServerTransport failed on close: %s", ttx);
-      }
-      workerThreads.joinAll();
-      stop_ = false;
+    try {
+      serverTransport_.close();
+    } catch (TServerTransportException e) {
+      logError("Server transport failed to close: %s", e);
     }
+    workerThreads.joinAll();
   }
-
-  override void stop() {
-    stop_ = true;
-    serverTransport.interrupt();
-  }
-
-protected:
-  bool stop_;
 }
 
 // The worker thread handling a client connection.

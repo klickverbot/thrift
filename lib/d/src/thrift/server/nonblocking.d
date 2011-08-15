@@ -40,10 +40,12 @@ import core.memory : GC;
 import core.time : Duration, dur;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
-import std.socket;
+import std.socket : Socket, socketPair, SocketAcceptException, SocketException;
 import thrift.base;
-import thrift.c.event.event;
-import thrift.c.event.event_compat;
+import thrift.internal.c.event.event;
+import thrift.internal.c.event.event_compat;
+import thrift.internal.endian;
+import thrift.internal.socket;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
@@ -53,8 +55,7 @@ import thrift.transport.base;
 import thrift.transport.memory;
 import thrift.transport.range;
 import thrift.transport.socket;
-import thrift.util.endian;
-import thrift.util.socket;
+import thrift.util.cancellation;
 
 /**
  * Possible actions taken on new incoming connections when the server is
@@ -89,14 +90,14 @@ class TNonblockingServer : TServer {
   this(
     TProcessor processor,
     ushort port,
-    TTransportFactory inputTransportFactory,
-    TTransportFactory outputTransportFactory,
-    TProtocolFactory inputProtocolFactory,
-    TProtocolFactory outputProtocolFactory,
+    TTransportFactory inputTransportFactory_,
+    TTransportFactory outputTransportFactory_,
+    TProtocolFactory inputProtocolFactory_,
+    TProtocolFactory outputProtocolFactory_,
     TaskPool taskPool = null
   ) {
-    super(processor, null, inputTransportFactory, outputTransportFactory,
-      inputProtocolFactory, outputProtocolFactory);
+    super(processor, null, inputTransportFactory_, outputTransportFactory_,
+      inputProtocolFactory_, outputProtocolFactory_);
     port_ = port;
 
     eventBase_ = event_base_new();
@@ -128,7 +129,9 @@ class TNonblockingServer : TServer {
     eventBase_ = null;
   }
 
-  override void serve() {
+  override void serve(TCancellation cancellation = null) {
+    // TODO: Implement cancellation.
+
     // Initialize the listening socket.
     // TODO: SO_KEEPALIVE, TCP_LOW_MIN_RTO, etc.
     listenSocket_ = makeSocketAndListen(port_, TServerSocket.ACCEPT_BACKLOG,
@@ -150,13 +153,12 @@ class TNonblockingServer : TServer {
       throw new TException("event_add for the listening socket event failed.");
     }
 
-    // Enter the libevent loop – never returns.
-    if (eventHandler) eventHandler.preServe();
+    if (eventHandler_) eventHandler_.preServe();
     event_base_loop(eventBase_, 0);
   }
 
   /**
-   * Returns the number of currently active connections, i. e. open sockets.
+   * Returns the number of currently active connections, i.e. open sockets.
    */
   size_t getNumConnections() const {
     return numConnections_;
@@ -282,7 +284,7 @@ class TNonblockingServer : TServer {
 
   /**
    * Every N calls we check the buffer size limits on a connected Connection.
-   * 0 disables (i. e. the checks are only done when a connection closes).
+   * 0 disables (i.e. the checks are only done when a connection closes).
    */
   uint resizeBufferEveryN;
 
@@ -461,7 +463,7 @@ private:
       auto result = new Connection(socket, flags, this);
 
       // Make sure the connection does not get collected while it is active,
-      // i. e. hooked up with libevent.
+      // i.e. hooked up with libevent.
       GC.addRoot(cast(void*)result);
 
       return result;
@@ -567,7 +569,7 @@ private {
     SEND_RESULT /// The result is written back out.
   }
 
-  /**
+  /*
    * Represents a connection that is handled via libevent. This connection
    * essentially encapsulates a socket that has some associated libevent state.
    */
@@ -616,15 +618,15 @@ private {
 
       registerEvent(eventFlags);
 
-      factoryInputTransport_ = s.inputTransportFactory.getTransport(inputTransport_);
-      factoryOutputTransport_ = s.outputTransportFactory.getTransport(outputTransport_);
+      factoryInputTransport_ = s.inputTransportFactory_.getTransport(inputTransport_);
+      factoryOutputTransport_ = s.outputTransportFactory_.getTransport(outputTransport_);
 
-      inputProtocol_ = s.inputProtocolFactory.getProtocol(factoryInputTransport_);
-      outputProtocol_ = s.outputProtocolFactory.getProtocol(factoryOutputTransport_);
+      inputProtocol_ = s.inputProtocolFactory_.getProtocol(factoryInputTransport_);
+      outputProtocol_ = s.outputProtocolFactory_.getProtocol(factoryOutputTransport_);
 
-      if (s.eventHandler) {
+      if (s.eventHandler_) {
         connectionContext_ =
-          s.eventHandler.createContext(inputProtocol_, outputProtocol_);
+          s.eventHandler_.createContext(inputProtocol_, outputProtocol_);
       }
     }
 
@@ -660,7 +662,7 @@ private {
     /**
      * Transitions the connection to the next state.
      *
-     * This is called e. g. when the request has been read completely or all
+     * This is called e.g. when the request has been read completely or all
      * the data has been written back.
      */
     void transition() {
@@ -986,8 +988,8 @@ private {
     void close() {
       unregisterEvent();
 
-      if (server_.eventHandler) {
-        server_.eventHandler.deleteContext(
+      if (server_.eventHandler_) {
+        server_.eventHandler_.deleteContext(
           connectionContext_, inputProtocol_, outputProtocol_);
       }
 
@@ -1031,7 +1033,7 @@ private {
     /// the wire is specified as one.
     int readWant_;
 
-    /// The position in the read buffer, i. e. the number of payload bytes
+    /// The position in the read buffer, i.e. the number of payload bytes
     /// already received from the socket in READ_REQUEST state, resp. the
     /// number of size bytes in READ_FRAME_SIZE state.
     uint readBufferPos_;
@@ -1083,11 +1085,11 @@ void processRequest(Connection connection) {
   try {
     while (true) {
       with (connection) {
-        if (server_.eventHandler) {
-          server_.eventHandler.preProcess(connectionContext_, socket_);
+        if (server_.eventHandler_) {
+          server_.eventHandler_.preProcess(connectionContext_, socket_);
         }
 
-        if (!server_.processor.process(inputProtocol_, outputProtocol_,
+        if (!server_.processor_.process(inputProtocol_, outputProtocol_,
           connectionContext_) || !inputProtocol_.transport.peek()
         ) {
           // Something went fundamentally wrong or there is nothing more to

@@ -360,7 +360,7 @@ private:
 }
 
 /**
- * Wraps given transports into TFramedTransports.
+ * Wraps given transports into TZlibTransports.
  */
 alias TWrapperTransportFactory!TZlibTransport TZlibTransportFactory;
 

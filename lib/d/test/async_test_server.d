@@ -22,7 +22,7 @@ import core.thread : dur, Thread;
 import std.getopt;
 import std.parallelism : TaskPool;
 import std.stdio;
-import thrift.codegen;
+import thrift.codegen.processor;
 import thrift.protocol.binary;
 import thrift.server.simple;
 import thrift.server.transport.socket;

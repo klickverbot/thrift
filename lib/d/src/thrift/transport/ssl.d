@@ -35,17 +35,17 @@ import std.conv : emplace, to;
 import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
-import thrift.c.openssl.asn1;
-import thrift.c.openssl.bio;
-import thrift.c.openssl.crypto;
-import thrift.c.openssl.err;
-import thrift.c.openssl.objects;
-import thrift.c.openssl.rand;
-import thrift.c.openssl.safestack;
-import thrift.c.openssl.ssl;
-import thrift.c.openssl.x509;
-import thrift.c.openssl.x509_vfy;
-import thrift.c.openssl.x509v3;
+import thrift.internal.c.openssl.asn1;
+import thrift.internal.c.openssl.bio;
+import thrift.internal.c.openssl.crypto;
+import thrift.internal.c.openssl.err;
+import thrift.internal.c.openssl.objects;
+import thrift.internal.c.openssl.rand;
+import thrift.internal.c.openssl.safestack;
+import thrift.internal.c.openssl.ssl;
+import thrift.internal.c.openssl.x509;
+import thrift.internal.c.openssl.x509_vfy;
+import thrift.internal.c.openssl.x509v3;
 import thrift.transport.base;
 import thrift.transport.socket;
 
@@ -653,10 +653,11 @@ private:
  * object.
  */
 class TAccessManager {
+  ///
   enum Decision {
-    DENY   = -1,    // deny access
-    SKIP   =  0,    // cannot make decision, move on to next (if any)
-    ALLOW  =  1     // allow access
+    DENY = -1, /// Deny access.
+    SKIP =  0, /// Cannot decide, move on to next check (deny if last).
+    ALLOW = 1  /// Allow access.
   }
 
   /**

@@ -636,8 +636,8 @@ class t_d_generator : public t_oop_generator {
   void print_default_imports(ostream& out) {
     indent(out) <<
       "import thrift.base;" << endl <<
-      "import thrift.codegen;" << endl <<
-      "import thrift.hashset;" << endl <<
+      "import thrift.codegen.base;" << endl <<
+      "import thrift.util.hashset;" << endl <<
       endl;
   }
 

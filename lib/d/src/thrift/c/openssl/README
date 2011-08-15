@@ -1,6 +1,0 @@
-This package contains a direct translation of those parts
-of the OpenSSL headers needed for Thrift SSL support.
-
-They currently live in the thrift.c package as to not
-collide with any more comprehensive, already installed
-modules.

@@ -18,8 +18,8 @@
  */
 
 /**
- * Contains support infrastructure for handling coroutine-based asynchronous/
- * non-blocking operations, as used by thrift.codegen.TAsyncClient.
+ * Defines the interface used for client-side handling of asynchronous
+ * I/O operations, based on coroutines.
  *
  * The main piece of the »client side« (e.g. for TAsyncClient users) of the
  * API is TFuture, which represents an asynchronously executed operation,
@@ -28,44 +28,47 @@
  *
  * On the »implementation side«, the idea is that by using a TAsyncTransport
  * instead of a normal TTransport and executing the work through a
- * TAsyncManager, the same code as for synchronous I/O can be reused in
- * between them, for example:
+ * TAsyncManager, the same code as for synchronous I/O can be used for
+ * asynchronous operation as well, for example:
  *
  * ---
- * auto asyncManager = someTAsyncSocketManager();
- * auto socket = new TAsyncSocket(asyncManager, host, port);
- * …
- * asyncManager.execute(TAsyncWorkItem(socket, {
+ * auto socket = new TAsyncSocket(someTAsyncSocketManager(), host, port);
+ * // …
+ * socket.asyncManager.execute(socket, {
  *   SomeThriftStruct s;
+ *
+ *   // Waiting for socket I/O will not block an entire thread but cause
+ *   // the async manager to execute another task in the meantime, because
+ *   // we are using TAsyncSocket instead of TSocket.
  *   s.read(socket);
+ *
  *   // Do something with s, e.g. set a TPromise result to it.
+ *   writeln(s);
  * });
  * ---
  */
 module thrift.async.base;
 
-import core.atomic;
-import core.sync.condition;
-import core.sync.mutex;
 import core.time : Duration, dur;
-import std.socket;
+import std.socket/+ : Socket+/; // DMD @@BUG314@@
 import thrift.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
  * Manages one or more asynchronous transport resources (e.g. sockets in the
  * case of TAsyncSocketManager) and allows work items to be submitted for them.
  *
- * Implementations will typically run a background thread for executing the
- * work, which is one of the reasons for a TAsyncManager to be used. Each work
- * item is run in its own fiber and is expected to yield() away while it is
- * waiting for a time-consuming operation.
+ * Implementations will typically run one or more background threads for
+ * executing the work, which is one of the reasons for a TAsyncManager to be
+ * used. Each work item is run in its own fiber and is expected to yield() away
+ * while waiting for time-consuming operations.
  *
  * The second important purpose of TAsyncManager is to serialize access to
- * the transport resources – without taking care of that, things would go
- * horribly wrong for example when issuing multiple RPC calls over the same
- * connection in rapid succession, so that more than one piece of client code
- * tries to write to the socket at the same time.
+ * the transport resources – without taking care of that, e.g. issuing multiple
+ * RPC calls over the same connection in rapid succession would likely lead to
+ * more than one request being written at the same time, causing only garbage
+ * to arrive at the remote end.
  *
  * All methods are thread-safe.
  */
@@ -73,11 +76,76 @@ interface TAsyncManager {
   /**
    * Submits a work item to be executed asynchronously.
    *
+   * Access to asnyc transports is serialized – if two work items associated
+   * with the same transport are submitted, the second delegate will not be
+   * invoked until the first has returned, even it the latter context-switches
+   * away (because it is waiting for I/O) and the async manager is idle
+   * otherwise.
+   *
+   * Optionally, a TCancellation instance can be specified. If present,
+   * triggering it will be considered a request to cancel the work item, if it
+   * is still waiting for the associated transport to become available.
+   * Delegates which are already being processed (i.e. waiting for I/O) are not
+   * affected because this would bring the connection into an undefined state
+   * (as probably half-written request or a half-read response would be left
+   * behind).
+   *
+   * Params:
+   *   transport = The TAsyncTransport the work delegate will operate on. Must
+   *     be associated with this TAsyncManager instance.
+   *   work = The operations to execute on the given transport. Must never
+   *     throw, errors should be handled in another way. nothrow semantics are
+   *     difficult to enforce in combination with fibres though, so currently
+   *     exceptions are just swallowed by TAsyncManager implementations.
+   *   cancellation = If set, can be used to request cancellatinon of this work
+   *     item if it is still waiting to be executed.
+   *
    * Note: The work item will likely be executed in a different thread, so make
    *   sure the code it relies on is thread-safe. An exception are the async
-   *   transports themselves, to which access is serialized, as noted above.
+   *   transports themselves, to which access is serialized as noted above.
    */
-  void execute(TAsyncWorkItem work);
+  void execute(TAsyncTransport transport, void delegate() work,
+    TCancellation cancellation = null
+  ) in {
+    assert(transport.asyncManager is this,
+      "The given transport must be associated with this TAsyncManager.");
+  }
+
+  /**
+   * Submits a delegate to be executed after a certain amount of time has
+   * passed.
+   *
+   * The actual amount of time elapsed can be higher if the async manager
+   * instance is busy and thus should not be relied on. The
+   *
+   * Params:
+   *   duration = The amount of time to wait before starting to execute the
+   *     work delegate.
+   *   work = The code to execute after the specified amount of time has passed.
+   *
+   * Example:
+   * ---
+   * // A very basic example – usually, the actuall work item would enqueue
+   * // some async transport operation.
+   * auto asyncMangager = someAsyncManager();
+   *
+   * TFuture!int calculate() {
+   *   // Create a promise and asynchronously set its value after three
+   *   // seconds have passed.
+   *   auto promise = new TPromise!int;
+   *   asyncManager.delay(dur!"seconds"(3), {
+   *     promise.succeed(42);
+   *   });
+   *
+   *   // Immediately return it to the caller.
+   *   return promise;
+   * }
+   *
+   * // This will wait until the result is available and then print it.
+   * writeln(calculate().waitGet());
+   * ---
+   */
+  void delay(Duration duration, void delegate() work);
 
   /**
    * Shuts down all background threads or other facilities that might have
@@ -86,8 +154,8 @@ interface TAsyncManager {
    *
    * If there are still tasks to be executed when the timeout expires, any
    * currently executed work items will never receive any notifications
-   * for async transports managed by this instance, and queued work items will
-   * be silently dropped.
+   * for async transports managed by this instance, queued work items will
+   * be silently dropped, and implementations are allowed to leak resources.
    *
    * Params:
    *   waitFinishTimeout = If positive, waits for all work items to be
@@ -99,7 +167,14 @@ interface TAsyncManager {
 }
 
 /**
- * A transport which uses a TAsyncManager to schedule non-blocking operations.
+ * A TTransport which uses a TAsyncManager to schedule non-blocking operations.
+ *
+ * The actual type of device is not specified; typically, implementations will
+ * depend on an interface derived from TAsyncManager to be notified of changes
+ * in the transport state.
+ *
+ * The peeking, reading, writing and flushing methods must always be called
+ * from within the associated async manager.
  */
 interface TAsyncTransport : TTransport {
   /**
@@ -109,25 +184,7 @@ interface TAsyncTransport : TTransport {
 }
 
 /**
- * A work item operating on an TAsyncTransport, which can be executed
- * by a TAsyncManager.
- */
-struct TAsyncWorkItem {
-  /// The async transport the task to execute operates on.
-  TAsyncTransport transport;
-
-  /// The task to execute. While pretty much anything could be passed in
-  /// theory, it should be something which relies on the given transport
-  /// in practice for the concept to make sense.
-  /// Note: Executing the task should never throw, errors should be handled
-  /// in another way. nothrow semantics are difficult to enforce in combination
-  /// with fibres though, so currently exceptions are typically just swallowed
-  /// by TAsyncManager implementations.
-  void delegate() work;
-}
-
-/**
- * A TAsyncManager supporting async operations/notifications for sockets.
+ * A TAsyncManager providing notificiations for socket events.
  */
 interface TAsyncSocketManager : TAsyncManager {
   /**
@@ -142,11 +199,11 @@ interface TAsyncSocketManager : TAsyncManager {
    *   listener = The delegate to call when an event happened.
    */
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
-    Duration timeout, SocketEventListener listener);
+    Duration timeout, TSocketEventListener listener);
 
   /// Ditto
   void addOneshotListener(Socket socket, TAsyncEventType eventType,
-    SocketEventListener listener);
+    TSocketEventListener listener);
 }
 
 /**
@@ -160,7 +217,7 @@ enum TAsyncEventType {
 /**
  * The type of the delegates used to register socket event handlers.
  */
-alias void delegate(TAsyncEventReason callReason) SocketEventListener;
+alias void delegate(TAsyncEventReason callReason) TSocketEventListener;
 
 /**
  * The reason a listener was called.
@@ -168,391 +225,4 @@ alias void delegate(TAsyncEventReason callReason) SocketEventListener;
 enum TAsyncEventReason : byte {
   NORMAL, /// The event listened for was triggered normally.
   TIMED_OUT /// A timeout for the event was set, and it expired.
-}
-
-/**
- * Represents an operation which is executed asynchronously and the result of
- * which will become available at some point in the future.
- *
- * Once a operation is completed, the result of the operation can be fetched
- * via the get() family of methods. There are three possible cases: Either the
- * operation succeeded, then its return value is returned, or it failed by
- * throwing, in which case the exception is rethrown, or it was cancelled
- * before, then a TOperationCancelledException is thrown.
- *
- * All methods are thread-safe, but keep in mind that any exception object or
- * result (if it is a reference type, of course) is shared between all
- * get()-family invocations.
- */
-interface TFuture(ResultType) {
-  /**
-   * The status the operation is currently in.
-   *
-   * An operation starts out in RUNNING state, and changes state to one of the
-   * others at most once afterwards.
-   */
-  TFutureStatus status() const @property;
-
-  /**
-   * Waits until the result is available.
-   *
-   * Calling wait() on an operation that is already completed is a no-op.
-   */
-  void wait() out {
-    // DMD @@BUG6108@.
-    version(none) assert(state != TFutureStatus.RUNNING);
-  }
-
- /**
-  * Waits until the result is available, or the specified timeout expired.
-  *
-  * Calling wait() on an operation that is already completed is a no-op.
-  *
-  * Returns: false if the operation was still running after waiting the
-  *   specified duration, true otherwise.
-  */
-  bool wait(Duration timeout) out (result) {
-    // DMD @@BUG6108@.
-    version(none) assert(!result || state != TFutureStatus.RUNNING);
-  }
-
-  /**
-   * Waits until the result is available and returns it (resp. throws an
-   * exception for the failed/cancelled cases).
-   *
-   * If the operation has already completed, the result is immediately
-   * returned.
-   *
-   * The result of this method is »alias this«'d to the interface, so that
-   * TFuture can be used as a drop-in replacement for a simple value in
-   * synchronous code.
-   */
-  ResultType waitGet();
-  alias waitGet this;
-
-  /**
-   * Waits until the result is available or the timeout expires.
-   *
-   * If the operation completes in time, returns its result (resp. throws an
-   * exception for the failed/cancelled cases). If not, throws a
-   * TFutureException.
-   */
-  ResultType waitGet(Duration timeout);
-
-  /**
-   * Returns the result of the operation.
-   *
-   * Throws: TFutureException if the operation has been cancelled,
-   *   TOperationCancelledException if it is not yet done; the set exception
-   *   if it failed.
-   */
-  ResultType get();
-
-  /**
-   * Returns the captured exception if the operation failed, or null otherwise.
-   *
-   * Throws: TFutureException if not yet done, TOperationCancelledException
-   *   if the operation has been cancelled.
-   */
-  Exception getException();
-
-  /**
-   * Requests cancellation for the operation, i.e. indicates that the result
-   * will not be needed and the operation can be stopped to free resources,
-   * if possible.
-   *
-   * If cancel() is called on a not yet completed operation, subsequent calls
-   * to the get() family of functions are expected, but not required, to fail
-   * with a TOperationCancelledException. If it is called on an already
-   * compled operation, nothing happens.
-   */
-  void cancel();
-
-  /**
-   * Registers a callback that is called if the operation completes.
-   *
-   * The delegate will likely be invoked from a different thread, and should
-   * not perform expensive work as a typical implementation will usually call
-   * them in a synchronous fashion.
-   *
-   * The completion callback must never throw, but nothrow semantics are
-   * difficult to enforce, so currently exceptions are just swallowed by
-   * TFuture implementations.
-   *
-   * If the operation is already completed, the delegate is immediately
-   * executed in the current thread.
-   */
-  void addCompletionCallback(void delegate(TFuture) dg);
-}
-
-/**
- * The states the operation offering a future interface can be in.
- */
-enum TFutureStatus : byte {
-  RUNNING, /// The operation is still running.
-  SUCCEEDED, /// The operation completed without throwing an exception.
-  FAILED, /// The operation completed by throwing an exception.
-  CANCELLED /// The operation was cancelled.
-}
-
-/**
- * A TFuture covering the simple but common case where the result is simply
- * set by a call to succeed()/fail().
- *
- * All methods are thread-safe, but usually, succeed()/fail() are only called
- * from a single thread (different from the thread(s) waiting for the result
- * using the TFuture interface, though).
- */
-class TPromise(ResultType) : TFuture!ResultType {
-  this() {
-    statusMutex_ = new Mutex;
-    statusCondition_ = new Condition(statusMutex_);
-  }
-
-  override void wait() {
-    synchronized (statusMutex_) {
-      while (atomicLoad(status_) == S.RUNNING) statusCondition_.wait();
-    }
-  }
-
-  override bool wait(Duration timeout) {
-    synchronized (statusMutex_) {
-      statusCondition_.wait(timeout);
-    }
-    // Make return value depend on the actual status_ instead of the return
-    // value of Condition.wait() so that we never return true if the result
-    // is not available, even in case of spurious wakeups. I am not sure if
-    // they can actually happen for timed waits as well, but in any case they
-    // should be rare enough to not warrant more expensive timeout checking.
-    return atomicLoad(status_) != S.RUNNING;
-  }
-
-  override ResultType waitGet() {
-    wait();
-    return get();
-  }
-
-  override ResultType waitGet(Duration timeout) {
-    enforce(wait(timeout), new TFutureException(
-      "Operation did not complete in time."));
-    return get();
-  }
-
-  override S status() const @property {
-    return atomicLoad(status_);
-  }
-
-  override ResultType get() {
-    auto status = atomicLoad(status_);
-    enforce(status != S.RUNNING,
-      new TFutureException("Operation not yet completed."));
-
-    if (status == S.CANCELLED) throw new TOperationCancelledException;
-    if (status == S.FAILED) throw exception_;
-
-    static if (!is(ResultType == void)) {
-      return result_;
-    }
-  }
-
-  override Exception getException() {
-    auto status = atomicLoad(status_);
-    enforce(status != S.RUNNING,
-      new TFutureException("Operation not yet completed."));
-
-    if (status == S.CANCELLED) throw new TOperationCancelledException;
-
-    return exception_;
-  }
-
-  override void cancel() {
-    synchronized (statusMutex_) {
-      auto status = atomicLoad(status_);
-      if (status == S.RUNNING) atomicStore(status, S.CANCELLED);
-    }
-  }
-
-  void addCompletionCallback(void delegate(TFuture!ResultType) dg) {
-    // We have to avoid that the operation completes after we have checked
-    // that it is running, but before we have added the delegate to the list.
-    statusMutex_.lock();
-    scope (failure) statusMutex_.unlock();
-
-    auto status = atomicLoad(status_);
-    if (status != S.RUNNING) {
-      statusMutex_.unlock();
-      dg(this);
-      return;
-    }
-
-    completionCallbacks_ ~= dg;
-    statusMutex_.unlock();
-  }
-
-  static if (!is(ResultType == void)) {
-    /**
-     * Sets the result of the operation, marks it as done, and notifies any
-     * waiters.
-     *
-     * If the operation has been cancelled before, nothing happens.
-     *
-     * Throws: TFutureException if the operation is already completed.
-     */
-    void succeed(ResultType result) {
-      synchronized (statusMutex_) {
-        auto status = atomicLoad(status_);
-        if (status == S.CANCELLED) return;
-
-        enforce(status == S.RUNNING,
-          new TFutureException("Operation already completed."));
-        result_ = result;
-
-        atomicStore(status_, S.SUCCEEDED);
-        statusCondition_.notifyAll();
-      }
-
-      executeCallbacks();
-    }
-  } else {
-    void succeed() {
-      synchronized (statusMutex_) {
-        auto status = atomicLoad(status_);
-        if (status == S.CANCELLED) return;
-
-        enforce(status == S.RUNNING,
-          new TFutureException("Operation already completed."));
-
-        atomicStore(status_, S.SUCCEEDED);
-
-        statusCondition_.notifyAll();
-      }
-
-      executeCallbacks();
-    }
-  }
-
-  /**
-   * Marks the operation as failed with the specified exception and notifies
-   * any waiters.
-   *
-   * If the operation was already cancelled, nothing happens.
-   *
-   * Throws: TFutureException if the operation is already completed.
-   */
-  void fail(Exception exception) {
-    synchronized (statusMutex_) {
-      auto status = atomicLoad(status_);
-      if (status == S.CANCELLED) return;
-
-      enforce(status == S.RUNNING,
-        new TFutureException("Operation already completed."));
-      exception_ = exception;
-
-      atomicStore(status_, S.FAILED);
-      statusCondition_.notifyAll();
-    }
-
-    executeCallbacks();
-  }
-
-
-  /**
-   * Marks this operation as completed and takes over the outcome of another
-   * TFuture of the same type.
-   *
-   * If this operation was already cancelled, nothing happens. If the other
-   * operation was cancelled, this operation is marked as failed with a
-   * TOperationCancelledException.
-   *
-   * Throws: TFutureException if the passed in future was not completed or
-   *   this operation is already completed.
-   */
-  void complete(TFuture!ResultType future) {
-    S status;
-    synchronized (statusMutex_) {
-      status = atomicLoad(status_);
-      if (status == S.CANCELLED) return;
-      enforce(status == S.RUNNING,
-        new TFutureException("Operation already completed."));
-
-      enforce(future.status != S.RUNNING, new TFutureException(
-        "The passed TFuture is not yet completed."));
-
-      status = future.status;
-      if (status == S.CANCELLED) {
-        status = S.FAILED;
-        exception_ = new TOperationCancelledException;
-      } else if (status == S.FAILED) {
-        exception_ = future.getException();
-      } else static if (!is(ResultType == void)) {
-        result_ = future.get();
-      }
-
-      atomicStore(status_, status);
-      statusCondition_.notifyAll();
-    }
-
-    if (status != S.CANCELLED) {
-      executeCallbacks();
-    }
-  }
-
-private:
-  void executeCallbacks() {
-    assert(status != S.CANCELLED);
-    foreach (c; completionCallbacks_){
-      try {
-        c(this);
-      } catch (Exception e) {
-        logError("Exception thrown by completion callback: %s", e);
-      }
-    }
-  }
-
-  // Convenience alias because TFutureStatus is ubiquitous in this class.
-  alias TFutureStatus S;
-
-  // The status the promise is currently in.
-  shared S status_;
-
-  union {
-    static if (!is(ResultType == void)) {
-      // Set if status_ is SUCCEEDED.
-      ResultType result_;
-    }
-    // Set if status_ is FAILED.
-    Exception exception_;
-  }
-
-  // Protects status_ and, indirectly, completionCallbacks_.
-  // As for result_ and exception_: They are only set once, while status_ is
-  // still RUNNING, so given that the operation has already completed, reading
-  // them is safe without holding some kind of lock.
-  Mutex statusMutex_;
-
-  // Triggered if status_ has changed from RUNNING.
-  Condition statusCondition_;
-
-  // The callbacks registerd to be invoked on completion.
-  void delegate(TFuture!ResultType)[] completionCallbacks_;
-}
-
-///
-class TFutureException : TException {
-  ///
-  this(string msg = "", string file = __FILE__, size_t line = __LINE__,
-    Throwable next = null)
-  {
-    super(msg, file, line, next);
-  }
-}
-
-///
-class TOperationCancelledException : TException {
-  ///
-  this(string msg = "", string file = __FILE__, size_t line = __LINE__,
-    Throwable next = null)
-  {
-    super(msg, file, line, next);
-  }
 }

@@ -21,14 +21,14 @@ module stress_test_server;
 import std.getopt;
 import std.stdio;
 import std.typetuple;
-import thrift.codegen;
-import thrift.hashset;
+import thrift.codegen.processor;
 import thrift.protocol.binary;
 import thrift.server.base;
 import thrift.server.transport.socket;
 import thrift.transport.buffered;
 import thrift.transport.memory;
 import thrift.transport.socket;
+import thrift.util.hashset;
 import test_utils;
 
 import thrift.test.stress.Service;

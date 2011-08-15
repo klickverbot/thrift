@@ -28,6 +28,7 @@ import thrift.protocol.processor;
 import thrift.server.base;
 import thrift.server.transport.base;
 import thrift.transport.base;
+import thrift.util.cancellation;
 
 /**
  * A server which dispatches client request to a std.parallelism TaskPool.
@@ -36,49 +37,36 @@ class TTaskPoolServer : TServer {
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport,
+    TServerTransport serverTransport_,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory
   ) {
-    this(processor, serverTransport, transportFactory, transportFactory,
+    this(processor, serverTransport_, transportFactory, transportFactory,
       protocolFactory, protocolFactory);
   }
 
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport,
-    TTransportFactory inputTransportFactory,
-    TTransportFactory outputTransportFactory,
-    TProtocolFactory inputProtocolFactory,
-    TProtocolFactory outputProtocolFactory
+    TServerTransport serverTransport_,
+    TTransportFactory inputTransportFactory_,
+    TTransportFactory outputTransportFactory_,
+    TProtocolFactory inputProtocolFactory_,
+    TProtocolFactory outputProtocolFactory_
   ) {
-    super(processor, serverTransport, inputTransportFactory,
-      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
+    super(processor, serverTransport_, inputTransportFactory_,
+      outputTransportFactory_, inputProtocolFactory_, outputProtocolFactory_);
     taskPool_ = std.parallelism.taskPool;
   }
 
-  override void serve() {
-    TTransport client;
-    TTransport inputTransport;
-    TTransport outputTransport;
-    TProtocol inputProtocol;
-    TProtocol outputProtocol;
+  override void serve(TCancellation cancellation = null) {
+    serverTransport_.listen();
 
-    try {
-      // Start the server listening
-      serverTransport.listen();
-    } catch (TTransportException ttx) {
-      logError("listen() failed: %s", ttx);
-      return;
-    }
-
-    if (eventHandler) eventHandler.preServe();
+    if (eventHandler_) eventHandler_.preServe();
 
     auto queueState = QueueState();
 
-    // Fetch client from server
-    while (!stop_) {
+    while (true) {
       // Check if we can still handle more connections.
       if (maxActiveConns) {
         synchronized (queueState.mutex) {
@@ -88,58 +76,54 @@ class TTaskPoolServer : TServer {
         }
       }
 
+      TTransport client;
+      TTransport inputTransport;
+      TTransport outputTransport;
+      TProtocol inputProtocol;
+      TProtocol outputProtocol;
+
       try {
-        client = serverTransport.accept();
+        client = serverTransport_.accept(cancellation);
         scope(failure) client.close();
 
-        inputTransport = inputTransportFactory.getTransport(client);
+        inputTransport = inputTransportFactory_.getTransport(client);
         scope(failure) inputTransport.close();
 
-        outputTransport = outputTransportFactory.getTransport(client);
+        outputTransport = outputTransportFactory_.getTransport(client);
         scope(failure) outputTransport.close();
 
-        inputProtocol = inputProtocolFactory.getProtocol(inputTransport);
-        outputProtocol = outputProtocolFactory.getProtocol(outputTransport);
+        inputProtocol = inputProtocolFactory_.getProtocol(inputTransport);
+        outputProtocol = outputProtocolFactory_.getProtocol(outputTransport);
+      } catch (TCancelledException tce) {
+        break;
       } catch (TTransportException ttx) {
-        if (!stop_) logError("TServerTransport failed on accept: %s", ttx);
+        logError("TServerTransport failed on accept: %s", ttx);
         continue;
       } catch (TException tx) {
         logError("Caught TException on accept: %s", tx);
         continue;
-      } catch (Exception e) {
-        logError("Unknown exception on accept, stopping: %s", e);
-        break;
       }
 
       synchronized (queueState.mutex) {
         ++queueState.activeConns;
       }
       taskPool_.put(task!worker(queueState, client, inputProtocol,
-        outputProtocol, processor, eventHandler));
+        outputProtocol, processor_, eventHandler_));
     }
 
-    if (stop_) {
-      // First, stop accepting new connections.
-      try {
-        serverTransport.close();
-      } catch (TTransportException ttx) {
-        logError("TServerTransport failed on close: %s", ttx);
-      }
-
-      // Then, wait until all active connections are finished.
-      synchronized (queueState.mutex) {
-        while (queueState.activeConns > 0) {
-          queueState.connClosed.wait();
-        }
-      }
-
-      stop_ = false;
+    // First, stop accepting new connections.
+    try {
+      serverTransport_.close();
+    } catch (TServerTransportException e) {
+      logError("Server transport failed to close: %s", e);
     }
-  }
 
-  override void stop() {
-    stop_ = true;
-    serverTransport.interrupt();
+    // Then, wait until all active connections are finished.
+    synchronized (queueState.mutex) {
+      while (queueState.activeConns > 0) {
+        queueState.connClosed.wait();
+      }
+    }
   }
 
   /**
@@ -168,7 +152,6 @@ class TTaskPoolServer : TServer {
   size_t maxActiveConns;
 
 protected:
-  bool stop_;
   TaskPool taskPool_;
 }
 
@@ -202,7 +185,7 @@ protected:
 
   void worker(ref QueueState queueState, TTransport client,
     TProtocol inputProtocol, TProtocol outputProtocol,
-    TProcessor processor, TServerEventHandler eventHandler)
+    TProcessor processor, TServerEventHandler eventHandler_)
   {
     scope (exit) {
       synchronized (queueState.mutex) {
@@ -213,15 +196,15 @@ protected:
     }
 
     Variant connectionContext;
-    if (eventHandler) {
+    if (eventHandler_) {
       connectionContext =
-        eventHandler.createContext(inputProtocol, outputProtocol);
+        eventHandler_.createContext(inputProtocol, outputProtocol);
     }
 
     try {
       while (true) {
-        if (eventHandler) {
-          eventHandler.preProcess(connectionContext, client);
+        if (eventHandler_) {
+          eventHandler_.preProcess(connectionContext, client);
         }
 
         if (!processor.process(inputProtocol, outputProtocol,
@@ -238,8 +221,8 @@ protected:
       logError("Uncaught exception: %s", e);
     }
 
-    if (eventHandler) {
-      eventHandler.deleteContext(connectionContext, inputProtocol,
+    if (eventHandler_) {
+      eventHandler_.deleteContext(connectionContext, inputProtocol,
         outputProtocol);
     }
 

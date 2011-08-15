@@ -36,13 +36,15 @@ import thrift.protocol.base;
  */
 interface TProcessor {
   ///
-  bool process(TProtocol iprot, TProtocol oprot, Variant connectionContext) in {
+  bool process(TProtocol iprot, TProtocol oprot,
+    Variant connectionContext = Variant()
+  ) in {
     assert(iprot);
     assert(oprot);
   }
 
   ///
-  final bool process(TProtocol prot, Variant connectionContext) {
+  final bool process(TProtocol prot, Variant connectionContext = Variant()) {
     return process(prot, prot, connectionContext);
   }
 }

@@ -26,7 +26,7 @@ import std.exception : enforce;
 import std.socket;
 import thrift.base;
 import thrift.transport.base;
-import thrift.util.socket;
+import thrift.internal.socket;
 
 /**
  * Common parts of a socket TTransportImplementation, regardless of how the

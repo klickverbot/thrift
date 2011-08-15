@@ -19,23 +19,28 @@
 
 SUBDIRS = test
 
-d_thriftmodules = $(addprefix thrift/, base codegen hashset)
+d_thriftmodules = $(addprefix thrift/, base)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
-d_thrift_DATA = $(addprefix src/, $(addsuffix .d,$(d_thriftmodules)))
+d_thrift_DATA = $(addprefix src/, $(addsuffix .d, $(d_thriftmodules)))
 
 d_asyncmodules = $(addprefix thrift/async/, base libevent socket)
 d_asyncdir = $(d_thriftdir)/async
-d_async_DATA = $(addprefix src/, $(addsuffix .d,$(d_asyncmodules)))
+d_async_DATA = $(addprefix src/, $(addsuffix .d, $(d_asyncmodules)))
+
+d_codegenmodules = $(addprefix thrift/codegen/, async_client \
+ 	async_client_pool base client client_pool processor)
+d_codegendir = $(d_thriftdir)/codegen
+d_codegen_DATA = $(addprefix src/, $(addsuffix .d, $(d_codegenmodules)))
 
 d_protocolmodules = $(addprefix thrift/protocol/, base binary compact json \
 	processor)
 d_protocoldir = $(d_thriftdir)/protocol
-d_protocol_DATA = $(addprefix src/, $(addsuffix .d,$(d_protocolmodules)))
+d_protocol_DATA = $(addprefix src/, $(addsuffix .d, $(d_protocolmodules)))
 
 d_servermodules = $(addprefix thrift/server/, base simple nonblocking \
 	taskpool threaded)
 d_serverdir = $(d_thriftdir)/server
-d_server_DATA = $(addprefix src/, $(addsuffix .d,$(d_servermodules)))
+d_server_DATA = $(addprefix src/, $(addsuffix .d, $(d_servermodules)))
 
 d_servertransportmodules = $(addprefix thrift/server/transport/, base socket ssl)
 d_servertransportdir = $(d_thriftdir)/server/transport
@@ -45,40 +50,49 @@ d_servertransport_DATA = $(addprefix src/, $(addsuffix .d, \
 d_transportmodules = $(addprefix thrift/transport/, base buffered file \
 	framed http memory piped range socket ssl zlib)
 d_transportdir = $(d_thriftdir)/transport
-d_transport_DATA = $(addprefix src/, $(addsuffix .d,$(d_transportmodules)))
+d_transport_DATA = $(addprefix src/, $(addsuffix .d, $(d_transportmodules)))
 
-d_utilmodules = $(addprefix thrift/util/, endian socket)
+d_utilmodules = $(addprefix thrift/util/, awaitable cancellation future \
+	hashset resource_pool)
 d_utildir = $(d_thriftdir)/util
-d_util_DATA = $(addprefix src/, $(addsuffix .d,$(d_utilmodules)))
+d_util_DATA = $(addprefix src/, $(addsuffix .d, $(d_utilmodules)))
 
-d_cmodules = $(addprefix thrift/c/, loader)
-d_cdir = $(d_thriftdir)/c
-d_c_DATA = $(addprefix src/, $(addsuffix .d,$(d_cmodules)))
+d_internalmodules = $(addprefix thrift/internal/, algorithm ctfe endian \
+	socket traits)
+d_internaldir = $(d_thriftdir)/internal
+d_internal_DATA = $(addprefix src/, $(addsuffix .d, $(d_internalmodules)))
 
-d_eventmodules = $(addprefix thrift/c/event/, event event_compat loader)
-d_eventdir = $(d_thriftdir)/c/event
-d_event_DATA = $(addprefix src/, $(addsuffix .d,$(d_eventmodules)))
+d_cmodules = $(addprefix thrift/internal/c/, loader)
+d_cdir = $(d_internaldir)/c
+d_c_DATA = $(addprefix src/, $(addsuffix .d, $(d_cmodules)))
 
-d_opensslmodules = $(addprefix thrift/c/openssl/, asn1 bio crypto err \
+d_eventmodules = $(addprefix thrift/internal/c/event/, event event_compat loader)
+d_eventdir = $(d_cdir)/event
+d_event_DATA = $(addprefix src/, $(addsuffix .d, $(d_eventmodules)))
+
+d_opensslmodules = $(addprefix thrift/internal/c/openssl/, asn1 bio crypto err \
 	loader objects rand safestack ssl stack x509 x509_vfy x509v3)
-d_openssldir = $(d_thriftdir)/c/openssl
-d_openssl_DATA = $(addprefix src/, $(addsuffix .d,$(d_opensslmodules)))
+d_openssldir = $(d_cdir)/openssl
+d_openssl_DATA = $(addprefix src/, $(addsuffix .d, $(d_opensslmodules)))
 
-d_modules = $(d_thriftmodules) $(d_asyncmodules) $(d_protocolmodules) \
-	$(d_servermodules) $(d_servertransportmodules) $(d_transportmodules) \
-	$(d_utilmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
+d_modules = $(d_thriftmodules) $(d_asyncmodules) \
+	$(d_codegenmodules) $(d_protocolmodules) $(d_servermodules) \
+	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules) \
+	$(d_internalmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -w -lib $(d_sources)
+	$(DMD) -oflibthriftd -w -wi -lib $(d_sources)
 
 docs: $(d_sources)
 	$(DMD) -D -c -o- -Isrc -Dddocs $(d_thrift_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/async $(d_async_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/codegen $(d_codegen_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/protocol $(d_protocol_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/server $(d_server_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/server/transport $(d_servertransport_DATA)
 	$(DMD) -D -c -o- -Isrc -Dddocs/transport $(d_transport_DATA)
+	$(DMD) -D -c -o- -Isrc -Dddocs/util $(d_util_DATA)
 
 all-local: libthriftd.a docs
 

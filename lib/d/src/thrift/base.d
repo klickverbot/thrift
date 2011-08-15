@@ -30,10 +30,29 @@ class TException : Exception {
   }
 }
 
+/**
+ * An operation failed because one or more sub-tasks failed.
+ */
+class TCompoundOperationException : TException {
+  ///
+  this(string msg, Exception[] exceptions, string file = __FILE__,
+    size_t line = __LINE__, Throwable next = null)
+  {
+    super(msg, file, line, next);
+    this.exceptions = exceptions;
+  }
+
+  /// The exceptions thrown by the children of the operation.
+  Exception[] exceptions;
+}
+
+/// The Thrift version string, used for informative purposes.
+// Note: This is currently hardcoded, but will likely be filled in by the build
+// system in future versions.
 enum VERSION = "0.7.0 dev";
 
 /**
- * Thrift-internal logging functions.
+ * Functions used for logging inside Thrift.
  *
  * By default, the formatted messages are written to stdout/stderr, but this
  * behavior can be overwritten by providing custom g_{Info, Error}LogSink
@@ -41,7 +60,7 @@ enum VERSION = "0.7.0 dev";
  *
  * Examples:
  * ---
- * logInfo("An informative message.")
+ * logInfo("An informative message.");
  * logError("Some error occured: %s", e);
  * ---
  */

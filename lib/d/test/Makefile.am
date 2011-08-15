@@ -19,7 +19,7 @@
 
 # General build flags
 
-d_test_flags = -w -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
+d_test_flags = -w -wi -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
 	-L-L$(top_builddir)/lib/d -L-lthriftd $(DMD_LIBDL_FLAGS)
 
 

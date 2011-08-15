@@ -25,8 +25,7 @@ import std.getopt;
 import std.stdio;
 import std.string;
 import std.traits;
-import thrift.codegen;
-import thrift.hashset;
+import thrift.codegen.client;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.compact;
@@ -37,6 +36,7 @@ import thrift.transport.framed;
 import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
+import thrift.util.hashset;
 import test_utils;
 
 import thrift_test_common;
