@@ -81,7 +81,7 @@ d_publicmodules = $(d_thriftmodules) $(d_asyncmodules) \
 	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules)
 d_publicsources = $(addprefix src/, $(addsuffix .d, $(d_publicmodules)))
 
-d_modules = $($d_publicmodules) \
+d_modules = $(d_publicmodules) \
 	$(d_internalmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
