@@ -423,7 +423,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
       string code = "";
       bool first = true;
       foreach (i, name; __traits(derivedMembers, This)) {
-        static if (!is(MemberType!(This, name))) {
+        static if (!is(MemberType!(This, name)) || is(MemberType!(This, name) == void)) {
           // We hit something strange like the TStructHelpers template itself,
           // just ignore.
         } else {
@@ -452,7 +452,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
 
   private bool thriftOpEqualsImpl(const ref This rhs) const {
     foreach (i, name; __traits(derivedMembers, This)) {
-      static if (!is(MemberType!(This, name))) {
+      static if (!is(MemberType!(This, name)) || is(MemberType!(This, name) == void)) {
         // We hit something strange like the TStructHelpers template itself,
         // just ignore.
       } else {
@@ -541,7 +541,7 @@ template TIsSetFlags(T, alias fieldMetaData) {
   mixin({
     string boolDefinitions;
     foreach (name; __traits(derivedMembers, T)) {
-      static if (!is(MemberType!(T, name))) {
+      static if (!is(MemberType!(T, name)) || is(MemberType!(T, name) == void)) {
         // We hit something strange like the TStructHelpers template itself,
         // just ignore.
       } else {
@@ -695,7 +695,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     short lastId;
 
     foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) &&
+      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
         !isSomeFunction!(MemberType!(T, name)))
       {
         enum meta = find!`a.name == b`(fieldMetaData, name);
@@ -771,7 +771,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // block – the code wouldn't depend on it (this is an LDC bug, and because
     // of it a new array would be allocate on each method invocation at runtime).
     foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) &&
+      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
         !isSomeFunction!(MemberType!(T, name)))
       {
         static if (isNullable!(MemberType!(T, name))) {
@@ -875,7 +875,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     string code = "";
     foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) &&
+      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
         !isSomeFunction!(MemberType!(T, name)))
       {
         alias MemberType!(T, name) F;
