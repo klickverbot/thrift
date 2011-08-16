@@ -487,7 +487,8 @@ private {
  * Contrary to TAsync{Fallback, Fastest}ClientPool, this class does not
  * simply implement TFutureInterface!Interface. It manages a pool of clients
  * (technically, they could be any TFutureInterface!Interface implementation
- * here), but allows the user to specify a custom accumulator function to use.
+ * here), but allows the user to specify a custom accumulator function to use
+ * or to iterate over the results using a TFutureAggregatorRange.
  *
  * For each service method, TAsyncAggregatorClientPool offers a method
  * accepting the same arguments, and an optional TCancellation instance, just
