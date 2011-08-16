@@ -77,15 +77,15 @@ final class TCancellationOrigin : TCancellation {
     event_.trigger();
   }
 
-  override bool triggered() const @property {
+  /+override+/ bool triggered() const @property {
     return atomicLoad(triggered_);
   }
 
-  override void throwIfTriggered() const {
+  /+override+/ void throwIfTriggered() const {
     if (triggered) throw new TCancelledException;
   }
 
-  override TAwaitable triggering() @property {
+  /+override+/ TAwaitable triggering() @property {
     return event_;
   }
 
