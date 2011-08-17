@@ -254,7 +254,7 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
  * the protocol types, i.e. to allow the constructor being called using IFTI
  * (see $(DMDBUG 6082, D Bugzilla enhancement requet 6082)).
  */
-TClient!(Interface, Prot) TClient(Interface, Prot)(Prot prot) if (
+TClient!(Interface, Prot) createTClient(Interface, Prot)(Prot prot) if (
   isService!Interface && isTProtocol!Prot
 ) {
   return new TClient!(Interface, Prot)(prot);
