@@ -56,7 +56,7 @@ final class TResourcePool(Resource) {
    * Returns: Whether the resource could be found in the pool.
    */
   bool remove(Resource resource) {
-    auto removed = .remove!((a){ return a !is resource; })(resources_).length;
+    auto removed = removeEqual(resources_, resource).length;
     resources_ = resources_[0 .. $ - removed];
     return (removed > 0);
   }

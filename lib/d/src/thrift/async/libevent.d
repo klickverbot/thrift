@@ -275,7 +275,7 @@ private:
 
         case MsgType.CANCEL:
           auto queue = workQueues_[msg.transport];
-          auto removed = remove!((a){ return a !is msg.work; })(queue).length;
+          auto removed = removeEqual(queue, msg.work).length;
           if (removed > 0) {
             workQueues_[msg.transport] = queue[0 .. $ - removed];
           }

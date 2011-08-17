@@ -116,8 +116,7 @@ class TOneshotEvent : TAwaitable {
 
   override bool removeCallback(void delegate() dg) {
     synchronized (mutex_) {
-      auto removed = remove!((a){ return a != dg; },
-        SwapStrategy.unstable)(callbacks_).length;
+      auto removed = removeEqual!(SwapStrategy.unstable)(callbacks_, dg).length;
       callbacks_ = callbacks_[0 .. $ - removed];
       return (removed > 0);
     }

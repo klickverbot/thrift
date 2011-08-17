@@ -35,6 +35,7 @@ import std.array : array;
 import thrift.base;
 import thrift.codegen.base;
 import thrift.codegen.async_client;
+import thrift.internal.algorithm;
 import thrift.internal.traits;
 import thrift.util.awaitable;
 import thrift.util.cancellation;
@@ -334,7 +335,7 @@ class TAsyncFastestClientPool(Interface) if (isService!Interface) :
   }
 
   override bool removeClient(Client client) {
-    auto removed = remove!((a){ return a !is client; })(clients_).length;
+    auto removed = removeEqual(clients_, client).length;
     clients_ = clients_[0 .. $ - removed];
     return (removed > 0);
   }
