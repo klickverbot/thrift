@@ -8,8 +8,8 @@
  * of linking libthriftd:
  *
    dmd -w -O -release -inline -I../src -Igen-d -ofserialization_benchmark \
-   $(find ../src/thrift -name '*.d') gen-d/DebugProtoTest_types.d \
-   serialization_benchmark.d
+   $(find ../src/thrift -name '*.d' -not -name index.d) \
+   gen-d/DebugProtoTest_types.d serialization_benchmark.d
  */
 module serialization_benchmark;
 
