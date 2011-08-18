@@ -29,6 +29,8 @@ import std.typetuple : allSatisfy, TypeTuple;
 import thrift.protocol.base;
 import thrift.transport.base;
 
+alias Base64Impl!('+', '/', Base64.NoPadding) Base64NoPad;
+
 /**
  * Implementation of the Thrift JSON protocol.
  */
@@ -137,7 +139,7 @@ final class TJsonProtocol(Transport = TTransport) if (
     ubyte[4] b;
     while (!buf.empty) {
       auto toWrite = take(buf, 3);
-      Base64.encode(toWrite, b[]);
+      Base64NoPad.encode(toWrite, b[]);
       trans_.write(b[0 .. toWrite.length + 1]);
       buf.popFrontN(toWrite.length);
     }
@@ -282,7 +284,7 @@ final class TJsonProtocol(Transport = TTransport) if (
   }
 
   ubyte[] readBinary() {
-    return Base64.decode(readString());
+    return Base64NoPad.decode(readString());
   }
 
   TMessage readMessageBegin() {
@@ -728,6 +730,18 @@ unittest {
   auto header = new ubyte[13];
   buf.readAll(header);
   assert(cast(char[])header == `[1,"foo",1,0]`);
+}
+
+unittest {
+  import thrift.transport.memory;
+
+  // Check that short binary data is read correctly (the Thrift JSON format
+  // does not include padding chars in the Base64 encoded data).
+  auto buf = new TMemoryBuffer;
+  auto json = tJsonProtocol(buf);
+  json.writeBinary([1, 2]);
+  json.reset();
+  assert(json.readBinary() == [1, 2]);
 }
 
 unittest {
