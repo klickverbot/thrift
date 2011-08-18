@@ -118,7 +118,7 @@ unittest/.directory:
 unittest/%: src/%.d libthriftd.a unittest/emptymain.d
 	$(DMD) -unittest -of$@ $(d_test_flags) unittest/emptymain.d $<
 
-TESTS = $(addprefix unittest/, $(d_modules))
+TESTS = $(addprefix unittest/, $(d_publicmodules))
 
 
 EXTRA_DIST = \
