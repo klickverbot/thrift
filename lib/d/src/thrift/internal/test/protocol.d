@@ -32,21 +32,21 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
   prot.containerSizeLimit = 3;
 
   {
-    prot.writeListBegin(TList(TType.I32, 5));
+    prot.writeListBegin(TList(TType.I32, 4));
     auto e = cast(TProtocolException)collectException(prot.readListBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     buffer.reset();
   }
 
   {
-    prot.writeMapBegin(TMap(TType.I32, TType.I32, 5));
+    prot.writeMapBegin(TMap(TType.I32, TType.I32, 4));
     auto e = cast(TProtocolException)collectException(prot.readMapBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     buffer.reset();
   }
 
   {
-    prot.writeSetBegin(TSet(TType.I32, 5));
+    prot.writeSetBegin(TSet(TType.I32, 4));
     auto e = cast(TProtocolException)collectException(prot.readSetBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     buffer.reset();
@@ -107,6 +107,46 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       assert(prot.readI32() == 1);
       prot.readSetEnd();
 
+      buffer.reset();
+    }
+  }
+}
+
+void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
+  auto buffer = new TMemoryBuffer;
+  auto prot = new Protocol(buffer);
+
+  // Make sure reading fails if a string larger than the size limit is read.
+  prot.stringSizeLimit = 3;
+
+  {
+    prot.writeString("asdf");
+    auto e = cast(TProtocolException)collectException(prot.readString());
+    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    buffer.reset();
+  }
+
+  {
+    prot.writeBinary([1, 2, 3, 4]);
+    auto e = cast(TProtocolException)collectException(prot.readBinary());
+    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    buffer.reset();
+  }
+
+  // Make sure reading works if the containers are smaller than the limit or
+  // no limit is set.
+  foreach (limit; [3, 0, -1]) {
+    prot.containerSizeLimit = limit;
+
+    {
+      prot.writeString("as");
+      assert(prot.readString() == "as");
+      buffer.reset();
+    }
+
+    {
+      prot.writeBinary([1, 2]);
+      assert(prot.readBinary() == [1, 2]);
       buffer.reset();
     }
   }

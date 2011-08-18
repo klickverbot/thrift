@@ -365,6 +365,7 @@ unittest {
 unittest {
   import thrift.internal.test.protocol;
   testContainerSizeLimit!(TBinaryProtocol!())();
+  testStringSizeLimit!(TBinaryProtocol!())();
 }
 
 /**
