@@ -160,14 +160,14 @@ class TNonblockingServer : TServer {
   /**
    * Returns the number of currently active connections, i.e. open sockets.
    */
-  size_t getNumConnections() const {
+  size_t numConnections() const @property {
     return numConnections_;
   }
 
   /**
    * Returns the number of connection objects allocated, but not in use.
    */
-  size_t getNumIdleConnections() const {
+  size_t numIdleConnections() const @property {
     return connectionStack_.length;
   }
 
@@ -177,7 +177,7 @@ class TNonblockingServer : TServer {
    * This is defined as a connection where all data has been received, and the
    * processor was invoked but has not yet completed.
    */
-  size_t getNumActiveProcessors() const {
+  size_t numActiveProcessors() const @property {
     return numActiveProcessors_;
   }
 
