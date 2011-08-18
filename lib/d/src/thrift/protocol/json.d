@@ -102,7 +102,12 @@ final class TJsonProtocol(Transport = TTransport) if (
   }
 
   void writeString(string str) {
-    writeJsonString(str);
+    context_.write(trans_);
+    trans_.write(STRING_DELIMITER);
+    foreach (c; str) {
+      writeJsonChar(c);
+    }
+    trans_.write(STRING_DELIMITER);
   }
 
   void writeBinary(ubyte[] buf) {
@@ -122,7 +127,7 @@ final class TJsonProtocol(Transport = TTransport) if (
   void writeMessageBegin(TMessage msg) {
     writeJsonArrayBegin();
     writeJsonInteger(THRIFT_JSON_VERSION);
-    writeJsonString(msg.name);
+    writeString(msg.name);
     writeJsonInteger(cast(byte)msg.type);
     writeJsonInteger(msg.seqid);
   }
@@ -142,7 +147,7 @@ final class TJsonProtocol(Transport = TTransport) if (
   void writeFieldBegin(TField field) {
     writeJsonInteger(field.id);
     writeJsonObjectBegin();
-    writeJsonString(getNameFromTType(field.type));
+    writeString(getNameFromTType(field.type));
   }
 
   void writeFieldEnd() {
@@ -153,7 +158,7 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   void writeListBegin(TList list) {
     writeJsonArrayBegin();
-    writeJsonString(getNameFromTType(list.elemType));
+    writeString(getNameFromTType(list.elemType));
     writeJsonInteger(list.size);
   }
 
@@ -163,8 +168,8 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   void writeMapBegin(TMap map) {
     writeJsonArrayBegin();
-    writeJsonString(getNameFromTType(map.keyType));
-    writeJsonString(getNameFromTType(map.valueType));
+    writeString(getNameFromTType(map.keyType));
+    writeString(getNameFromTType(map.valueType));
     writeJsonInteger(map.size);
     writeJsonObjectBegin();
   }
@@ -176,7 +181,7 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   void writeSetBegin(TSet set) {
     writeJsonArrayBegin();
-    writeJsonString(getNameFromTType(set.elemType));
+    writeString(getNameFromTType(set.elemType));
     writeJsonInteger(set.size);
   }
 
@@ -253,11 +258,11 @@ final class TJsonProtocol(Transport = TTransport) if (
   }
 
   string readString() {
-    return readJsonString();
+    return readJsonString(false);
   }
 
   ubyte[] readBinary() {
-    return Base64.decode(readJsonString());
+    return Base64.decode(readString());
   }
 
   TMessage readMessageBegin() {
@@ -271,7 +276,7 @@ final class TJsonProtocol(Transport = TTransport) if (
         TProtocolException.Type.BAD_VERSION);
     }
 
-    msg.name = readJsonString();
+    msg.name = readString();
     msg.type = cast(TMessageType)readJsonInteger!byte();
     msg.seqid = readJsonInteger!short();
 
@@ -301,7 +306,7 @@ final class TJsonProtocol(Transport = TTransport) if (
     } else {
       f.id = readJsonInteger!short();
       readJsonObjectBegin();
-      f.type = getTTypeFromName(readJsonString());
+      f.type = getTTypeFromName(readString());
     }
 
     return f;
@@ -314,7 +319,7 @@ final class TJsonProtocol(Transport = TTransport) if (
   TList readListBegin() {
     readJsonArrayBegin();
 
-    auto type = getTTypeFromName(readJsonString());
+    auto type = getTTypeFromName(readString());
     auto size = readJsonInteger!int();
     if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
@@ -329,8 +334,8 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   TMap readMapBegin() {
     readJsonArrayBegin();
-    auto keyType = getTTypeFromName(readJsonString());
-    auto valueType = getTTypeFromName(readJsonString());
+    auto keyType = getTTypeFromName(readString());
+    auto valueType = getTTypeFromName(readString());
     auto size = readJsonInteger!int();
     readJsonObjectBegin();
 
@@ -349,7 +354,7 @@ final class TJsonProtocol(Transport = TTransport) if (
   TSet readSetBegin() {
     readJsonArrayBegin();
 
-    auto type = getTTypeFromName(readJsonString());
+    auto type = getTTypeFromName(readString());
     auto size = readJsonInteger!int();
     if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
@@ -410,17 +415,6 @@ private:
         writeJsonEscapeChar(ch);
       }
     }
-  }
-
-  // Write out the contents of the string str as a Json string, escaping
-  // characters as appropriate.
-  void writeJsonString(string str) {
-    context_.write(trans_);
-    trans_.write(STRING_DELIMITER);
-    foreach (c; str) {
-      writeJsonChar(c);
-    }
-    trans_.write(STRING_DELIMITER);
   }
 
   // Convert the given integer type to a Json number, or a string
