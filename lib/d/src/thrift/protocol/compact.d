@@ -33,8 +33,20 @@ import thrift.internal.endian;
 final class TCompactProtocol(Transport = TTransport) if (
   isTTransport!Transport
 ) : TProtocol {
-  this(Transport trans) {
+  /**
+   * Constructs a new instance.
+   *
+   * Params:
+   *   trans = The transport to use.
+   *   containerSizeLimit = If positive, the container size is limited to the
+   *     given number of items.
+   *   stringSizeLimit = If positive, the string length is limited to the
+   *     given number of bytes.
+   */
+  this(Transport trans, int containerSizeLimit = 0, int stringSizeLimit = 0) {
     trans_ = trans;
+    this.containerSizeLimit = containerSizeLimit;
+    this.stringSizeLimit = stringSizeLimit;
   }
 
   Transport transport() @property {
@@ -47,6 +59,30 @@ final class TCompactProtocol(Transport = TTransport) if (
     booleanField_ = TField.init;
     hasBoolValue_ = false;
   }
+
+  /**
+   * If positive, limits the number of items of deserialized containers to the
+   * given amount.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Defaults to zero (no limit).
+   */
+  int containerSizeLimit;
+
+  /**
+   * If positive, limits the length of deserialized strings/binary data to the
+   * given number of bytes.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Defaults to zero (no limit).
+   */
+  int stringSizeLimit;
 
   /*
    * Writing methods.
@@ -196,9 +232,8 @@ final class TCompactProtocol(Transport = TTransport) if (
 
   ubyte[] readBinary() {
     auto size = readVarint32();
-    if (size < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
+    checkSize(size, stringSizeLimit);
+
     if (size == 0) {
       return null;
     }
@@ -283,14 +318,11 @@ final class TCompactProtocol(Transport = TTransport) if (
   TList readListBegin() {
     auto sizeAndType = readByte();
 
-    auto lsize = (sizeAndType >> 4) & 0x0f;
-    if (lsize == 15) {
+    auto lsize = (sizeAndType >> 4) & 0xf;
+    if (lsize == 0xf) {
       lsize = readVarint32();
     }
-
-    if (lsize < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
+    checkSize(lsize, containerSizeLimit);
 
     TList l = void;
     l.elemType = getTType(cast(CType)(sizeAndType & 0x0f));
@@ -308,11 +340,7 @@ final class TCompactProtocol(Transport = TTransport) if (
     if (size != 0) {
       kvType = readByte();
     }
-
-    // FIXME: m.size is unsigned, always false.
-    if (size < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
+    checkSize(size, containerSizeLimit);
 
     m.size = size;
     m.keyType = getTType(cast(CType)(kvType >> 4));
@@ -323,19 +351,16 @@ final class TCompactProtocol(Transport = TTransport) if (
   void readMapEnd() {}
 
   TSet readSetBegin() {
-    TSet s = void;
-
     auto sizeAndType = readByte();
-    auto lsize = (sizeAndType >> 4) & 0x0f;
-    if (lsize == 15) {
+
+    auto lsize = (sizeAndType >> 4) & 0xf;
+    if (lsize == 0xf) {
       lsize = readVarint32();
     }
+    checkSize(lsize, containerSizeLimit);
 
-    if (lsize < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
-
-    s.elemType = getTType(cast(CType)(sizeAndType & 0x0f));
+    TSet s = void;
+    s.elemType = getTType(cast(CType)(sizeAndType & 0xf));
     s.size = cast(size_t)lsize;
 
     return s;
@@ -550,6 +575,14 @@ private:
     }
   }
 
+  void checkSize(int size, int limit) {
+    if (size < 0) {
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    } else if (limit > 0 && size > limit) {
+      throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
+    }
+  }
+
   enum PROTOCOL_ID = 0x82;
   enum VERSION_N = 1;
   enum VERSION_MASK = 0b0001_1111;
@@ -574,10 +607,12 @@ private:
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */
-TCompactProtocol!Transport tCompactProtocol(Transport)(Transport trans)
-  if (isTTransport!Transport)
+TCompactProtocol!Transport tCompactProtocol(Transport)(Transport trans,
+  int containerSizeLimit = 0, int stringSizeLimit = 0
+) if (isTTransport!Transport)
 {
-  return new TCompactProtocol!Transport(trans);
+  return new TCompactProtocol!Transport(trans,
+    containerSizeLimit, stringSizeLimit);
 }
 
 private {
@@ -618,6 +653,11 @@ unittest {
   ]);
 }
 
+unittest {
+  import thrift.internal.test.protocol;
+  testContainerSizeLimit!(TCompactProtocol!());
+}
+
 /**
  * TProtocolFactory creating a TCompactProtocol instance for passed in
  * transports.
@@ -631,6 +671,12 @@ unittest {
 class TCompactProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
+  ///
+  this(int containerSizeLimit = 0, int stringSizeLimit = 0) {
+    containerSizeLimit_ = 0;
+    stringSizeLimit_ = 0;
+  }
+
   TProtocol getProtocol(TTransport trans) const {
     foreach (Transport; TypeTuple!(Transports, TTransport)) {
       auto concreteTrans = cast(Transport)trans;
@@ -641,4 +687,7 @@ class TCompactProtocolFactory(Transports...) if (
     throw new TProtocolException(
       "Passed null transport to TCompactProtocolFactory.");
   }
+
+  int containerSizeLimit_;
+  int stringSizeLimit_;
 }
