@@ -43,16 +43,16 @@ class TServer {
   abstract void serve(TCancellation cancellation = null);
 
 protected:
-  this(TProcessor processor) {
-    processor_ = processor;
+  this(TProcessor processor, ushort port) {
+    import thrift.server.transport.socket;
+    this(processor, new TServerSocket(port));
+  }
+
+  this(TProcessor processor, TServerTransport serverTransport) {
     inputTransportFactory_ = new TTransportFactory;
     outputTransportFactory_ = new TTransportFactory;
     inputProtocolFactory_ = new TBinaryProtocolFactory!();
     outputProtocolFactory_ = new TBinaryProtocolFactory!();
-  }
-
-  this(TProcessor processor, TServerTransport serverTransport) {
-    this(processor);
     serverTransport_ = serverTransport;
   }
 

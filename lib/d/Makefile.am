@@ -75,7 +75,7 @@ d_opensslmodules = $(addprefix thrift/internal/c/openssl/, asn1 bio crypto err \
 d_openssldir = $(d_cdir)/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d, $(d_opensslmodules)))
 
-d_testmodules = $(addprefix thrift/internal/test/, protocol)
+d_testmodules = $(addprefix thrift/internal/test/, protocol server)
 d_testdir = $(d_internaldir)/test
 d_test_DATA = $(addprefix src/, $(addsuffix .d, $(d_testmodules)))
 

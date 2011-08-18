@@ -35,6 +35,16 @@ import thrift.util.cancellation;
  */
 class TTaskPoolServer : TServer {
   ///
+  this(TProcessor processor, ushort port) {
+    super(processor, port);
+  }
+
+  ///
+  this(TProcessor processor, TServerTransport serverTransport) {
+    super(processor, serverTransport);
+  }
+
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport_,
@@ -243,3 +253,8 @@ protected:
     }
   }
 // }
+
+unittest {
+  import thrift.internal.test.server;
+  testServeCancel!TTaskPoolServer();
+}

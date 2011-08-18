@@ -32,6 +32,16 @@ import thrift.util.cancellation;
  */
 class TThreadedServer : TServer {
   ///
+  this(TProcessor processor, ushort port) {
+    super(processor, port);
+  }
+
+  ///
+  this(TProcessor processor, TServerTransport serverTransport) {
+    super(processor, serverTransport);
+  }
+
+  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport_,
@@ -181,3 +191,9 @@ private:
   TProcessor processor_;
   TServerEventHandler eventHandler_;
 }
+
+unittest {
+  import thrift.internal.test.server;
+  testServeCancel!TThreadedServer();
+}
+

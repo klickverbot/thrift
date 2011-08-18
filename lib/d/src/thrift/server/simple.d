@@ -32,10 +32,20 @@ import thrift.util.cancellation;
  * It is single-threaded and after it accepts a connections, it processes
  * requests on it until it closes, then waiting for the next connection.
  *
- * It is not so much of use in production than it is for writin unittests, or
+ * It is not so much of use in production than it is for writing unittests, or
  * as an example on how to provide a custom TServer implementation.
  */
 class TSimpleServer : TServer {
+  ///
+  this(TProcessor processor, ushort port) {
+    super(processor, port);
+  }
+
+  ///
+  this(TProcessor processor, TServerTransport serverTransport) {
+    super(processor, serverTransport);
+  }
+
   ///
   this(
     TProcessor processor,
@@ -147,4 +157,9 @@ class TSimpleServer : TServer {
       logError("Server transport failed to close(): %s", e);
     }
   }
+}
+
+unittest {
+  import thrift.internal.test.server;
+  testServeCancel!TSimpleServer();
 }
