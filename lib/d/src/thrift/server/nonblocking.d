@@ -148,7 +148,7 @@ class TNonblockingServer : TServer {
 
     // Register the event for the listening socket.
     listenEvent_ = event_new(eventBase_, listenSocket_.handle,
-      EV_READ | EV_PERSIST, &handleEventCallback, cast(void*)this);
+      EV_READ | EV_PERSIST, &acceptConnectionsCallback, cast(void*)this);
     if (event_add(listenEvent_, null) == -1) {
       throw new TException("event_add for the listening socket event failed.");
     }
@@ -213,7 +213,7 @@ class TNonblockingServer : TServer {
 
       // Register an event for the task completion notification socket.
       completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
-        EV_READ | EV_PERSIST, &taskCompletionCallback, cast(void*)this);
+        EV_READ | EV_PERSIST | EV_ET, &taskCompletionCallback, cast(void*)this);
 
       if (event_add(completionEvent_, null) == -1) {
         throw new TException("event_add for the notification socket failed.");
@@ -316,8 +316,9 @@ private:
    * client connections on listen socket fd and assign Connection objects
    * to handle those requests.
    */
-  void handleEvent(int fd, short which) {
+  void acceptConnections(int fd, short eventFlags) {
     assert(fd == listenSocket_.handle);
+    assert(eventFlags & EV_READ);
 
     // Accept as many new clients as possible, even though libevent signaled
     // only one. This helps the number of calls into libevent space.
@@ -407,11 +408,13 @@ private:
   }
 
   /**
-   * C callback wrapper around handleEvent(). Expects the custom argument to be
-   * the this pointer of the associated server instance.
+   * C callback wrapper around acceptConnections(). Expects the custom argument
+   * to be the this pointer of the associated server instance.
    */
-  extern(C) static void handleEventCallback(int fd, short which, void* serverThis) {
-    (cast(TNonblockingServer)serverThis).handleEvent(fd, which);
+  extern(C) static void acceptConnectionsCallback(int fd, short which,
+    void* serverThis
+  ) {
+    (cast(TNonblockingServer)serverThis).acceptConnections(fd, which);
   }
 
   /**
