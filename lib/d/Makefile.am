@@ -75,14 +75,17 @@ d_opensslmodules = $(addprefix thrift/internal/c/openssl/, asn1 bio crypto err \
 d_openssldir = $(d_cdir)/openssl
 d_openssl_DATA = $(addprefix src/, $(addsuffix .d, $(d_opensslmodules)))
 
+d_testmodules = $(addprefix thrift/internal/test/, protocol)
+d_testdir = $(d_internaldir)/test
+d_test_DATA = $(addprefix src/, $(addsuffix .d, $(d_testmodules)))
 
 d_publicmodules = $(d_thriftmodules) $(d_asyncmodules) \
 	$(d_codegenmodules) $(d_protocolmodules) $(d_servermodules) \
 	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules)
 d_publicsources = $(addprefix src/, $(addsuffix .d, $(d_publicmodules)))
 
-d_modules = $(d_publicmodules) \
-	$(d_internalmodules) $(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
+d_modules = $(d_publicmodules) $(d_internalmodules) $(d_testmodules) \
+	$(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
 libthriftd.a: $(d_sources)

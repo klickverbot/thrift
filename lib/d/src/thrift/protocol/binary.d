@@ -36,14 +36,22 @@ final class TBinaryProtocol(Transport = TTransport) if (
    *
    * Params:
    *   trans = The transport to use.
-   *   strictRead = If false, old clients which did not include the protocol
+   *   containerSizeLimit = If positive, the container size is limited to the
+   *     given number of items.
+   *   stringSizeLimit = If positive, the string length is limited to the
+   *     given number of bytes.
+   *   strictRead = If false, old peers which do not include the protocol
    *     version are tolerated.
    *   strictWrite = Whether to include the protocol version in the header.
    */
-  this(Transport trans, bool strictRead = false, bool strictWrite = true) {
+  this(Transport trans, int containerSizeLimit = 0, int stringSizeLimit = 0,
+    bool strictRead = false, bool strictWrite = true
+  ) {
     trans_ = trans;
-    strictRead_ = strictRead;
-    strictWrite_ = strictWrite;
+    this.containerSizeLimit = containerSizeLimit;
+    this.stringSizeLimit = stringSizeLimit;
+    this.strictRead = strictRead;
+    this.strictWrite = strictWrite;
   }
 
   Transport transport() @property {
@@ -51,6 +59,46 @@ final class TBinaryProtocol(Transport = TTransport) if (
   }
 
   void reset() {}
+
+  /**
+   * If false, old peers which do not include the protocol version in the
+   * message header are tolerated.
+   *
+   * Defaults to false.
+   */
+  bool strictRead;
+
+  /**
+   * Whether to include the protocol version in the message header (older
+   * versions didn't).
+   *
+   * Defaults to true.
+   */
+  bool strictWrite;
+
+  /**
+   * If positive, limits the number of items of deserialized containers to the
+   * given amount.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Defaults to zero (no limit).
+   */
+  int containerSizeLimit;
+
+  /**
+   * If positive, limits the length of deserialized strings/binary data to the
+   * given number of bytes.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Defaults to zero (no limit).
+   */
+  int stringSizeLimit;
 
   /*
    * Writing methods.
@@ -96,7 +144,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
   }
 
   void writeMessageBegin(TMessage message) {
-    if (strictWrite_) {
+    if (strictWrite) {
       int versn = VERSION_1 | message.type;
       writeI32(versn);
       writeString(message.name);
@@ -189,7 +237,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
   }
 
   ubyte[] readBinary() {
-    return readBinaryBody(readSize());
+    return readBinaryBody(readSize(stringSizeLimit));
   }
 
   TMessage readMessageBegin() {
@@ -207,7 +255,7 @@ final class TBinaryProtocol(Transport = TTransport) if (
       msg.name = readString();
       msg.seqid = readI32();
     } else {
-      if (strictRead_) {
+      if (strictRead) {
         throw new TProtocolException(
           "Protocol version missing, old client?",
           TProtocolException.Type.BAD_VERSION);
@@ -241,17 +289,18 @@ final class TBinaryProtocol(Transport = TTransport) if (
   void readFieldEnd() {}
 
   TList readListBegin() {
-    return TList(cast(TType)readByte(), readSize());
+    return TList(cast(TType)readByte(), readSize(containerSizeLimit));
   }
   void readListEnd() {}
 
   TMap readMapBegin() {
-    return TMap(cast(TType)readByte(), cast(TType)readByte(), readSize());
+    return TMap(cast(TType)readByte(), cast(TType)readByte(),
+      readSize(containerSizeLimit));
   }
   void readMapEnd() {}
 
   TSet readSetBegin() {
-    return TSet(cast(TType)readByte(), readSize());
+    return TSet(cast(TType)readByte(), readSize(containerSizeLimit));
   }
   void readSetEnd() {}
 
@@ -266,10 +315,12 @@ private:
     return buf;
   }
 
-  int readSize() {
+  int readSize(int limit) {
     auto size = readI32();
     if (size < 0) {
       throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    } else if (limit > 0 && size > limit) {
+      throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
     }
     return size;
   }
@@ -277,9 +328,6 @@ private:
   enum MESSAGE_TYPE_MASK = 0x000000ff;
   enum VERSION_MASK = 0xffff0000;
   enum VERSION_1 = 0x80010000;
-
-  bool strictRead_;
-  bool strictWrite_;
 
   Transport trans_;
 }
@@ -314,6 +362,11 @@ unittest {
   ]);
 }
 
+unittest {
+  import thrift.internal.test.protocol;
+  testContainerSizeLimit!(TBinaryProtocol!())();
+}
+
 /**
  * TProtocolFactory creating a TBinaryProtocol instance for passed in
  * transports.
@@ -328,9 +381,13 @@ class TBinaryProtocolFactory(Transports...) if (
   allSatisfy!(isTTransport, Transports)
 ) : TProtocolFactory {
   ///
-  this (bool strictRead = false, bool strictWrite = true) {
+  this (int containerSizeLimit = 0, int stringSizeLimit = 0,
+    bool strictRead = false, bool strictWrite = true
+  ) {
     strictRead_ = strictRead;
     strictWrite_ = strictWrite;
+    containerSizeLimit_ = containerSizeLimit;
+    stringSizeLimit_ = stringSizeLimit;
   }
 
   TProtocol getProtocol(TTransport trans) const {
@@ -338,7 +395,7 @@ class TBinaryProtocolFactory(Transports...) if (
       auto concreteTrans = cast(Transport)trans;
       if (concreteTrans) {
         return new TBinaryProtocol!Transport(concreteTrans,
-          strictRead_, strictWrite_);
+          containerSizeLimit_, stringSizeLimit_, strictRead_, strictWrite_);
       }
     }
     throw new TProtocolException(
@@ -348,4 +405,6 @@ class TBinaryProtocolFactory(Transports...) if (
 protected:
   bool strictRead_;
   bool strictWrite_;
+  int containerSizeLimit_;
+  int stringSizeLimit_;
 }

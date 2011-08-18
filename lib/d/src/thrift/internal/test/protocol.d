@@ -1,0 +1,113 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+module thrift.internal.test.protocol;
+
+import std.exception;
+import thrift.transport.memory;
+import thrift.protocol.base;
+
+version (unittest):
+
+void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
+  auto buffer = new TMemoryBuffer;
+  auto prot = new Protocol(buffer);
+
+  // Make sure reading fails if a container larger than the size limit is read.
+  prot.containerSizeLimit = 3;
+
+  {
+    prot.writeListBegin(TList(TType.I32, 5));
+    auto e = cast(TProtocolException)collectException(prot.readListBegin());
+    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    buffer.reset();
+  }
+
+  {
+    prot.writeMapBegin(TMap(TType.I32, TType.I32, 5));
+    auto e = cast(TProtocolException)collectException(prot.readMapBegin());
+    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    buffer.reset();
+  }
+
+  {
+    prot.writeSetBegin(TSet(TType.I32, 5));
+    auto e = cast(TProtocolException)collectException(prot.readSetBegin());
+    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    buffer.reset();
+  }
+
+  // Make sure reading works if the containers are smaller than the limit or
+  // no limit is set.
+  foreach (limit; [3, 0, -1]) {
+    prot.containerSizeLimit = limit;
+
+    {
+      prot.writeListBegin(TList(TType.I32, 2));
+      prot.writeI32(0);
+      prot.writeI32(1);
+      prot.writeListEnd();
+
+      auto list = prot.readListBegin();
+      assert(list.elemType == TType.I32);
+      assert(list.size == 2);
+      assert(prot.readI32() == 0);
+      assert(prot.readI32() == 1);
+      prot.readListEnd();
+
+      buffer.reset();
+    }
+
+    {
+      prot.writeMapBegin(TMap(TType.I32, TType.I32, 2));
+      prot.writeI32(0);
+      prot.writeI32(1);
+      prot.writeI32(2);
+      prot.writeI32(3);
+      prot.writeMapEnd();
+
+      auto map = prot.readMapBegin();
+      assert(map.keyType == TType.I32);
+      assert(map.valueType == TType.I32);
+      assert(map.size == 2);
+      assert(prot.readI32() == 0);
+      assert(prot.readI32() == 1);
+      assert(prot.readI32() == 2);
+      assert(prot.readI32() == 3);
+      prot.readMapEnd();
+
+      buffer.reset();
+    }
+
+    {
+      prot.writeSetBegin(TSet(TType.I32, 2));
+      prot.writeI32(0);
+      prot.writeI32(1);
+      prot.writeSetEnd();
+
+      auto set = prot.readSetBegin();
+      assert(set.elemType == TType.I32);
+      assert(set.size == 2);
+      assert(prot.readI32() == 0);
+      assert(prot.readI32() == 1);
+      prot.readSetEnd();
+
+      buffer.reset();
+    }
+  }
+}
