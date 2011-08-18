@@ -177,6 +177,18 @@ interface TProtocol {
 }
 
 /**
+ * true if T is a TProtocol.
+ */
+template isTProtocol(T) {
+  enum isTProtocol = is(T : TProtocol);
+}
+
+unittest {
+  static assert(isTProtocol!TProtocol);
+  static assert(!isTProtocol!void);
+}
+
+/**
  * Creates a protocol operating on a given transport.
  */
 interface TProtocolFactory {

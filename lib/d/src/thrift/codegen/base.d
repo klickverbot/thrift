@@ -149,18 +149,6 @@ struct TExceptionMeta {
 }
 
 /**
- * true if T is a TProtocol.
- */
-template isTProtocol(T) {
-  enum isTProtocol = is(T : TProtocol);
-}
-
-unittest {
-  static assert(isTProtocol!TProtocol);
-  static assert(!isTProtocol!void);
-}
-
-/**
  * A pair of two TPorotocols. To be used in places where a list of protocols
  * is expected, for specifying different protocols for input and output.
  */
