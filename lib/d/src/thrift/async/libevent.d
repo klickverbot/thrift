@@ -62,7 +62,7 @@ class TLibeventAsyncManager : TAsyncSocketManager {
 
     // Register an event for receiving control messages.
     controlReceiveEvent_ = event_new(eventBase_, controlReceiveSocket_.handle,
-      EV_READ | EV_PERSIST, &workReceiveCallback, cast(void*)this);
+      EV_READ | EV_PERSIST | EV_ET, &controlMsgReceiveCallback, cast(void*)this);
     event_add(controlReceiveEvent_, null);
 
     queuedCountMutex_ = new Mutex;
@@ -250,7 +250,7 @@ private:
    * Receives messages from the control message socket and acts on them. Called
    * from the worker thread.
    */
-  void receiveWork() {
+  void receiveControlMsg() {
     // Read as many new work items off the socket as possible (at least one
     // should be available, as we got notified by libevent).
     ControlMsg msg;
@@ -373,10 +373,10 @@ private:
     }
   }
 
-  static extern(C) void workReceiveCallback(evutil_socket_t, short,
+  static extern(C) void controlMsgReceiveCallback(evutil_socket_t, short,
     void *managerThis
   ) {
-    (cast(TLibeventAsyncManager)managerThis).receiveWork();
+    (cast(TLibeventAsyncManager)managerThis).receiveControlMsg();
   }
 
   static extern(C) void socketCallback(evutil_socket_t, short flags,
