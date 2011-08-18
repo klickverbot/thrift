@@ -574,7 +574,7 @@ private:
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */
-TCompactProtocol!Transport createTCompactProtocol(Transport)(Transport trans)
+TCompactProtocol!Transport tCompactProtocol(Transport)(Transport trans)
   if (isTTransport!Transport)
 {
   return new TCompactProtocol!Transport(trans);
@@ -605,7 +605,7 @@ unittest {
 
   // Check the message header format.
   auto buf = new TMemoryBuffer;
-  auto compact = createTCompactProtocol(buf);
+  auto compact = tCompactProtocol(buf);
   compact.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
 
   auto header = new ubyte[7];

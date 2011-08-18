@@ -62,7 +62,7 @@ class TFallbackClientPool(Interface) if (isService!Interface) : Interface {
    * Example:
    * ---
    * interface Foo { string bar(); }
-   * auto poolClient = createTFallbackClientPool([createTClient!Foo(someProtocol)]);
+   * auto poolClient = tFallbackClientPool([tClient!Foo(someProtocol)]);
    * auto result = poolClient.execute((c){ return c.bar(); });
    * ---
    */
@@ -247,7 +247,7 @@ private {
  * the interface type, i.e. to allow the constructor being called using IFTI
  * (see $(DMDBUG 6082, D Bugzilla enhancement requet 6082)).
  */
-TFallbackClientPool!Interface createTFallbackClientPool(Interface)(
+TFallbackClientPool!Interface tFallbackClientPool(Interface)(
   TClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);

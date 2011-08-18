@@ -472,7 +472,7 @@ unittest {
   zlib.finish();
 
   void testCorrupted(const(ubyte)[] corruptedData) {
-    auto reader = new TZlibTransport(createTInputRangeTransport(corruptedData));
+    auto reader = new TZlibTransport(tInputRangeTransport(corruptedData));
     auto result = new ubyte[data.length];
     try {
       reader.readAll(result);

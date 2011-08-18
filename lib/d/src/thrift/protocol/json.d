@@ -701,7 +701,7 @@ private:
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */
-TJsonProtocol!Transport createTJsonProtocol(Transport)(Transport trans)
+TJsonProtocol!Transport tJsonProtocol(Transport)(Transport trans)
   if (isTTransport!Transport)
 {
   return new TJsonProtocol!Transport(trans);
@@ -712,7 +712,7 @@ unittest {
 
   // Check the message header format.
   auto buf = new TMemoryBuffer;
-  auto json = createTJsonProtocol(buf);
+  auto json = tJsonProtocol(buf);
   json.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
   json.writeMessageEnd();
 

@@ -290,7 +290,7 @@ private:
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */
-TBinaryProtocol!Transport createTBinaryProtocol(Transport)(Transport trans,
+TBinaryProtocol!Transport tBinaryProtocol(Transport)(Transport trans,
   bool strictRead = false, bool strictWrite = true) if (isTTransport!Transport)
 {
   return new TBinaryProtocol!Transport(trans, strictRead, strictWrite);
@@ -301,7 +301,7 @@ unittest {
 
   // Check the message header format.
   auto buf = new TMemoryBuffer;
-  auto binary = createTBinaryProtocol(buf);
+  auto binary = tBinaryProtocol(buf);
   binary.writeMessageBegin(TMessage("foo", TMessageType.CALL, 0));
 
   auto header = new ubyte[15];

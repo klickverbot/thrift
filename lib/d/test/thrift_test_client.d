@@ -46,11 +46,11 @@ import thrift.test.ThriftTest_types;
 TProtocol createProtocol(T)(T trans, ProtocolType type) {
   final switch (type) {
     case ProtocolType.binary:
-      return createTBinaryProtocol(trans);
+      return tBinaryProtocol(trans);
     case ProtocolType.compact:
-      return createTCompactProtocol(trans);
+      return tCompactProtocol(trans);
     case ProtocolType.json:
-      return createTJsonProtocol(trans);
+      return tJsonProtocol(trans);
   }
 }
 
@@ -107,7 +107,7 @@ void main(string[] args) {
       break;
   }
 
-  auto client = createTClient!ThriftTest(protocol);
+  auto client = tClient!ThriftTest(protocol);
 
   ulong time_min;
   ulong time_max;

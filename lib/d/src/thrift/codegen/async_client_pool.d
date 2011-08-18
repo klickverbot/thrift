@@ -284,7 +284,7 @@ private:
  * specify the interface type, i.e. to allow the constructor being called
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
-TAsyncFallbackClientPool!Interface createAsyncFallbackClientPool(Interface)(
+TAsyncFallbackClientPool!Interface tAsyncFallbackClientPool(Interface)(
   TAsyncClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
@@ -360,7 +360,7 @@ private:
  * specify the interface type, i.e. to allow the constructor being called
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
-TAsyncFastestClientPool!Interface createTAsyncFastestClientPool(Interface)(
+TAsyncFastestClientPool!Interface tAsyncFastestClientPool(Interface)(
   TAsyncClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
@@ -652,7 +652,7 @@ template isAccumulator(ValueType, alias fun) {
  * specify the interface type, i.e. to allow the constructor being called
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
-TAsyncAggregatorClientPool!Interface createTAsyncAggregatorClientPool(Interface)(
+TAsyncAggregatorClientPool!Interface tAsyncAggregatorClientPool(Interface)(
   TFutureInterface!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
@@ -677,7 +677,7 @@ private {
     }
 
     auto range(Duration timeout = dur!"hnsecs"(0)) {
-      return createTFutureAggregatorRange(futures, timeout);
+      return tFutureAggregatorRange(futures, timeout);
     }
 
     auto accumulate(alias acc = defaultAccumulator)() if (isAccumulator!acc) {

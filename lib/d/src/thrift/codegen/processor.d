@@ -64,10 +64,10 @@ import thrift.protocol.processor;
  * auto proc = new BinaryProcessor(new FooImpl());
  *
  * // Low overhead.
- * proc.process(createTBinaryProtocol(createTBufferTransport(someSocket)));
+ * proc.process(tBinaryProtocol(tBufferTransport(someSocket)));
  *
  * // Not in the specialization list – higher overhead.
- * proc.process(createTBinaryProtocol(createTFramedTransport(someSocket)));
+ * proc.process(tBinaryProtocol(tFramedTransport(someSocket)));
  *
  * // Same as above, but optimized for the Compact protocol backed by a
  * // TPipedTransport for input and a TBufferedTransport for output.

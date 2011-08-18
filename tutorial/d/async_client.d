@@ -39,7 +39,7 @@ void main() {
   scope (exit) asyncManager.stop();
 
   auto socket = new TAsyncSocket(asyncManager, "localhost", 9090);
-  auto client = new TAsyncFallbackClientPool!Calculator([new TAsyncClient!Calculator(
+  auto client = tAsyncFallbackClientPool([new TAsyncClient!Calculator(
     socket,
     new TBufferedTransportFactory,
     new TBinaryProtocolFactory!(TBufferedTransport)

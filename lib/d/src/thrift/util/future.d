@@ -529,7 +529,7 @@ private:
  * specify the value type, i.e. to allow the constructor being called using IFTI
  * (see $(DMDBUG 6082, D Bugzilla enhancement requet 6082)).
  */
-TFutureAggregatorRange!T createTFutureAggregatorRange(T)(TFuture!T[] futures,
+TFutureAggregatorRange!T tFutureAggregatorRange(T)(TFuture!T[] futures,
   Duration timeout = dur!"hnsecs"(0)
 ) {
   return new TFutureAggregatorRange!T(futures, timeout);

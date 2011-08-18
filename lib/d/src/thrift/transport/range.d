@@ -140,7 +140,7 @@ private:
  * IFTI (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D
  * Bugzilla enhancement requet 6082)).
  */
-TInputRangeTransport!R createTInputRangeTransport(R)(R data) if (
+TInputRangeTransport!R tInputRangeTransport(R)(R data) if (
   is (TInputRangeTransport!R)
 ) {
   return new TInputRangeTransport!R(data);

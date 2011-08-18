@@ -38,7 +38,7 @@ void main() {
     ooe.zomg_unicode = "\xd7\n\a\t";
     ooe.base64 = "\1\2\3\255";
 
-    auto prot = createTBinaryProtocol(buf);
+    auto prot = tBinaryProtocol(buf);
     auto sw = StopWatch(AutoStart.yes);
     foreach (i; 0 .. ITERATIONS) {
       buf.reset(120);
@@ -53,8 +53,8 @@ void main() {
   auto data = buf.getContents().dup;
 
   {
-    auto readBuf = createTInputRangeTransport(data);
-    auto prot = createTBinaryProtocol(readBuf);
+    auto readBuf = tInputRangeTransport(data);
+    auto prot = tBinaryProtocol(readBuf);
     auto ooe = OneOfEach();
 
     auto sw = StopWatch(AutoStart.yes);
