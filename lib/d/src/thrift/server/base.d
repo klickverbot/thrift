@@ -37,8 +37,14 @@ class TServer {
   /**
    * Starts serving.
    *
-   * Blocks until the server finishes, i.e. stop() has been called or a
-   * problem occured.
+   * Blocks until the server finishes, i.e. a serious problem occured or the
+   * cancellation request has been triggered.
+   *
+   * Server implementations are expected to implement cancellation in a best-
+   * effort way – usually, it should be possible to immediately stop accepting
+   * connections and return after all currently active clients have been
+   * processed, but this might not be the case for every conceivable
+   * implementation.
    */
   abstract void serve(TCancellation cancellation = null);
 
