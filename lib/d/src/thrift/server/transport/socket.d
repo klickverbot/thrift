@@ -171,6 +171,7 @@ class TServerSocket : TServerTransport {
     }
   }
 
+protected:
   /**
    * Allows derived classes to create a different TSocket type.
    */
