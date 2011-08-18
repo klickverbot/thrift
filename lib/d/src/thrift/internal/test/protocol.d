@@ -33,22 +33,34 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
 
   {
     prot.writeListBegin(TList(TType.I32, 4));
+    prot.writeI32(0); // Make sure size can be read e.g. for JSON protocol.
+    prot.reset();
+
     auto e = cast(TProtocolException)collectException(prot.readListBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    prot.reset();
     buffer.reset();
   }
 
   {
     prot.writeMapBegin(TMap(TType.I32, TType.I32, 4));
+    prot.writeI32(0); // Make sure size can be read e.g. for JSON protocol.
+    prot.reset();
+
     auto e = cast(TProtocolException)collectException(prot.readMapBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    prot.reset();
     buffer.reset();
   }
 
   {
     prot.writeSetBegin(TSet(TType.I32, 4));
+    prot.writeI32(0); // Make sure size can be read e.g. for JSON protocol.
+    prot.reset();
+
     auto e = cast(TProtocolException)collectException(prot.readSetBegin());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    prot.reset();
     buffer.reset();
   }
 
@@ -62,6 +74,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.writeI32(0);
       prot.writeI32(1);
       prot.writeListEnd();
+      prot.reset();
 
       auto list = prot.readListBegin();
       assert(list.elemType == TType.I32);
@@ -70,6 +83,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       assert(prot.readI32() == 1);
       prot.readListEnd();
 
+      prot.reset();
       buffer.reset();
     }
 
@@ -80,6 +94,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.writeI32(2);
       prot.writeI32(3);
       prot.writeMapEnd();
+      prot.reset();
 
       auto map = prot.readMapBegin();
       assert(map.keyType == TType.I32);
@@ -91,6 +106,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       assert(prot.readI32() == 3);
       prot.readMapEnd();
 
+      prot.reset();
       buffer.reset();
     }
 
@@ -99,6 +115,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.writeI32(0);
       prot.writeI32(1);
       prot.writeSetEnd();
+      prot.reset();
 
       auto set = prot.readSetBegin();
       assert(set.elemType == TType.I32);
@@ -107,6 +124,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       assert(prot.readI32() == 1);
       prot.readSetEnd();
 
+      prot.reset();
       buffer.reset();
     }
   }
@@ -121,15 +139,21 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
 
   {
     prot.writeString("asdf");
+    prot.reset();
+
     auto e = cast(TProtocolException)collectException(prot.readString());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    prot.reset();
     buffer.reset();
   }
 
   {
     prot.writeBinary([1, 2, 3, 4]);
+    prot.reset();
+
     auto e = cast(TProtocolException)collectException(prot.readBinary());
     assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    prot.reset();
     buffer.reset();
   }
 
@@ -140,13 +164,19 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
 
     {
       prot.writeString("as");
+      prot.reset();
+
       assert(prot.readString() == "as");
+      prot.reset();
       buffer.reset();
     }
 
     {
       prot.writeBinary([1, 2]);
+      prot.reset();
+
       assert(prot.readBinary() == [1, 2]);
+      prot.reset();
       buffer.reset();
     }
   }

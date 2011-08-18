@@ -31,15 +31,22 @@ import thrift.transport.base;
 
 /**
  * Implementation of the Thrift JSON protocol.
- *
- * TODO: This is pretty much a direct port of the C++ version, and needs some
- * tender loving care and D-ification later on.
  */
 final class TJsonProtocol(Transport = TTransport) if (
   isTTransport!Transport
 ) : TProtocol {
-  this(Transport trans) {
+  /**
+   * Constructs a new instance.
+   *
+   * Params:
+   *   trans = The transport to use.
+   *   containerSizeLimit = If positive, the container size is limited to the
+   *     given number of items.
+   */
+  this(Transport trans, int containerSizeLimit = 0) {
     trans_ = trans;
+    this.containerSizeLimit = containerSizeLimit;
+
     context_ = new Context();
     reader_ = new LookaheadReader(trans);
   }
@@ -53,6 +60,19 @@ final class TJsonProtocol(Transport = TTransport) if (
     context_ = new Context();
     reader_ = new LookaheadReader(trans_);
   }
+
+  /**
+   * If positive, limits the number of items of deserialized containers to the
+   * given amount.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Defaults to zero (no limit).
+   */
+  int containerSizeLimit;
+
 
   /*
    * Writing methods.
@@ -318,13 +338,8 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   TList readListBegin() {
     readJsonArrayBegin();
-
     auto type = getTTypeFromName(readString());
-    auto size = readJsonInteger!int();
-    if (size < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
-
+    auto size = readContainerSize();
     return TList(type, size);
   }
 
@@ -336,13 +351,8 @@ final class TJsonProtocol(Transport = TTransport) if (
     readJsonArrayBegin();
     auto keyType = getTTypeFromName(readString());
     auto valueType = getTTypeFromName(readString());
-    auto size = readJsonInteger!int();
+    auto size = readContainerSize();
     readJsonObjectBegin();
-
-    if (size < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
-
     return TMap(keyType, valueType, size);
   }
 
@@ -353,13 +363,8 @@ final class TJsonProtocol(Transport = TTransport) if (
 
   TSet readSetBegin() {
     readJsonArrayBegin();
-
     auto type = getTTypeFromName(readString());
-    auto size = readJsonInteger!int();
-    if (size < 0) {
-      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
-    }
-
+    auto size = readContainerSize();
     return TSet(type, size);
   }
 
@@ -453,6 +458,16 @@ private:
   /*
    * Reading functions
    */
+
+  int readContainerSize() {
+    auto size = readJsonInteger!int();
+    if (size < 0) {
+      throw new TProtocolException(TProtocolException.Type.NEGATIVE_SIZE);
+    } else if (containerSizeLimit > 0 && size > containerSizeLimit) {
+      throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
+    }
+    return size;
+  }
 
   void readJsonSyntaxChar(ubyte[1] ch) {
     return readSyntaxChar(reader_, ch);
@@ -713,6 +728,11 @@ unittest {
   auto header = new ubyte[13];
   buf.readAll(header);
   assert(cast(char[])header == `[1,"foo",1,0]`);
+}
+
+unittest {
+  import thrift.internal.test.protocol;
+  testContainerSizeLimit!(TJsonProtocol!())();
 }
 
 /**
