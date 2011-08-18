@@ -44,10 +44,13 @@ final class TJsonProtocol(Transport = TTransport) if (
    *   trans = The transport to use.
    *   containerSizeLimit = If positive, the container size is limited to the
    *     given number of items.
+   *   stringSizeLimit = If positive, the string length is limited to the
+   *     given number of bytes.
    */
-  this(Transport trans, int containerSizeLimit = 0) {
+  this(Transport trans, int containerSizeLimit = 0, int stringSizeLimit = 0) {
     trans_ = trans;
     this.containerSizeLimit = containerSizeLimit;
+    this.stringSizeLimit = stringSizeLimit;
 
     context_ = new Context();
     reader_ = new LookaheadReader(trans);
@@ -75,6 +78,20 @@ final class TJsonProtocol(Transport = TTransport) if (
    */
   int containerSizeLimit;
 
+  /**
+   * If positive, limits the length of deserialized strings/binary data to the
+   * given number of bytes.
+   *
+   * This is useful to avoid allocating excessive amounts of memory when broken
+   * data is received. If the limit is exceeded, a SIZE_LIMIT-type
+   * TProtocolException is thrown.
+   *
+   * Note: For binary data, the limit applies to the length of the
+   * Base64-encoded string data, not the resulting byte array.
+   *
+   * Defaults to zero (no limit).
+   */
+  int stringSizeLimit;
 
   /*
    * Writing methods.
@@ -487,12 +504,20 @@ private:
     if (!skipContext) context_.read(reader_);
 
     readJsonSyntaxChar(STRING_DELIMITER);
-    string str;
+    auto buffer = appender!string();
+
+    int bytesRead;
     while (true) {
       auto ch = reader_.read();
       if (ch == STRING_DELIMITER) {
         break;
       }
+
+      ++bytesRead;
+      if (stringSizeLimit > 0 && bytesRead > stringSizeLimit) {
+        throw new TProtocolException(TProtocolException.Type.SIZE_LIMIT);
+      }
+
       if (ch == BACKSLASH) {
         ch = reader_.read();
         if (ch == ESCAPE_CHAR) {
@@ -506,10 +531,10 @@ private:
           ch = kEscapeCharVals[pos];
         }
       }
-      str ~= ch;
+      buffer.put(ch[0]);
     }
 
-    return str;
+    return buffer.data;
   }
 
   // Reads a sequence of characters, stopping at the first one that is not
@@ -747,6 +772,7 @@ unittest {
 unittest {
   import thrift.internal.test.protocol;
   testContainerSizeLimit!(TJsonProtocol!())();
+  testStringSizeLimit!(TJsonProtocol!())();
 }
 
 /**
