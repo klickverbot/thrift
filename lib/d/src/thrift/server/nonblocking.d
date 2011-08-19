@@ -36,11 +36,13 @@
 // available.
 module thrift.server.nonblocking;
 
+import core.atomic : atomicLoad, atomicStore;
 import core.memory : GC;
 import core.time : Duration, dur;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
-import std.socket : Socket, socketPair, SocketAcceptException, SocketException;
+import std.socket : InternetAddress, Socket, socketPair, SocketAcceptException,
+  SocketException, TcpSocket;
 import thrift.base;
 import thrift.internal.c.event.event;
 import thrift.internal.c.event.event_compat;
@@ -130,7 +132,11 @@ class TNonblockingServer : TServer {
   }
 
   override void serve(TCancellation cancellation = null) {
-    // TODO: Implement cancellation.
+    if (cancellation && cancellation.triggered) return;
+
+    assert(!atomicLoad(shuttingDown_),
+      "Shutdown flag set on serve() call, something is seriously wrong. " ~
+      "Maybe serve() has been called from multiple threads?");
 
     // Initialize the listening socket.
     // TODO: SO_KEEPALIVE, TCP_LOW_MIN_RTO, etc.
@@ -148,13 +154,54 @@ class TNonblockingServer : TServer {
 
     // Register the event for the listening socket.
     listenEvent_ = event_new(eventBase_, listenSocket_.handle,
-      EV_READ | EV_PERSIST, &acceptConnectionsCallback, cast(void*)this);
+      EV_READ | EV_PERSIST | EV_ET, &acceptConnectionsCallback, cast(void*)this);
     if (event_add(listenEvent_, null) == -1) {
       throw new TException("event_add for the listening socket event failed.");
     }
 
+    if (cancellation) {
+      cancellation.triggering.addCallback({
+        // There is a bug in either libevent or its documentation, having no
+        // events registered doesn't actually terminate the loop, because
+        // event_base_new() registers some internal one by calling
+        // evthread_make_base_notifiable(). Due to this, we can't simply remove
+        // all events and expect the event loop to terminate.
+        // Instead, we open a connection to the server and immediately close it
+        // again. This way, we make sure to wake up the libevent thread, which
+        // will break out of the loop in disposeConnection() after the last
+        // active connection (possibly our dummy one) has been closed.
+        atomicStore(shuttingDown_, true);
+
+        auto s = new TcpSocket();
+
+        auto port = port_;
+        if (port == 0) {
+          // If we were using port 0 for listening, we have to find out the
+          // actual port used first to be connect to the server to wake it up.
+          auto listenAddr = cast(InternetAddress)listenSocket_.localAddress;
+          assert(listenAddr);
+          port = listenAddr.port;
+        }
+
+        try {
+          s.connect(new InternetAddress("127.0.0.1", port));
+          s.close();
+        } catch (Exception e) {
+          logError("Could not send shutdown ping: %s", e);
+        }
+      });
+    }
+
     if (eventHandler_) eventHandler_.preServe();
     event_base_loop(eventBase_, 0);
+
+    if (event_del(listenEvent_) == -1) {
+      logError("event_del() for listening socket on server shutdown failed.");
+    }
+    listenSocket_.close();
+    listenSocket_ = null;
+
+    shuttingDown_ = false;
   }
 
   /**
@@ -317,6 +364,12 @@ private:
    * to handle those requests.
    */
   void acceptConnections(int fd, short eventFlags) {
+    if (!listenSocket_ && shuttingDown_) {
+      // The server is shutting down, the listening socket has already been
+      // closed – just ignore the event.
+      return;
+    }
+
     assert(fd == listenSocket_.handle);
     assert(eventFlags & EV_READ);
 
@@ -428,6 +481,8 @@ private:
     auto server = cast(TNonblockingServer) serverThis;
     assert(fd == server.completionReceiveSocket_.handle);
     assert(what & EV_READ);
+    assert(server.listenSocket_,
+      "Received task completion message, but the server is no longer running.");
 
     Connection connection;
     ptrdiff_t bytesRead;
@@ -497,6 +552,10 @@ private:
       // Leave the connection object for collection now.
       GC.removeRoot(cast(void*)connection);
     }
+
+    if (atomicLoad(shuttingDown_) && numIdleConnections == numConnections) {
+      event_base_loopbreak(eventBase_);
+    }
   }
 
   /// Server socket file descriptor
@@ -549,6 +608,10 @@ private:
   /// in use. When a connection is closed, it it placed here to enable object
   /// reuse.
   Connection[] connectionStack_;
+
+  /// Whether the server is currently shutting down (i.e. the cancellation has
+  /// been triggered, but not all client connections have been closed yet).
+  shared bool shuttingDown_;
 }
 
 private {
@@ -728,12 +791,12 @@ private {
           writeBufferPos_ = 0;
           socketState_ = SocketState.SEND;
           connState_ = ConnectionState.SEND_RESULT;
-          registerWriteEvent();
+          registerEvent(EV_WRITE | EV_PERSIST);
 
           return;
         case ConnectionState.SEND_RESULT:
           // The result has been sent back to the client, we don't need the
-          // bufferes anymore.
+          // buffers anymore.
           if (writeBuffer_.length > largestWriteBufferSize_) {
             largestWriteBufferSize_ = writeBuffer_.length;
           }
@@ -753,7 +816,7 @@ private {
           socketState_ = SocketState.RECV_FRAME_SIZE;
           connState_ = ConnectionState.READ_FRAME_SIZE;
           readBufferPos_ = 0;
-          registerReadEvent();
+          registerEvent(EV_READ | EV_PERSIST);
 
           return;
         case ConnectionState.READ_FRAME_SIZE:
@@ -962,16 +1025,6 @@ private {
       }
     }
 
-    /// Ditto
-    void registerReadEvent() {
-      registerEvent(EV_READ | EV_PERSIST);
-    }
-
-    /// Ditto
-    void registerWriteEvent() {
-      registerEvent(EV_WRITE | EV_PERSIST);
-    }
-
     /**
      * Unregisters the current libevent event, if any.
      */
@@ -1108,4 +1161,9 @@ void processRequest(Connection connection) {
   }
 
   connection.notifyServer();
+}
+
+unittest {
+  import thrift.internal.test.server;
+  testServeCancel!(TNonblockingServer)();
 }
