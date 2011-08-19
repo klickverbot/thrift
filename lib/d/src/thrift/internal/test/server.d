@@ -29,25 +29,30 @@ import thrift.util.cancellation;
 
 version(unittest):
 
-void testServeCancel(Server)() if (is(Server : TServer)) {
-  auto server = new Server(new WhiteHole!TProcessor, 0);
-  auto cancel = new TCancellationOrigin;
+void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
+  is(Server : TServer)
+) {
+  foreach (_; 0 .. 100) {
+    auto server = new Server(new WhiteHole!TProcessor, 0);
+    if (serverSetup) serverSetup(server);
 
-  auto doneMutex = new Mutex;
-  auto doneCondition = new Condition(doneMutex);
+    auto cancel = new TCancellationOrigin;
+    auto doneMutex = new Mutex;
+    auto doneCondition = new Condition(doneMutex);
 
-  auto serverThread = new Thread({
-    server.serve(cancel);
+    auto serverThread = new Thread({
+      server.serve(cancel);
+      synchronized (doneMutex) {
+        doneCondition.notifyAll();
+      }
+    });
+    serverThread.isDaemon = true;
+    serverThread.start();
+
+    Thread.sleep(dur!"msecs"(10));
+    cancel.trigger();
     synchronized (doneMutex) {
-      doneCondition.notifyAll();
+      assert(doneCondition.wait(dur!"msecs"(5)));
     }
-  });
-  serverThread.isDaemon = true;
-  serverThread.start();
-
-  Thread.sleep(dur!"msecs"(50));
-  cancel.trigger();
-  synchronized (doneMutex) {
-    assert(doneCondition.wait(dur!"msecs"(10)));
   }
 }

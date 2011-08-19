@@ -1166,4 +1166,10 @@ void processRequest(Connection connection) {
 unittest {
   import thrift.internal.test.server;
   testServeCancel!(TNonblockingServer)();
+
+  auto tp = new TaskPool(4);
+  scope (exit) tp.stop();
+  testServeCancel!(TNonblockingServer)((TNonblockingServer s) {
+    s.taskPool = tp;
+  });
 }
