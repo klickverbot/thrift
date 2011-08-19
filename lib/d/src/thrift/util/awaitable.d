@@ -196,6 +196,7 @@ final class TSocketNotifier {
     while (recvSocket_.receive(dummy) != Socket.ERROR) {}
 
     assert(awaitable_.removeCallback(&notify));
+    awaitable_ = null;
   }
 
 private:
