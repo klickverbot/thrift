@@ -107,7 +107,7 @@ static this() {
  * consecutive tries, it is temporarily disabled (not tried any longer) for
  * a certain duration. Both the limit and the timeout can be configured.
  */
-class TAsyncFallbackClientPool(Interface) if (isService!Interface) :
+class TAsyncClientPool(Interface) if (isService!Interface) :
   TAsyncClientPoolBase!Interface
 {
   ///
@@ -280,11 +280,11 @@ private:
 }
 
 /**
- * TAsyncFallbackClientPool construction helper to avoid having to explicitly
+ * TAsyncClientPool construction helper to avoid having to explicitly
  * specify the interface type, i.e. to allow the constructor being called
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
-TAsyncFallbackClientPool!Interface tAsyncFallbackClientPool(Interface)(
+TAsyncClientPool!Interface tAsyncClientPool(Interface)(
   TAsyncClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
@@ -491,7 +491,7 @@ private {
  * here), but allows the user to specify a custom accumulator function to use
  * or to iterate over the results using a TFutureAggregatorRange.
  *
- * For each service method, TAsyncAggregatorClientPool offers a method
+ * For each service method, TAsyncAggregator offers a method
  * accepting the same arguments, and an optional TCancellation instance, just
  * like with TFutureInterface. The return type, however, is a proxy object
  * that offers the following methods:
@@ -553,7 +553,7 @@ private {
  * // Create the aggregator pool – client0, client1, client2 are some
  * // TAsyncClient!Foo instances, but in theory could also be other
  * // TFutureInterface!Foo implementations (e.g. some async client pool).
- * auto pool = new TAsyncAggregatorClientPool!Foo([client0, client1, client2]);
+ * auto pool = new TAsyncAggregator!Foo([client0, client1, client2]);
  *
  * foreach (val; pool.foo("baz").range(dur!"seconds"(1))) {
  *   // Process all the results that are available before a second has passed,
@@ -585,7 +585,7 @@ private {
  * pragma(msg, typeof(pool.bar().accumulate().get())); // byte[].
  * ---
  */
-class TAsyncAggregatorClientPool(Interface) if (isBaseService!Interface) {
+class TAsyncAggregator(Interface) if (isBaseService!Interface) {
   /// Shorthand for the client type this instance operates on.
   alias TFutureInterface!Interface Client;
 
@@ -606,8 +606,8 @@ private:
 }
 
 /// Ditto
-class TAsyncAggregatorClientPool(Interface) if (isDerivedService!Interface) :
-  TAsyncAggregatorClientPool!(BaseService!Interface)
+class TAsyncAggregator(Interface) if (isDerivedService!Interface) :
+  TAsyncAggregator!(BaseService!Interface)
 {
   /// Shorthand for the client type this instance operates on.
   alias TFutureInterface!Interface Client;
@@ -648,11 +648,11 @@ template isAccumulator(ValueType, alias fun) {
 }
 
 /**
- * TAsyncAggregatorClientPool construction helper to avoid having to explicitly
+ * TAsyncAggregator construction helper to avoid having to explicitly
  * specify the interface type, i.e. to allow the constructor being called
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
-TAsyncAggregatorClientPool!Interface tAsyncAggregatorClientPool(Interface)(
+TAsyncAggregator!Interface tAsyncAggregator(Interface)(
   TFutureInterface!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);

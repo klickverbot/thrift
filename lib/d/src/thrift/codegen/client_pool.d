@@ -32,7 +32,7 @@ import thrift.util.resource_pool;
  * a client is disabled for a configurable amount of time if it fails too
  * often.
  */
-class TFallbackClientPool(Interface) if (isService!Interface) : Interface {
+class TClientPool(Interface) if (isService!Interface) : Interface {
   /// Shorthand for TClientBase!Interface, the client type this instance
   /// operates on.
   alias TClientBase!Interface Client;
@@ -62,7 +62,7 @@ class TFallbackClientPool(Interface) if (isService!Interface) : Interface {
    * Example:
    * ---
    * interface Foo { string bar(); }
-   * auto poolClient = tFallbackClientPool([tClient!Foo(someProtocol)]);
+   * auto poolClient = tClientPool([tClient!Foo(someProtocol)]);
    * auto result = poolClient.execute((c){ return c.bar(); });
    * ---
    */
@@ -243,11 +243,11 @@ private {
 }
 
 /**
- * TFallbackClientPool construction helper to avoid having to explicitly specify
+ * TClientPool construction helper to avoid having to explicitly specify
  * the interface type, i.e. to allow the constructor being called using IFTI
  * (see $(DMDBUG 6082, D Bugzilla enhancement requet 6082)).
  */
-TFallbackClientPool!Interface tFallbackClientPool(Interface)(
+TClientPool!Interface tClientPool(Interface)(
   TClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
