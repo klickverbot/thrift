@@ -16,31 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+package org.apache.thrift.scheme;
 
-#import "TException.h"
-#import "TProtocol.h"
+public interface SchemeFactory {
 
-enum {
-  TApplicationException_UNKNOWN = 0,
-  TApplicationException_UNKNOWN_METHOD = 1,
-  TApplicationException_INVALID_MESSAGE_TYPE = 2,
-  TApplicationException_WRONG_METHOD_NAME = 3,
-  TApplicationException_BAD_SEQUENCE_ID = 4,
-  TApplicationException_MISSING_RESULT = 5,
-  TApplicationException_INTERNAL_ERROR = 6,
-  TApplicationException_PROTOCOL_ERROR = 7
-};
+  public <S extends IScheme> S getScheme();
 
-// FIXME
-@interface TApplicationException : TException {
-  int mType;
 }
-
-+ (TApplicationException *) read: (id <TProtocol>) protocol;
-
-- (void) write: (id <TProtocol>) protocol;
-
-+ (TApplicationException *) exceptionWithType: (int) type
-                                       reason: (NSString *) message;
-
-@end

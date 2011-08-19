@@ -19,7 +19,7 @@
 
 require 'rubygems'
 require 'rake'
-require 'spec/rake/spectask'
+require 'rspec/core/rake_task'
 
 THRIFT = '../../compiler/cpp/thrift'
 
@@ -27,14 +27,12 @@ task :default => [:spec]
 
 task :spec => [:'gen-rb', :realspec]
 
-Spec::Rake::SpecTask.new(:realspec) do |t|
-  t.spec_files = FileList['spec/**/*_spec.rb']
-  t.spec_opts = ['--color']
+RSpec::Core::RakeTask.new(:realspec) do |t|
+  t.rspec_opts = ['--color']
 end
 
-Spec::Rake::SpecTask.new(:'spec:rcov') do |t|
-  t.spec_files = FileList['spec/**/*_spec.rb']
-  t.spec_opts = ['--color']
+RSpec::Core::RakeTask.new(:'spec:rcov') do |t|
+  t.rspec_opts = ['--color']
   t.rcov = true
   t.rcov_opts = ['--exclude', '^spec,/gems/']
 end
@@ -82,7 +80,7 @@ begin
     p.summary = "Ruby bindings for the Apache Thrift RPC system"
     p.url = "http://thrift.apache.org"
     p.include_rakefile = true
-    p.version = "0.7.0dev"
+    p.version = "0.8.0-dev"
     p.rubygems_version = ">= 1.2.0"
   end
 
@@ -102,3 +100,4 @@ rescue LoadError
     end
   end
 end
+

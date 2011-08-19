@@ -16,31 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+package org.apache.thrift.server;
 
-#import "TException.h"
-#import "TProtocol.h"
+import org.apache.thrift.TProcessor;
+import org.apache.thrift.protocol.TProtocolFactory;
+import org.apache.thrift.server.TThreadedSelectorServer.Args;
+import org.apache.thrift.transport.TNonblockingServerSocket;
 
-enum {
-  TApplicationException_UNKNOWN = 0,
-  TApplicationException_UNKNOWN_METHOD = 1,
-  TApplicationException_INVALID_MESSAGE_TYPE = 2,
-  TApplicationException_WRONG_METHOD_NAME = 3,
-  TApplicationException_BAD_SEQUENCE_ID = 4,
-  TApplicationException_MISSING_RESULT = 5,
-  TApplicationException_INTERNAL_ERROR = 6,
-  TApplicationException_PROTOCOL_ERROR = 7
-};
-
-// FIXME
-@interface TApplicationException : TException {
-  int mType;
+public class TestThreadedSelectorServer extends TestNonblockingServer {
+  protected TServer getServer(TProcessor processor, TNonblockingServerSocket socket, TProtocolFactory protoFactory) {
+    return new TThreadedSelectorServer(new Args(socket).processor(processor).protocolFactory(protoFactory));
+  }
 }
-
-+ (TApplicationException *) read: (id <TProtocol>) protocol;
-
-- (void) write: (id <TProtocol>) protocol;
-
-+ (TApplicationException *) exceptionWithType: (int) type
-                                       reason: (NSString *) message;
-
-@end
