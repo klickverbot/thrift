@@ -1165,10 +1165,17 @@ void processRequest(Connection connection) {
 
 unittest {
   import thrift.internal.test.server;
+
+  // Temporarily disable info log output in order not to spam the test results
+  // with startup info messages.
+  auto oldInfoLogSink = g_infoLogSink;
+  g_infoLogSink = null;
+  scope (exit) g_infoLogSink = oldInfoLogSink;
+
   testServeCancel!(TNonblockingServer)();
 
   auto tp = new TaskPool(4);
-  scope (exit) tp.stop();
+  tp.isDaemon = true;
   testServeCancel!(TNonblockingServer)((TNonblockingServer s) {
     s.taskPool = tp;
   });
