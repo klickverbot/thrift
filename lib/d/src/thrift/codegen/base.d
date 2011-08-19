@@ -341,7 +341,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import std.algorithm : canFind;
   import thrift.codegen.base;
   import thrift.internal.traits : isNullable, MemberType;
-  import thrift.protocol.base : TProtocol;
+  import thrift.protocol.base : TProtocol, isTProtocol;
 
   alias typeof(this) This;
   static assert(is(This == struct) || is(This : Exception),
