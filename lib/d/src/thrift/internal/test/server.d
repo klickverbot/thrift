@@ -32,13 +32,14 @@ version(unittest):
 void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
   is(Server : TServer)
 ) {
-  foreach (_; 0 .. 100) {
-    auto server = new Server(new WhiteHole!TProcessor, 0);
-    if (serverSetup) serverSetup(server);
+  auto server = new Server(new WhiteHole!TProcessor, 0);
+  if (serverSetup) serverSetup(server);
 
+  auto doneMutex = new Mutex;
+  auto doneCondition = new Condition(doneMutex);
+
+  foreach (_; 0 .. 100) {
     auto cancel = new TCancellationOrigin;
-    auto doneMutex = new Mutex;
-    auto doneCondition = new Condition(doneMutex);
 
     auto serverThread = new Thread({
       server.serve(cancel);
