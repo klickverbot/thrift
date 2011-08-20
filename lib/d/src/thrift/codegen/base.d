@@ -21,6 +21,11 @@
  * Code generation metadata and templates used for implementing struct
  * serialization.
  *
+ * Many templates can be customized using field meta data, which is read from
+ * a manifest constant member of the given type called fieldMeta (if present),
+ * and is concatenated with the elements from the optional fieldMetaData
+ * template alias parameter.
+ *
  * Some code generation templates take account of the optional TVerboseCodegen
  * version declaration, which causes warning messages to be emitted if no
  * metadata for a field/method has been found and the default behavior is
@@ -29,6 +34,9 @@
  * assign negative ids (starting at -1) for fields and assume
  * TReq.OPT_IN_REQ_OUT as requirement level.
  */
+// Implementation note: All the templates in here taking a field metadata
+// parameter should ideally have a constraint that restricts the alias to
+// TFieldMeta[]-typed values, but the is() expressions seems to always fail.
 module thrift.codegen.base;
 
 import std.algorithm : find;
@@ -324,7 +332,8 @@ template BaseService(T) if (isDerivedService!T) {
  *
  * Additionally, an opEquals() implementation is provided which simply
  * compares all fields, but disregards the is set struct, if any (the exact
- * signature obviously differs between structs and exception classes).
+ * signature obviously differs between structs and exception classes). The
+ * metadata is stored in a manifest constant called fieldMeta.
  *
  * Note: To set the default values for fields where one has been specified in
  * the field metadata, a parameterless static opCall is generated, because D
@@ -339,6 +348,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   is(typeof(fieldMetaData) : TFieldMeta[])
 ) {
   import std.algorithm : canFind;
+  import std.array : empty;
   import thrift.codegen.base;
   import thrift.internal.traits : isNullable, MemberType;
   import thrift.protocol.base : TProtocol, isTProtocol;
@@ -347,10 +357,12 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   static assert(is(This == struct) || is(This : Exception),
     "TStructHelpers can only be used inside a struct or an Exception class.");
 
-  static if (is(TIsSetFlags!(This, fieldMetaData))) {
+  enum fieldMeta = fieldMetaData;
+
+  static if (is(TIsSetFlags!(This, mergeMeta!(This, fieldMetaData)))) {
     // If we need to keep isSet flags around, create an instance of the
     // container struct.
-    TIsSetFlags!(This, fieldMetaData) isSetFlags;
+    TIsSetFlags!(This, mergeMeta!(This, fieldMetaData)) isSetFlags;
   }
 
   void set(string fieldName)(MemberType!(This, fieldName) value) if (
@@ -450,7 +462,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     return true;
   }
 
-  static if (canFind!`!a.defaultValue.empty`(fieldMetaData)) {
+  static if (canFind!`!a.defaultValue.empty`(mergeMeta!(This, fieldMetaData))) {
     static if (is(This _ == class)) {
       this() {
         mixin(thriftFieldInitCode("this"));
@@ -467,7 +479,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
 
     private static string thriftFieldInitCode(string thisName) {
       string code;
-      foreach (field; fieldMetaData) {
+      foreach (field; mergeMeta!(This, fieldMetaData)) {
         if (field.defaultValue.empty) continue;
         code ~= thisName ~ "." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
       }
@@ -476,11 +488,11 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   void read(Protocol)(Protocol proto) if (isTProtocol!Protocol) {
-    readStruct!(This, Protocol, fieldMetaData, false)(this, proto);
+    readStruct(this, proto);
   }
 
   void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol) {
-    writeStruct!(This, Protocol, fieldMetaData, false)(this, proto);
+    writeStruct(this, proto);
   }
 }
 
@@ -514,6 +526,15 @@ unittest {
   assert(f.toString() == `Foo(a: a string, b: 0 (unset), c: 4)`);
 }
 
+template mergeMeta(T, alias fieldMetaData = cast(TFieldMeta[])null) {
+  static if (is(typeof(T.fieldMeta) == TFieldMeta[])) {
+    enum mergeMeta = T.fieldMeta ~ fieldMetaData;
+  } else static if (!fieldMetaData.empty) {
+    enum mergeMeta = fieldMetaData;
+  } else {
+    enum TFieldMeta[] mergeMeta = [];
+  }
+}
 
 /**
  * Generates an eponymous struct with boolean flags for the non-required
@@ -537,7 +558,7 @@ template TIsSetFlags(T, alias fieldMetaData) {
         // unset to null.
         static if (isNullable!(MemberType!(T, name))) continue;
 
-        auto meta = find!`a.name == b`(fieldMetaData, name);
+        auto meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
         if (!meta.empty && meta.front.req == TReq.REQUIRED) continue;
         boolDefinitions ~= "bool " ~ name ~ ";\n";
       }
@@ -570,7 +591,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    static if (fieldMetaData) foreach (field; fieldMetaData) {
+    foreach (field; mergeMeta!(T, fieldMetaData)) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -686,7 +707,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
         !isSomeFunction!(MemberType!(T, name)))
       {
-        enum meta = find!`a.name == b`(fieldMetaData, name);
+        enum meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
         static if (meta.empty) {
           --lastId;
           version (TVerboseCodegen) {
@@ -749,7 +770,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
     string code = "";
-    static if (fieldMetaData) foreach (field; fieldMetaData) {
+    foreach (field; mergeMeta!(T, fieldMetaData)) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -763,7 +784,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
         !isSomeFunction!(MemberType!(T, name)))
       {
         static if (isNullable!(MemberType!(T, name))) {
-          enum meta = find!`a.name == b`(fieldMetaData, name);
+          enum meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
           static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
             code ~= `enforce(__traits(getMember, s, name) !is null,
               new TException("Required field '` ~ name ~ `' is null."));\n`;
@@ -868,7 +889,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       {
         alias MemberType!(T, name) F;
 
-        auto meta = find!`a.name == b`(fieldMetaData, name);
+        auto meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
         if (meta.empty) {
           --lastId;
           version (TVerboseCodegen) {
