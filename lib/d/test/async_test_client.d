@@ -52,11 +52,11 @@ void main(string[] args) {
 
   scope asyncManager = new TLibeventAsyncManager;
   auto socket = new TAsyncSocket(asyncManager, host, port);
-  auto client = tAsyncFastestClientPool([new TAsyncClient!AsyncTest(
+  auto client = new TAsyncClient!AsyncTest(
     socket,
     new TBufferedTransportFactory,
     new TBinaryProtocolFactory!TBufferedTransport
-  )]);
+  );
 
   foreach (i; 0 .. numIterations) {
     socket.open();
