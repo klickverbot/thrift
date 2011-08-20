@@ -339,9 +339,11 @@ private:
  * enhancement requet 6082)).
  */
 TBinaryProtocol!Transport tBinaryProtocol(Transport)(Transport trans,
-  bool strictRead = false, bool strictWrite = true) if (isTTransport!Transport)
-{
-  return new TBinaryProtocol!Transport(trans, strictRead, strictWrite);
+  int containerSizeLimit = 0, int stringSizeLimit = 0,
+  bool strictRead = false, bool strictWrite = true
+) if (isTTransport!Transport) {
+  return new TBinaryProtocol!Transport(trans, containerSizeLimit,
+    stringSizeLimit, strictRead, strictWrite);
 }
 
 unittest {

@@ -737,10 +737,10 @@ private:
  * (see $(LINK2 http://d.puremagic.com/issues/show_bug.cgi?id=6082, D Bugzilla
  * enhancement requet 6082)).
  */
-TJsonProtocol!Transport tJsonProtocol(Transport)(Transport trans)
-  if (isTTransport!Transport)
-{
-  return new TJsonProtocol!Transport(trans);
+TJsonProtocol!Transport tJsonProtocol(Transport)(Transport trans,
+  int containerSizeLimit = 0, int stringSizeLimit = 0
+) if (isTTransport!Transport) {
+  return new TJsonProtocol!Transport(trans, containerSizeLimit, stringSizeLimit);
 }
 
 unittest {
