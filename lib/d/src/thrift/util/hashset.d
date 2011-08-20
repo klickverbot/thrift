@@ -97,10 +97,11 @@ final class HashSet(E) {
   override string toString() const {
     // Only provide toString() if to!string() is available for E (exceptions are
     // e.g. delegates).
+    import std.conv;
     static if (is(typeof(to!string(E.init)) : string)) {
       return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
     } else {
-      return (cast()this).toString();
+      return (cast()super).toString();
     }
   }
 
@@ -129,9 +130,15 @@ unittest {
   assert(a.length == 3);
   assert(2 in a);
   assert(5 !in a);
+  assert(a.toString().length == 9);
   a.remove(2);
   assert(a.length == 2);
   assert(2 !in a);
   a.removeAll();
   assert(a.empty);
+  assert(a.toString == "{}");
+
+  void delegate() dg;
+  auto b = hashSet(dg);
+  assert(b.toString() == "thrift.util.hashset.HashSet!(void delegate()).HashSet");
 }
