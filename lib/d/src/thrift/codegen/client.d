@@ -23,8 +23,8 @@ import std.array : empty, front;
 import std.conv : to;
 import std.traits : isSomeFunction, ParameterTypeTuple;
 import thrift.codegen.base;
+import thrift.internal.codegen;
 import thrift.internal.ctfe;
-import thrift.internal.traits;
 import thrift.protocol.base;
 
 /**

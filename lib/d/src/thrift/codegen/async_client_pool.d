@@ -36,7 +36,7 @@ import thrift.base;
 import thrift.codegen.base;
 import thrift.codegen.async_client;
 import thrift.internal.algorithm;
-import thrift.internal.traits;
+import thrift.internal.codegen;
 import thrift.util.awaitable;
 import thrift.util.cancellation;
 import thrift.util.future;

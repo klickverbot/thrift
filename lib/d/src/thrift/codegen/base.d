@@ -45,7 +45,7 @@ import std.conv : to;
 import std.traits : BaseTypeTuple, isPointer, isSomeFunction, pointerTarget,
   ReturnType;
 import thrift.base;
-import thrift.internal.traits;
+import thrift.internal.codegen;
 import thrift.protocol.base;
 
 /*
@@ -350,19 +350,20 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import std.algorithm : canFind;
   import std.array : empty;
   import thrift.codegen.base;
-  import thrift.internal.traits : isNullable, MemberType;
+  import thrift.internal.codegen : isNullable, MemberType;
   import thrift.protocol.base : TProtocol, isTProtocol;
 
   alias typeof(this) This;
   static assert(is(This == struct) || is(This : Exception),
     "TStructHelpers can only be used inside a struct or an Exception class.");
 
-  enum fieldMeta = fieldMetaData;
-
-  static if (is(TIsSetFlags!(This, mergeMeta!(This, fieldMetaData)))) {
+  static if (is(TIsSetFlags!(This, fieldMetaData))) {
     // If we need to keep isSet flags around, create an instance of the
     // container struct.
-    TIsSetFlags!(This, mergeMeta!(This, fieldMetaData)) isSetFlags;
+    TIsSetFlags!(This, fieldMetaData) isSetFlags;
+    enum fieldMeta = fieldMetaData ~ [TFieldMeta("isSetFlags", 0, TReq.IGNORE)];
+  } else {
+    enum fieldMeta = fieldMetaData;
   }
 
   void set(string fieldName)(MemberType!(This, fieldName) value) if (
@@ -462,7 +463,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     return true;
   }
 
-  static if (canFind!`!a.defaultValue.empty`(mergeMeta!(This, fieldMetaData))) {
+  static if (canFind!`!a.defaultValue.empty`(mergeFieldMeta!(This, fieldMetaData))) {
     static if (is(This _ == class)) {
       this() {
         mixin(thriftFieldInitCode("this"));
@@ -479,7 +480,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
 
     private static string thriftFieldInitCode(string thisName) {
       string code;
-      foreach (field; mergeMeta!(This, fieldMetaData)) {
+      foreach (field; mergeFieldMeta!(This, fieldMetaData)) {
         if (field.defaultValue.empty) continue;
         code ~= thisName ~ "." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
       }
@@ -526,16 +527,6 @@ unittest {
   assert(f.toString() == `Foo(a: a string, b: 0 (unset), c: 4)`);
 }
 
-template mergeMeta(T, alias fieldMetaData = cast(TFieldMeta[])null) {
-  static if (is(typeof(T.fieldMeta) == TFieldMeta[])) {
-    enum mergeMeta = T.fieldMeta ~ fieldMetaData;
-  } else static if (!fieldMetaData.empty) {
-    enum mergeMeta = fieldMetaData;
-  } else {
-    enum TFieldMeta[] mergeMeta = [];
-  }
-}
-
 /**
  * Generates an eponymous struct with boolean flags for the non-required
  * non-nullable fields of T, if any, or nothing otherwise (i.e. the template
@@ -546,6 +537,9 @@ template mergeMeta(T, alias fieldMetaData = cast(TFieldMeta[])null) {
  * In most cases, you do not want to use this directly, but via TStructHelpers
  * instead.
  */
+// DMD @@BUG@@: Using getFieldMeta!T in here horribly breaks things to the point
+// where getFieldMeta is *instantiated twice*, with different bodies. This is
+// connected to the position of »enum fieldMeta« in TStructHelpers.
 template TIsSetFlags(T, alias fieldMetaData) {
   mixin({
     string boolDefinitions;
@@ -553,12 +547,11 @@ template TIsSetFlags(T, alias fieldMetaData) {
       static if (!is(MemberType!(T, name)) || is(MemberType!(T, name) == void)) {
         // We hit something strange like the TStructHelpers template itself,
         // just ignore.
-      } else {
+      } else static if (isNullable!(MemberType!(T, name))) {
         // If the field is nullable, we don't need an isSet flag as we can map
         // unset to null.
-        static if (isNullable!(MemberType!(T, name))) continue;
-
-        auto meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
+      } else {
+        auto meta = find!`a.name == b`(fieldMetaData, name);
         if (!meta.empty && meta.front.req == TReq.REQUIRED) continue;
         boolDefinitions ~= "bool " ~ name ~ ";\n";
       }
@@ -591,7 +584,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
 
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
-    foreach (field; mergeMeta!(T, fieldMetaData)) {
+    foreach (field; mergeFieldMeta!(T, fieldMetaData)) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -707,7 +700,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
         !isSomeFunction!(MemberType!(T, name)))
       {
-        enum meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
+        enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
         static if (meta.empty) {
           --lastId;
           version (TVerboseCodegen) {
@@ -770,7 +763,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // Check that all fields for which there is meta info are actually in the
     // passed struct type.
     string code = "";
-    foreach (field; mergeMeta!(T, fieldMetaData)) {
+    foreach (field; mergeFieldMeta!(T, fieldMetaData)) {
       code ~= "static assert(is(MemberType!(T, `" ~ field.name ~ "`)));\n";
     }
 
@@ -784,7 +777,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
         !isSomeFunction!(MemberType!(T, name)))
       {
         static if (isNullable!(MemberType!(T, name))) {
-          enum meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
+          enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
           static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
             code ~= `enforce(__traits(getMember, s, name) !is null,
               new TException("Required field '` ~ name ~ `' is null."));\n`;
@@ -889,7 +882,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       {
         alias MemberType!(T, name) F;
 
-        auto meta = find!`a.name == b`(mergeMeta!(T, fieldMetaData), name);
+        auto meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
         if (meta.empty) {
           --lastId;
           version (TVerboseCodegen) {
@@ -908,4 +901,42 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
   }());
   p.writeFieldStop();
   p.writeStructEnd();
+}
+
+private {
+  /*
+   * Returns a D code string containing the matching TType value for a passed
+   * D type, e.g. dToTTypeString!byte == "TType.BYTE".
+   */
+  template dToTTypeString(T) {
+    static if (is(FullyUnqual!T == bool)) {
+      enum dToTTypeString = "TType.BOOL";
+    } else static if (is(FullyUnqual!T == byte)) {
+      enum dToTTypeString = "TType.BYTE";
+    } else static if (is(FullyUnqual!T == double)) {
+      enum dToTTypeString = "TType.DOUBLE";
+    } else static if (is(FullyUnqual!T == short)) {
+      enum dToTTypeString = "TType.I16";
+    } else static if (is(FullyUnqual!T == int)) {
+      enum dToTTypeString = "TType.I32";
+    } else static if (is(FullyUnqual!T == long)) {
+      enum dToTTypeString = "TType.I64";
+    } else static if (is(FullyUnqual!T : string)) {
+      enum dToTTypeString = "TType.STRING";
+    } else static if (is(FullyUnqual!T == enum)) {
+      enum dToTTypeString = "TType.I32";
+    } else static if (is(FullyUnqual!T _ : U[], U)) {
+      enum dToTTypeString = "TType.LIST";
+    } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
+      enum dToTTypeString = "TType.MAP";
+    } else static if (is(FullyUnqual!T _ : HashSet!E, E)) {
+      enum dToTTypeString = "TType.SET";
+    } else static if (is(FullyUnqual!T == struct)) {
+      enum dToTTypeString = "TType.STRUCT";
+    } else static if (is(FullyUnqual!T : TException)) {
+      enum dToTTypeString = "TType.STRUCT";
+    } else {
+      static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
+    }
+  }
 }

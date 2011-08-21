@@ -23,8 +23,8 @@ import std.typetuple : allSatisfy, TypeTuple;
 import std.variant : Variant;
 import thrift.base;
 import thrift.codegen.base;
+import thrift.internal.codegen;
 import thrift.internal.ctfe;
-import thrift.internal.traits;
 import thrift.protocol.base;
 import thrift.protocol.processor;
 
