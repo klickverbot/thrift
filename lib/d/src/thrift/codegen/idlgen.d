@@ -29,7 +29,86 @@ import thrift.internal.codegen;
 import thrift.internal.ctfe;
 import thrift.util.hashset;
 
-template structIdlString(T) {
+template serviceIdlString(T) if (isService!T) {
+  enum serviceIdlString = {
+    string result = "service " ~ T.stringof;
+    static if (isDerivedService!T) {
+      result ~= " extends " ~ BaseService!T.stringof;
+    }
+    result ~= " {\n";
+
+    foreach (methodName; __traits(derivedMembers, T)) {
+      static if (isSomeFunction!(MemberType!(T, methodName))) {
+        result ~= "  ";
+
+        enum meta = find!`a.name == b`(T.methodMeta, methodName);
+
+        static if (!meta.empty && meta.front.type == TMethodType.ONEWAY) {
+          result ~= "oneway ";
+        }
+
+        alias ReturnType!(MemberType!(T, methodName)) RT;
+        static if (is(RT == void)) {
+          // We special-case this here instead of adding void to dToIdlType to
+          // avoid accepting things like void[].
+          result ~= "void ";
+        } else {
+          result ~= dToIdlType!RT ~ " ";
+        }
+        result ~= methodName ~ "(";
+
+        short lastId;
+        foreach (i, ParamType; ParameterTypeTuple!(MemberType!(T, methodName))) {
+          static if (!meta.empty && i < meta.front.params.length) {
+            enum havePM = true;
+          } else {
+            enum havePM = false;
+          }
+
+          short id;
+          static if (havePM) {
+            id = meta.front.params[i].id;
+          } else {
+            id = --lastId;
+          }
+
+          string paramName;
+          static if (havePM) {
+            paramName = meta.front.params[i].name;
+          } else {
+            paramName = "param" ~ to!string(i + 1);
+          }
+
+          result ~= to!string(id) ~ ": " ~ dToIdlType!ParamType ~ " " ~ paramName;
+
+          static if (havePM && !meta.front.params[i].defaultValue.empty) {
+            result ~= " = " ~ dToIdlConst(mixin(meta.front.params[i].defaultValue));
+          } else {
+            // Unfortunately, getting the default value for parameters isn't
+            // possible.
+          }
+          result ~= ", ";
+        }
+        result ~= ")";
+
+        static if (!meta.empty && !meta.front.exceptions.empty) {
+          result ~= " throws (";
+          foreach (e; meta.front.exceptions) {
+            result ~= to!string(e.id) ~ ": " ~ e.type ~ " " ~ e.name;
+          }
+          result ~= ")";
+        }
+
+        result ~= ",\n";
+      }
+    }
+
+    result ~= "}\n";
+    return result;
+  }();
+}
+
+template structIdlString(T) if (is(T == struct) || is(T : Exception)) {
   enum structIdlString = {
     mixin({
       string code = "";
@@ -332,6 +411,54 @@ unittest {
   1: list<OneOfEach> big,
   2: set<list<string>> contain,
   3: map<string, list<Bonk>> bonks,
+}
+`);
+}
+
+version (unittest) {
+  interface Srv {
+    void voidMethod();
+    int primitiveMethod();
+    OneOfEach structMethod();
+    void methodWithDefaultArgs(int something);
+    void onewayMethod();
+    void exceptionMethod();
+
+    enum methodMeta = [
+      TMethodMeta(`methodWithDefaultArgs`,
+        [TParamMeta(`something`, 1, q{2})]
+      ),
+      TMethodMeta(`onewayMethod`,
+        [],
+        [],
+        TMethodType.ONEWAY
+      ),
+      TMethodMeta(`exceptionMethod`,
+        [],
+        [TExceptionMeta("a", 1, "Exception")]
+      )
+    ];
+  }
+
+  interface ChildSrv : Srv {
+    int childMethod(int arg);
+  }
+}
+
+unittest {
+  static assert(serviceIdlString!Srv ==
+`service Srv {
+  void voidMethod(),
+  i32 primitiveMethod(),
+  OneOfEach structMethod(),
+  void methodWithDefaultArgs(1: i32 something = 2, ),
+  oneway void onewayMethod(),
+  void exceptionMethod() throws (1: Exception a),
+}
+`);
+  static assert(serviceIdlString!ChildSrv ==
+`service ChildSrv extends Srv {
+  i32 childMethod(-1: i32 param1, ),
 }
 `);
 }
