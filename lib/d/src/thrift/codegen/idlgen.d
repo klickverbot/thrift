@@ -23,6 +23,7 @@
  */
 module thrift.codegen.idlgen;
 
+import std.array : empty, front;
 import std.traits : EnumMembers, OriginalType;
 import std.typetuple : allSatisfy, staticIndexOf, staticMap, NoDuplicates,
   TypeTuple;
@@ -31,18 +32,6 @@ import thrift.codegen.base;
 import thrift.internal.codegen;
 import thrift.internal.ctfe;
 import thrift.util.hashset;
-
-template isStruct(T) {
-  enum isStruct = is(T == struct);
-}
-
-template isException(T) {
- enum isException = is(T : Exception);
-}
-
-template isEnum(T) {
-  enum isEnum = is(T == enum);
-}
 
 alias Any!(isStruct, isException, isEnum, isService) isThriftEntity;
 
@@ -62,7 +51,7 @@ private {
       ForAllWithList!(
         ConfinedTuple!(
           staticFilter!(Any!(isException, isStruct), Roots),
-          staticMap!(CompositeTypeDeps, staticMap!(ServiceDeclTypes, Services))
+          staticMap!(CompositeTypeDeps, staticMap!(ServiceTypeDeps, Services))
         ),
         AddStructWithDeps
       )
@@ -76,7 +65,7 @@ private {
         ),
         staticMap!(
           structIdlString,
-          staticFilter!(isStruct, Types)
+          staticFilter!(Any!(isStruct, isException), Types)
         ),
         staticMap!(
           serviceIdlString,
@@ -87,24 +76,44 @@ private {
     );
   }
 
-  template ServiceDeclTypes(T) if (isService!T) {
+  template ServiceTypeDeps(T) if (isService!T) {
     alias staticMap!(
-      FunctionDeclTypes,
+      PApply!(MethodTypeDeps, T),
       staticFilter!(
-        isSomeFunction,
-        staticMap!(
-          PApply!(MemberType, T),
-          staticFilter!(
-            Compose!(hasType, PApply!(getMember, T)),
-            __traits(derivedMembers, T)
-          )
-        )
+        All!(
+          Compose!(hasType, PApply!(getMember, T)),
+          Compose!(isSomeFunction, PApply!(MemberType, T))
+        ),
+        __traits(derivedMembers, T)
       )
-    ) ServiceDeclTypes;
+    ) ServiceTypeDeps;
   }
 
-  template FunctionDeclTypes(T) if (isSomeFunction!T) {
-    alias TypeTuple!(ReturnType!T, ParameterTypeTuple!T) FunctionDeclTypes;
+  template MethodTypeDeps(T, string name) if (
+    isService!T && isSomeFunction!(MemberType!(T, name))
+  ) {
+    alias TypeTuple!(
+      ReturnType!(MemberType!(T, name)),
+      ParameterTypeTuple!(MemberType!(T, name)),
+      ExceptionTypes!(T, name)
+    ) MethodTypeDeps;
+  }
+
+  template ExceptionTypes(T, string name) if (
+    isService!T && isSomeFunction!(MemberType!(T, name))
+  ) {
+    mixin({
+      enum meta = find!`a.name == b`(getMethodMeta!T, name);
+      if (meta.empty) return "alias TypeTuple!() ExceptionTypes;";
+
+      string result = "alias TypeTuple!(";
+      foreach (i, e; meta.front.exceptions) {
+        if (i > 0) result ~= ", ";
+        result ~= "mixin(`T." ~ e.type ~ "`)";
+      }
+      result ~= ") ExceptionTypes;";
+      return result;
+    }());
   }
 
   template AddBaseServices(T, List...) {
@@ -354,7 +363,13 @@ template structIdlString(T) if (isStruct!T || isException!T) {
       return code;
     }());
 
-    string result = "struct " ~ T.stringof ~ " {\n";
+    string result;
+    static if (isException!T) {
+      result = "exception ";
+    } else {
+      result = "struct ";
+    }
+    result ~= T.stringof ~ " {\n";
 
     // The last automatically assigned id – fields with no meta information
     // are assigned (in lexical order) descending negative ids, starting with
@@ -651,6 +666,16 @@ unittest {
 }
 
 version (unittest) {
+  class ExceptionWithAMap : TException {
+    string blah;
+    string[string] map_field;
+
+    mixin TStructHelpers!([
+      TFieldMeta(`blah`, 1),
+      TFieldMeta(`map_field`, 2)
+    ]);
+  }
+
   interface Srv {
     void voidMethod();
     int primitiveMethod();
@@ -658,6 +683,8 @@ version (unittest) {
     void methodWithDefaultArgs(int something);
     void onewayMethod();
     void exceptionMethod();
+
+    alias .ExceptionWithAMap ExceptionWithAMap;
 
     enum methodMeta = [
       TMethodMeta(`methodWithDefaultArgs`,
@@ -671,8 +698,8 @@ version (unittest) {
       TMethodMeta(`exceptionMethod`,
         [],
         [
-          TExceptionMeta("a", 1, "Exception"),
-          TExceptionMeta("b", 2, "Exception")
+          TExceptionMeta("a", 1, "ExceptionWithAMap"),
+          TExceptionMeta("b", 2, "ExceptionWithAMap")
         ]
       )
     ];
@@ -685,7 +712,12 @@ version (unittest) {
 
 unittest {
   static assert(idlString!ChildSrv ==
-`struct OneOfEach {
+`exception ExceptionWithAMap {
+  1: string blah,
+  2: map<string, string> map_field,
+}
+
+struct OneOfEach {
   1: bool im_true,
   2: bool im_false,
   3: byte a_bite = 127,
@@ -708,7 +740,7 @@ service Srv {
   OneOfEach structMethod(),
   void methodWithDefaultArgs(1: i32 something = 2, ),
   oneway void onewayMethod(),
-  void exceptionMethod() throws (1: Exception a, 2: Exception b, ),
+  void exceptionMethod() throws (1: ExceptionWithAMap a, 2: ExceptionWithAMap b, ),
 }
 
 service ChildSrv extends Srv {

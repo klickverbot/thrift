@@ -53,6 +53,18 @@ template isNullable(T) {
   enum isNullable = __traits(compiles, { T t = null; });
 }
 
+template isStruct(T) {
+  enum isStruct = is(T == struct);
+}
+
+template isException(T) {
+ enum isException = is(T : Exception);
+}
+
+template isEnum(T) {
+  enum isEnum = is(T == enum);
+}
+
 /**
  * Returns the type of the T member called name.
  */
@@ -63,7 +75,7 @@ template MemberType(T, string name) {
 /**
  * Returns the field metadata array for T if any, or an empty array otherwise.
  */
-template getFieldMeta(T) {
+template getFieldMeta(T) if (isStruct!T || isException!T) {
   static if (is(typeof(T.fieldMeta) == TFieldMeta[])) {
     enum getFieldMeta = T.fieldMeta;
   } else {
@@ -97,6 +109,18 @@ private {
 }
 
 /**
+ * Returns the method metadata array for T if any, or an empty array otherwise.
+ */
+template getMethodMeta(T) if (isService!T) {
+  static if (is(typeof(T.methodMeta) == TMethodMeta[])) {
+    enum getMethodMeta = T.methodMeta;
+  } else {
+    enum TMethodMeta[] getMethodMeta = [];
+  }
+}
+
+
+/**
  * true if T.name is a member variable. Exceptions include methods, static
  * members, artifacts like package aliases, …
  */
@@ -106,7 +130,7 @@ template isValueMember(T, string name) {
   } else static if (
     is(MemberType!(T, name) == void) ||
     isSomeFunction!(MemberType!(T, name)) ||
-    is(typeof({ return mixin("T." ~ name); }()))
+    __traits(compiles, { return mixin("T." ~ name); }())
   ) {
     enum isValueMember = false;
   } else {
