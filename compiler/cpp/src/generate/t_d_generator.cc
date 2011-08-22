@@ -242,22 +242,9 @@ class t_d_generator : public t_oop_generator {
     vector<t_function*> functions = tservice->get_functions();
     vector<t_function*>::iterator fn_iter;
     for (fn_iter = functions.begin(); fn_iter != functions.end(); ++fn_iter) {
-      indent(f_service) << render_type_name((*fn_iter)->get_returntype()) <<
-        " " << (*fn_iter)->get_name() << "(";
-
-      const vector<t_field*>& fields = (*fn_iter)->get_arglist()->get_members();
-      vector<t_field*>::const_iterator f_iter;
-      bool first = true;
-      for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
-        if (first) {
-          first = false;
-        } else {
-          f_service << ", ";
-        }
-        f_service << render_type_name((*f_iter)->get_type()) << " " << (*f_iter)->get_name();
-      }
-
-      f_service << ");" << endl;
+      f_service << indent();
+      print_function_signature(f_service, *fn_iter);
+      f_service << ";" << endl;
 
       const vector<t_field*>& exceptions = (*fn_iter)->get_xceptions()->get_members();
       vector<t_field*>::const_iterator ex_iter;
@@ -362,9 +349,99 @@ class t_d_generator : public t_oop_generator {
 
     indent_down();
     indent(f_service) << "}" << endl;
+
+
+    // Server skeleton generation.
+    string f_skeletonname = package_dir_ + svc_name + "_server.skeleton.d";
+    std::ofstream f_skeleton;
+    f_skeleton.open(f_skeletonname.c_str());
+    print_server_skeleton(f_skeleton, tservice);
+    f_skeleton.close();
   }
 
  private:
+    /**
+     * Writes a server skeleton for the passed service to out.
+     */
+    void print_server_skeleton(ostream &out, t_service* tservice) {
+      string svc_name = tservice->get_name();
+
+      out <<
+        "/*" << endl <<
+        " * This auto-generated skeleton file illustrates how to build a server. If you" << endl <<
+        " * intend to customize it, you should edit a copy with another file name to " << endl <<
+        " * avoid overwriting it when running the generator again." << endl <<
+        " */" << endl <<
+        "module " << render_package(*tservice->get_program()) << svc_name << "_server;" << endl <<
+        endl <<
+        "import std.stdio;" << endl <<
+        "import thrift.codegen.processor;" << endl <<
+        "import thrift.protocol.binary;" << endl <<
+        "import thrift.server.simple;" << endl <<
+        "import thrift.server.transport.socket;" << endl <<
+        "import thrift.transport.buffered;" << endl <<
+        "import thrift.util.hashset;" << endl <<
+        endl <<
+        "import " << render_package(*tservice->get_program()) << svc_name << ";" << endl <<
+        "import " << render_package(*get_program()) << program_name_ << "_types;" << endl <<
+        endl <<
+        endl <<
+        "class " << svc_name << "Handler : " << svc_name << " {" << endl;
+
+      indent_up();
+      out <<
+        indent() << "this() {" << endl <<
+        indent() << "  // Your initialization goes here." << endl <<
+        indent() << "}" << endl <<
+        endl;
+
+      vector<t_function*> functions = tservice->get_functions();
+      vector<t_function*>::iterator f_iter;
+      for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+        out << indent();
+        print_function_signature(out, *f_iter);
+        out << " {" << endl;
+
+        indent_up();
+
+        out <<
+          indent() << "// Your implementation goes here." << endl <<
+          indent() << "writeln(\"" << (*f_iter)->get_name() << " called\");" << endl;
+
+        t_base_type* rt = (t_base_type*)(*f_iter)->get_returntype();
+        if (rt->get_base() != t_base_type::TYPE_VOID) {
+          indent(out) << "return typeof(return).init;" << endl;
+        }
+
+        indent_down();
+
+        out <<
+          indent() << "}" << endl <<
+          endl;
+      }
+
+      indent_down();
+      out <<
+        "}" << endl <<
+        endl;
+
+      out <<
+        indent() << "void main() {" << endl;
+      indent_up();
+      out <<
+        indent() << "auto protocolFactory = new TBinaryProtocolFactory!();" << endl <<
+        indent() << "auto processor = new TServiceProcessor!" << svc_name << "(new " << svc_name << "Handler);" << endl <<
+        indent() << "auto serverTransport = new TServerSocket(9090);" << endl <<
+        indent() << "auto transportFactory = new TBufferedTransportFactory;" << endl <<
+
+        indent() << "auto server = new TSimpleServer(" << endl <<
+        indent() << "  processor, serverTransport, transportFactory, protocolFactory);" << endl <<
+        indent() << "server.serve();" << endl;
+      indent_down();
+      out <<
+        "}" << endl;
+    }
+
   /**
    * Writes the definition of a struct or an exception type to out.
    */
@@ -429,6 +506,29 @@ class t_d_generator : public t_oop_generator {
     indent(out) <<
       "}" << endl <<
       endl;
+  }
+
+  /**
+   * Prints the D function signature (including return type) for the given
+   * method.
+   */
+  void print_function_signature(ostream& out, t_function* fn) {
+    out << render_type_name(fn->get_returntype()) <<
+      " " << fn->get_name() << "(";
+
+    const vector<t_field*>& fields = fn->get_arglist()->get_members();
+    vector<t_field*>::const_iterator f_iter;
+    bool first = true;
+    for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
+      if (first) {
+        first = false;
+      } else {
+        out << ", ";
+      }
+      out << render_type_name((*f_iter)->get_type()) << " " << (*f_iter)->get_name();
+    }
+
+    out << ")";
   }
 
   /**
