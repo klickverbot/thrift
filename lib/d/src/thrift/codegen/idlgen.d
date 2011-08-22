@@ -52,8 +52,10 @@ template idlString(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
 
 private {
   template idlStringImpl(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
-    alias AddBaseServices!(ConfinedTuple!(staticFilter!(isService, Roots)))
-      Services;
+    alias ForAllWithList!(
+      ConfinedTuple!(staticFilter!(isService, Roots)),
+      AddBaseServices
+    ) Services;
 
     alias TypeTuple!(
       staticFilter!(isEnum, Roots),
@@ -105,24 +107,11 @@ private {
     alias TypeTuple!(ReturnType!T, ParameterTypeTuple!T) FunctionDeclTypes;
   }
 
-  template AddBaseServices(alias Services, alias Rest = ConfinedTuple!()) if (
-    allSatisfy!(isService, Rest.Tuple) && allSatisfy!(isService, Services.Tuple)
-  ) {
-    static if (Services.Tuple.length == 0) {
-      alias Rest.Tuple AddBaseServices;
+  template AddBaseServices(T, List...) {
+    static if (staticIndexOf!(T, List) == -1) {
+      alias NoDuplicates!(BaseServices!T, List) AddBaseServices;
     } else {
-      static if (staticIndexOf!(Services.Tuple[$ - 1], Rest.Tuple) == -1) {
-        alias AddBaseServices!(
-          ConfinedTuple!(Services.Tuple[0 .. $ - 1]),
-          ConfinedTuple!(AddBaseServicesForFront!(
-            TypeTuple!(Services.Tuple[$ - 1], Rest.Tuple)))
-        ) AddBaseServices;
-      } else {
-        alias AddBaseServices!(
-          ConfinedTuple!(Services.Tuple[0 .. $ - 1]),
-          Rest
-        ) AddBaseServices;
-      }
+      alias List AddStructWithDeps;
     }
   }
 
@@ -130,37 +119,19 @@ private {
     interface A {}
     interface B : A {}
     interface C : B {}
+    interface D : A {}
 
-    static assert(is(AddBaseServices!(ConfinedTuple!(A, C)) ==
-      TypeTuple!(A, B, C)));
+    static assert(is(AddBaseServices!(C) == TypeTuple!(A, B, C)));
+    static assert(is(ForAllWithList!(ConfinedTuple!(C, D), AddBaseServices) ==
+      TypeTuple!(A, D, B, C)));
   }
 
-  template AddBaseServicesForFront(T...) if (
-    T.length > 0 && allSatisfy!(isService, T)
-  ) {
-    static if (isDerivedService!(T[0])) {
-      alias AddBaseServicesForFront!(
-        PrependIfNotPresent!(BaseService!(T[0]), T)
-      ) AddBaseServicesForFront;
+  template BaseServices(T, Rest...) if (isService!T) {
+    static if (isDerivedService!T) {
+      alias BaseServices!(BaseService!T, T, Rest) BaseServices;
     } else {
-      alias T AddBaseServicesForFront;
+      alias TypeTuple!(T, Rest) BaseServices;
     }
-  }
-
-  template PrependIfNotPresent(Elem, List...) {
-    static if (staticIndexOf!(Elem, List) == -1) {
-      alias TypeTuple!(Elem, List) PrependIfNotPresent;
-    } else {
-      alias List PrependIfNotPresent;
-    }
-  }
-
-  unittest {
-    interface A {}
-    interface B : A {}
-    interface C : B {}
-
-    static assert(is(AddBaseServicesForFront!C == TypeTuple!(A, B, C)));
   }
 
   template AddStructWithDeps(T, List...) {
@@ -175,19 +146,17 @@ private {
       // of appending List afterwards, and removing the now unneccesary
       // NoDuplicates.
       alias NoDuplicates!(
-        TypeTuple!(
-          ForAllWithList!(
-            ConfinedTuple!(
-              staticMap!(
-                CompositeTypeDeps,
-                staticMap!(PApply!(MemberType, T), valueMemberNames!T)
-              )
-            ),
-            .AddStructWithDeps,
-            T
+        ForAllWithList!(
+          ConfinedTuple!(
+            staticMap!(
+              CompositeTypeDeps,
+              staticMap!(PApply!(MemberType, T), valueMemberNames!T)
+            )
           ),
-          List
-        )
+          .AddStructWithDeps,
+          T
+        ),
+        List
       ) AddStructWithDeps;
     } else {
       alias List AddStructWithDeps;
