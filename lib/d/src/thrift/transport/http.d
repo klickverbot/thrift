@@ -63,7 +63,6 @@ abstract class THttpTransport : TBaseTransport {
   }
 
   override void close() {
-    // TODO: Anything to clean up?
     transport_.close();
   }
 
@@ -71,7 +70,7 @@ abstract class THttpTransport : TBaseTransport {
     if (!readBuffer_.peek()) {
       readBuffer_.reset();
 
-      refill();
+      if (!refill()) return 0;
 
       if (readHeaders_) {
         readHeaders();
@@ -85,9 +84,7 @@ abstract class THttpTransport : TBaseTransport {
       }
       readHeaders_ = true;
 
-      if (got == 0) {
-        return 0;
-      }
+      if (got == 0) return 0;
     }
     return readBuffer_.read(buf);
   }
@@ -164,7 +161,12 @@ private:
           httpBuf_[0 .. httpBufRemaining_.length] = httpBufRemaining_;
           httpBufRemaining_ = httpBuf_[0 .. httpBufRemaining_.length];
         }
-        refill();
+
+        if (!refill()) {
+          auto buf = httpBufRemaining_;
+          httpBufRemaining_ = httpBufRemaining_[$ - 1 .. $ - 1];
+          return buf;
+        }
       } else {
         // Set the remaining buffer to the part after \r\n and return the part
         // (line) before it.
@@ -248,7 +250,7 @@ private:
       if (httpBufRemaining_.length == 0) {
         // We have given all the data, reset position to head of the buffer.
         httpBufRemaining_ = httpBuf_[0 .. 0];
-        refill();
+        if (!refill()) return size - need;
       }
 
       auto give = min(httpBufRemaining_.length, need);
@@ -259,7 +261,7 @@ private:
     return size;
   }
 
-  void refill() {
+  bool refill() {
     // Is there a nicer way to do this?
     auto indexBegin = httpBufRemaining_.ptr - httpBuf_.ptr;
     auto indexEnd = indexBegin + httpBufRemaining_.length;
@@ -268,15 +270,11 @@ private:
       httpBuf_.length *= 2;
     }
 
-    // Read more data
+    // Read more data.
     auto got = transport_.read(cast(ubyte[])httpBuf_[indexEnd .. $]);
-    if (got == 0) {
-      // TODO: This actually means that our peer closed the connection, handle
-      // this better.
-      throw new TTransportException("Could not refill buffer.",
-        TTransportException.Type.INTERNAL_ERROR);
-    }
+    if (got == 0) return false;
     httpBufRemaining_ = httpBuf_[indexBegin .. indexEnd + got];
+    return true;
   }
 
   TTransport transport_;
