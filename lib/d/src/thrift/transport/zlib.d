@@ -122,12 +122,16 @@ final class TZlibTransport : TBaseTransport {
   }
 
   override size_t read(ubyte[] buf) {
-    // TODO: Skip urbuf on big reads.
+    // The C++ implementation suggests to skip urbuf on big reads in future
+    // versions, we would benefit from it as well.
     auto origLen = buf.length;
     while (true) {
       auto give = min(readAvail, buf.length);
+
+      // If std.range.put was optimized for slicable ranges, it could be used
+      // here as well.
       buf[0 .. give] = urbuf_[urpos_ .. urpos_ + give];
-      buf = buf[give .. $]; // TODO: Write std.range.put for sliceable ranges.
+      buf = buf[give .. $];
       urpos_ += give;
 
       auto need = buf.length;

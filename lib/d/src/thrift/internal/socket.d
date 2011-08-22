@@ -77,8 +77,9 @@ version (Win32) {
   enum WOULD_BLOCK_ERRNO = EAGAIN;
 
   // TODO: The C++ TSocket implementation mentions that EAGAIN can also be
-  // set (undocumentedly) in out of resource conditions; adapt the code
-  // accordingly.
+  // set (undocumentedly) in out of resource conditions; it would be a good
+  // idea to contact the original authors of the C++ code for details and adapt
+  // the code accordingly.
   enum TIMEOUT_ERRNO = EAGAIN;
 
   bool isSocketCloseErrno(typeof(getSocketErrno()) errno) {

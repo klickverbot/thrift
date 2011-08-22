@@ -350,7 +350,7 @@ class TSocket : TSocketBase {
     // Everything went well, just return the number of bytes written.
     if (r > 0) return r;
 
-    // Handle error conditions. TODO: Windows.
+    // Handle error conditions.
     if (r < 0) {
       auto lastErrno = getSocketErrno();
 

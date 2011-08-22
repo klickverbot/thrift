@@ -32,7 +32,7 @@
  * of request timeouts and the drain task queue overload handling strategy not
  * being implemented yet.
  */
-// TODO: This really should use a D non-blocking I/O library, once one becomes
+// This really should use a D non-blocking I/O library, once one becomes
 // available.
 module thrift.server.nonblocking;
 
@@ -742,7 +742,7 @@ private {
 
           // Prepend four bytes of blank space to the buffer so we can
           // write the frame size there later.
-          // TODO: Strictly speaking, we wouldn't have to write anything, just
+          // Strictly speaking, we wouldn't have to write anything, just
           // increment the TMemoryBuffer writeOffset_. This would yield a tiny
           // performance gain.
           ubyte[4] space = void;
@@ -846,9 +846,6 @@ private {
 
           socketState_ = SocketState.RECV;
           connState_ = ConnectionState.READ_REQUEST;
-
-          // TODO: If a request was already ready to receive from the socket,
-          // we would probably never get notified of it again.
 
           return;
       }

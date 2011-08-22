@@ -98,8 +98,7 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     // be changed to a more sophisticated scheme.
 
     // Make sure the delegate context doesn't get GCd while the work item is
-    // on the wire. TODO: The following is just a stab in the dark, I am not
-    // sure if it actually works as expected.
+    // on the wire.
     GC.addRoot(work.ptr);
 
     // Send work message.
