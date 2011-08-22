@@ -248,8 +248,9 @@ class TSocket : TSocketBase {
     try {
       socket_.connect(new InternetAddress(host_, port_));
     } catch (SocketException e) {
-      throw new TTransportException(TTransportException.Type.NOT_OPEN,
-        __FILE__, __LINE__, e);
+      socket_ = null;
+      throw new TTransportException(text("Failed to connect to ", host_, ":",
+        port_, ": ", e), TTransportException.Type.NOT_OPEN);
     }
   }
 
@@ -257,7 +258,7 @@ class TSocket : TSocketBase {
    * Closes the socket.
    */
   override void close() {
-    if (isOpen) return;
+    if (!isOpen) return;
 
     socket_.close();
     socket_ = null;
