@@ -220,7 +220,7 @@ template isDerivedService(T) {
   static if(is(T _ == interface) &&
     is(T TBases == super) && TBases.length == 1
   ) {
-    enum isDerivedService = true;
+    enum isDerivedService = isService!(TBases[0]);
   } else {
     enum isDerivedService = false;
   }
