@@ -167,12 +167,13 @@ private:
    * Constructor that takes an already created, connected (!) socket.
    *
    * Params:
-   *   ctx = The SSL socket to use.
+   *   factory = The SSL socket factory to use. Storing a reference to it also
+   *     has the effect that it doesn't get cleaned up while the socket is used.
    *   socket = Already created, connected socket object.
    */
-  this(SSLContext ctx, Socket socket) {
+  this(TSSLSocketFactory factory, Socket socket) {
     super(socket);
-    ctx_ = ctx;
+    factory_ = factory;
   }
 
   /**
@@ -180,13 +181,14 @@ private:
    * on the given port.
    *
    * Params:
-   *   ctx = The SSL socket to use.
+   *   factory = The SSL socket factory to use. Storing a reference to it also
+   *     has the effect that it doesn't get cleaned up while the socket is used.
    *   host = Remote host
    *   port = Remote port
    */
-  this(SSLContext ctx, string host, ushort port) {
+  this(TSSLSocketFactory factory, string host, ushort port) {
     super(host, port);
-    ctx_ = ctx;
+    factory_ = factory;
   }
 
   void checkHandshake() {
@@ -194,8 +196,10 @@ private:
       TTransportException.Type.NOT_OPEN));
 
     if (ssl_ !is null) return;
+    ssl_ = SSL_new(factory_.context_.ctx);
+    enforce(ssl_ !is null, new TSSLException("SSL_new: " ~
+      getSSLErrorMessage()));
 
-    ssl_ = ctx_.createSSL();
     SSL_set_fd(ssl_, socketHandle);
     int rc;
     if (serverSide_) {
@@ -318,16 +322,12 @@ private:
 
   bool serverSide_;
   SSL* ssl_;
-  SSLContext ctx_;
+  TSSLSocketFactory factory_;
   TAccessManager accessManager_;
 }
 
 /**
  * Creates SSL sockets and handles OpenSSL initialization/teardown.
- *
- * TODO: Currently, the TSSLSocketFacotry instance has to be kept around
- * while sockets created by it are used to avoid prematurely shutting down the
- * OpenSSL stack, which is very non-obvious. Find a cleaner solution for this.
  */
 class TSSLSocketFactory {
   this() {
@@ -340,7 +340,7 @@ class TSSLSocketFactory {
     }
 
     count_++;
-    ctx_ = new SSLContext;
+    context_ = SSLContext(SSL_CTX_new(TLSv1_method()));
   }
 
   ~this() {
@@ -359,7 +359,7 @@ class TSSLSocketFactory {
    *   socket = An existing socket.
    */
   TSSLSocket createSocket(Socket socket) {
-    auto result = new TSSLSocket(ctx_, socket);
+    auto result = new TSSLSocket(this, socket);
     setup(result);
     return result;
   }
@@ -372,7 +372,7 @@ class TSSLSocketFactory {
    *   port = Remote port to connect to.
    */
   TSSLSocket createSocket(string host, ushort port) {
-    auto result = new TSSLSocket(ctx_, host, port);
+    auto result = new TSSLSocket(this, host, port);
     setup(result);
     return result;
   }
@@ -384,7 +384,7 @@ class TSSLSocketFactory {
    * ciphers(1), for example: "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH".
    */
   void ciphers(string enable) @property {
-    auto rc = SSL_CTX_set_cipher_list(ctx_.get(), toStringz(enable));
+    auto rc = SSL_CTX_set_cipher_list(context_.ctx, toStringz(enable));
 
     enforce(ERR_peek_error() == 0,
       new TSSLException("SSL_CTX_set_cipher_list: " ~ getSSLErrorMessage()));
@@ -402,7 +402,7 @@ class TSSLSocketFactory {
     } else {
       mode = SSL_VERIFY_NONE;
     }
-    SSL_CTX_set_verify(ctx_.get(), mode, null);
+    SSL_CTX_set_verify(context_.ctx, mode, null);
   }
 
   /**
@@ -419,7 +419,7 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-      if (SSL_CTX_use_certificate_chain_file(ctx_.get(), toStringz(path)) == 0) {
+      if (SSL_CTX_use_certificate_chain_file(context_.ctx, toStringz(path)) == 0) {
         throw new TSSLException(`Could not load SSL server certificate ` ~
           `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
@@ -442,7 +442,7 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-       if (SSL_CTX_use_PrivateKey_file(ctx_.get(), toStringz(path),
+       if (SSL_CTX_use_PrivateKey_file(context_.ctx, toStringz(path),
           SSL_FILETYPE_PEM) == 0)
         {
         throw new TSSLException(`Could not load SSL private key from file "` ~
@@ -464,7 +464,7 @@ class TSSLSocketFactory {
       "loadTrustedCertificates: <path> is NULL",
       TTransportException.Type.BAD_ARGS));
 
-    if (SSL_CTX_load_verify_locations(ctx_.get(), toStringz(path), null) == 0) {
+    if (SSL_CTX_load_verify_locations(context_.ctx, toStringz(path), null) == 0) {
       throw new TSSLException(`Could not load SSL trusted certificate list ` ~
         `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
     }
@@ -523,11 +523,11 @@ protected:
    * callback with getPassword().
    */
   void overrideDefaultPasswordCallback() {
-    SSL_CTX_set_default_passwd_cb(ctx_.get(), &passwordCallback);
-    SSL_CTX_set_default_passwd_cb_userdata(ctx_.get(), cast(void*)this);
+    SSL_CTX_set_default_passwd_cb(context_.ctx, &passwordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(context_.ctx, cast(void*)this);
   }
 
-  SSLContext ctx_;
+  SSLContext context_;
 
 private:
   void setup(TSSLSocket ssl) {
@@ -799,12 +799,11 @@ private {
   }
 
   /**
-   * Wrap OpenSSL SSL_CTX into a class. Could probably be a ref-counted
-   * struct, but it'll do for now.
+   * Wrap an OpenSSL SSL_CTX.
    */
-  class SSLContext {
-    this() {
-      ctx_ = SSL_CTX_new(TLSv1_method());
+  struct SSLContext {
+    this(SSL_CTX* ctx) {
+      ctx_ = ctx;
       enforce(ctx_ !is null, new TSSLException("SSL_CTX_new: " ~
         getSSLErrorMessage()));
       SSL_CTX_set_mode(ctx_, SSL_MODE_AUTO_RETRY);
@@ -817,15 +816,15 @@ private {
       }
     }
 
-    SSL* createSSL() {
-      auto ssl = SSL_new(ctx_);
-      enforce (ssl !is null, new TSSLException("SSL_new: " ~
-        getSSLErrorMessage()));
-      return ssl;
+    SSL_CTX* ctx() @property {
+      return ctx_;
     }
 
-    SSL_CTX* get() { return ctx_; }
   private:
+    @disable this(this) {
+      assert(0);
+    }
+
     SSL_CTX* ctx_;
   }
 }
