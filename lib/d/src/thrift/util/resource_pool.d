@@ -20,7 +20,7 @@ module thrift.util.resource_pool;
 
 import core.time : Duration, dur, TickDuration;
 import std.algorithm : minPos, reduce, remove;
-import std.array : array;
+import std.array : array, empty;
 import std.exception : enforce;
 import std.conv : to;
 import std.random : randomCover, rndGen;
@@ -57,9 +57,9 @@ final class TResourcePool(Resource) {
    * Returns: Whether the resource could be found in the pool.
    */
   bool remove(Resource resource) {
-    auto removed = removeEqual(resources_, resource).length;
-    resources_ = resources_[0 .. $ - removed];
-    return (removed > 0);
+    auto oldLength = resources_.length;
+    resources_ = removeEqual(resources_, resource);
+    return resources_.length < oldLength;
   }
 
   /**
@@ -69,20 +69,32 @@ final class TResourcePool(Resource) {
     /**
      * Whether the range is empty.
      *
-     * This is the case if all members of the pool have failed and
-     * TResourcePool.cycle is false, or all the pool members are temporarily
-     * disabled because they have failed too often.
+     * This is the case if all members of the pool have been popped (or skipped
+     * because they were disabled) and TResourcePool.cycle is false, or there
+     * is no element to return in cycle mode because all have been temporarily
+     * disabled.
      */
     bool empty() @property {
+      // If no resources are in the pool, the range will never become non-empty.
+      if (resources_.empty) return true;
+
+      // If we already got the next resource in the cache, it doesn't matter
+      // whether there are more.
       if (cached_) return false;
 
-      if (nextIndex_ == resources_.length) {
-        if (!parent_.cycle) return true;
-        nextIndex_ = 0;
+      size_t examineCount;
+      if (parent_.cycle) {
+        // We want to check all the resources, but not iterate more than once
+        // to avoid spinning in a loop if nothing is available.
+        examineCount = resources_.length;
+      } else {
+        // When not in cycle mode, we just iterate the list exactly once. If all
+        // items have been consumed, the interval below is empty.
+        examineCount = resources_.length - nextIndex_;
       }
 
-      foreach (i; 0 .. resources_.length) {
-        auto r = resources_[(i + nextIndex_) % resources_.length];
+      foreach (i; 0 .. examineCount) {
+        auto r = resources_[(nextIndex_ + i) % resources_.length];
         auto fi = r in parent_.faultInfos_;
 
         if (fi && fi.resetTime != fi.resetTime.init) {
@@ -100,12 +112,13 @@ final class TResourcePool(Resource) {
 
         cache_ = r;
         cached_ = true;
-        nextIndex_ = i;
+        nextIndex_ = nextIndex_ + i + 1;
         return false;
       }
 
-      // If we get here, all resources are currently inactive, so there is
-      // nothing we can do.
+      // If we get here, all resources are currently inactive or the non-cycle
+      // pool has been exhausted, so there is nothing we can do.
+      nextIndex_ = nextIndex_ + examineCount;
       return true;
     }
 
@@ -133,12 +146,19 @@ final class TResourcePool(Resource) {
      * future, and provides additional information when this will happen and
      * what will be the next resource.
      *
+     * Makes only sense to call on empty ranges.
+     *
      * Params:
      *   next = The next resource that will become available.
      *   waitTime = The duration until that resource will become available.
      */
     bool willBecomeNonempty(out Resource next, out Duration waitTime) {
-      assert(empty);
+      // If no resources are in the pool, the range will never become non-empty.
+      if (resources_.empty) return true;
+
+      // If cycle mode is not enabled, a range never becomes non-empty after
+      // being empty once, because all the elements have already been
+      // used/skipped in order to become empty.
       if (!parent_.cycle) return false;
 
       auto fi = parent_.faultInfos_;
@@ -147,7 +167,7 @@ final class TResourcePool(Resource) {
       ).front;
 
       next = nextPair[0];
-      waitTime = to!Duration(TickDuration.currSystemTick - nextPair[1].resetTime);
+      waitTime = to!Duration(nextPair[1].resetTime - TickDuration.currSystemTick);
 
       return true;
     }
@@ -159,9 +179,18 @@ final class TResourcePool(Resource) {
     }
 
     TResourcePool parent_;
+
+    /// All available resources. We keep a copy of it as to not get confused
+    /// when resources are added to/removed from the parent pool.
     Resource[] resources_;
+
+    /// After we have determined the next element in empty(), we store it here.
     Resource cache_;
+
+    /// Whether there is currently something in the cache.
     bool cached_;
+
+    /// The index to start searching from at the next call to empty().
     size_t nextIndex_;
   }
 
@@ -204,7 +233,7 @@ final class TResourcePool(Resource) {
       // If the resource has hit the fault count limit, disable it for
       // specified duration.
       fi.resetTime = TickDuration.currSystemTick +
-        cast(TickDuration)faultDisableDuration;
+        TickDuration.from!"hnsecs"(faultDisableDuration.total!"hnsecs");
     }
   }
 
@@ -247,5 +276,144 @@ private {
   struct FaultInfo {
     ushort count;
     TickDuration resetTime;
+  }
+}
+
+import std.datetime;
+import thrift.base;
+
+unittest {
+  import core.thread;
+
+  auto a = new Object;
+  auto b = new Object;
+  auto c = new Object;
+  auto objs = [a, b, c];
+  auto pool = new TResourcePool!Object(objs);
+  pool.permute = false;
+  pool.faultDisableDuration = dur!"msecs"(5);
+  Object dummyRes = void;
+  Duration dummyDur = void;
+
+  {
+    auto r = pool[];
+
+    foreach (i, o; objs) {
+      assert(!r.empty);
+      assert(r.front == o);
+      r.popFront();
+    }
+
+    assert(r.empty);
+    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+  }
+
+  {
+    pool.faultDisableCount = 2;
+
+    assert(pool[].front == a);
+    pool.recordFault(a);
+    assert(pool[].front == a);
+    pool.recordSuccess(a);
+    assert(pool[].front == a);
+    pool.recordFault(a);
+    assert(pool[].front == a);
+    pool.recordFault(a);
+
+    auto r = pool[];
+    assert(r.front == b);
+    r.popFront();
+    assert(r.front == c);
+    r.popFront();
+    assert(r.empty);
+    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+
+    Thread.sleep(dur!"msecs"(5));
+    // Not in cycle mode, has to be still empty after the timeouts expired.
+    assert(r.empty);
+    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+
+    foreach (o; objs) pool.recordSuccess(o);
+  }
+
+  {
+    pool.faultDisableCount = 1;
+
+    pool.recordFault(a);
+    Thread.sleep(dur!"usecs"(1));
+    pool.recordFault(b);
+    Thread.sleep(dur!"usecs"(1));
+    pool.recordFault(c);
+
+    auto r = pool[];
+    assert(r.empty);
+    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+
+    foreach (o; objs) pool.recordSuccess(o);
+  }
+
+  pool.cycle = true;
+
+  {
+    auto r = pool[];
+
+    foreach (o; objs ~ objs) {
+      assert(!r.empty);
+      assert(r.front == o);
+      r.popFront();
+    }
+  }
+
+  {
+    pool.faultDisableCount = 2;
+
+    assert(pool[].front == a);
+    pool.recordFault(a);
+    assert(pool[].front == a);
+    pool.recordSuccess(a);
+    assert(pool[].front == a);
+    pool.recordFault(a);
+    assert(pool[].front == a);
+    pool.recordFault(a);
+
+    auto r = pool[];
+    assert(r.front == b);
+    r.popFront();
+    assert(r.front == c);
+    r.popFront();
+    assert(r.front == b);
+
+    Thread.sleep(dur!"msecs"(5));
+
+    r.popFront();
+    assert(r.front == c);
+
+    r.popFront();
+    assert(r.front == a);
+
+    assert(pool[].front == a);
+
+    foreach (o; objs) pool.recordSuccess(o);
+  }
+
+  {
+    pool.faultDisableCount = 1;
+
+    pool.recordFault(a);
+    Thread.sleep(dur!"usecs"(1));
+    pool.recordFault(b);
+    Thread.sleep(dur!"usecs"(1));
+    pool.recordFault(c);
+
+    auto r = pool[];
+    assert(r.empty);
+
+    Object nextRes;
+    Duration nextWait;
+    assert(r.willBecomeNonempty(nextRes, nextWait));
+    assert(nextRes == a);
+    assert(nextWait > dur!"hnsecs"(0));
+
+    foreach (o; objs) pool.recordSuccess(o);
   }
 }

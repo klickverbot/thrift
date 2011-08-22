@@ -42,7 +42,8 @@ class TCompoundOperationException : TException {
     this.exceptions = exceptions;
   }
 
-  /// The exceptions thrown by the children of the operation.
+  /// The exceptions thrown by the children of the operation. If applicable,
+  /// the list is ordered in the same way the exceptions occured.
   Exception[] exceptions;
 }
 

@@ -99,10 +99,10 @@ class TOneshotEvent : TAwaitable {
   }
 
   override void addCallback(void delegate() dg) {
-    // We have to avoid that the event is triggered after we have checked
-    // that it is not, but before we have added the delegate to the list.
     mutex_.lock();
     scope (failure) mutex_.unlock();
+
+    callbacks_ ~= dg;
 
     if (triggered_) {
       mutex_.unlock();
@@ -110,15 +110,14 @@ class TOneshotEvent : TAwaitable {
       return;
     }
 
-    callbacks_ ~= dg;
     mutex_.unlock();
   }
 
   override bool removeCallback(void delegate() dg) {
     synchronized (mutex_) {
-      auto removed = removeEqual!(SwapStrategy.unstable)(callbacks_, dg).length;
-      callbacks_ = callbacks_[0 .. $ - removed];
-      return (removed > 0);
+      auto oldLength = callbacks_.length;
+      callbacks_ = removeEqual(callbacks_, dg);
+      return callbacks_.length < oldLength;
     }
   }
 
@@ -178,8 +177,8 @@ final class TSocketNotifier {
    */
   void attach(TAwaitable awaitable) {
     enforce(!awaitable_, new TException("Already attached."));
+    awaitable.addCallback(&notify);
     awaitable_ = awaitable;
-    awaitable_.addCallback(&notify);
   }
 
   /**
@@ -195,7 +194,8 @@ final class TSocketNotifier {
     ubyte[1] dummy = void;
     while (recvSocket_.receive(dummy) != Socket.ERROR) {}
 
-    assert(awaitable_.removeCallback(&notify));
+    auto couldRemove = awaitable_.removeCallback(&notify);
+    assert(couldRemove);
     awaitable_ = null;
   }
 

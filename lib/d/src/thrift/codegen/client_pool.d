@@ -31,7 +31,9 @@ import thrift.util.resource_pool;
  *
  * If a request fails, another client from the pool is tried, and optionally,
  * a client is disabled for a configurable amount of time if it fails too
- * often.
+ * often. If all clients fail (and keepTrying is false), a
+ * TCompoundOperationException is thrown, containing all the collected RPC
+ * exceptions.
  */
 class TClientPool(Interface) if (isService!Interface) : Interface {
   /// Shorthand for TClientBase!Interface, the client type this instance
@@ -59,6 +61,9 @@ class TClientPool(Interface) if (isService!Interface) : Interface {
    *
    * If the operation fails (throws an exception for which rpcFaultFilter is
    * true), the failure is recorded and the next client in the pool is tried.
+   *
+   * Throws: Any non-rpc exception that occurs, a TCompoundOperationException
+   *   if all clients failed with an rpc exception (if keepTrying is false).
    *
    * Example:
    * ---
@@ -177,6 +182,7 @@ protected:
     }
 
     while (true) {
+      Exception[] rpcExceptions;
       while (!clients.empty) {
         auto c = clients.front;
         clients.popFront;
@@ -194,6 +200,7 @@ protected:
         } catch (Exception e) {
           if (rpcFaultFilter && rpcFaultFilter(e)) {
             pool_.recordFault(c);
+            rpcExceptions ~= e;
           } else {
             // We are dealing with a normal exception thrown by the
             // server-side method, just pass it on. As far as we are
@@ -213,7 +220,8 @@ protected:
           Thread.sleep(waitTime);
         }
       } else {
-        throw new TException("All clients failed.");
+        throw new TCompoundOperationException("All clients failed.",
+          rpcExceptions);
       }
     }
   }

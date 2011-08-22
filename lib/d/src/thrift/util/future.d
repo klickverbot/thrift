@@ -22,6 +22,7 @@ import core.atomic;
 import core.sync.condition;
 import core.sync.mutex;
 import core.time : Duration;
+import std.array : empty, front, popFront;
 import std.conv : to;
 import std.exception : enforce;
 import std.traits : BaseTypeTuple, isSomeFunction, ParameterTypeTuple, ReturnType;
@@ -271,7 +272,7 @@ class TPromise(ResultType) : TFuture!ResultType {
   void cancel() {
     synchronized (statusMutex_) {
       auto status = atomicLoad(status_);
-      if (status == S.RUNNING) atomicStore(status, S.CANCELLED);
+      if (status == S.RUNNING) atomicStore(status_, S.CANCELLED);
     }
 
     completionEvent_.trigger();
@@ -379,28 +380,37 @@ final class TFutureAggregatorRange(T) {
    *   timeout = If positive, not yet finished futures will be cancelled and
    *     their results will not be taken into account.
    */
-  this(TFuture!T[] futures, Duration timeout = dur!"hnsecs"(0)) {
-    if (timeout > 0) {
-      timeoutSysTick_ = TickDuration.currSysTick + cast(TickDuration)timeout;
+  this(TFuture!T[] futures, TCancellationOrigin childCancellation,
+    Duration timeout = dur!"hnsecs"(0)
+  ) {
+    if (timeout > dur!"hnsecs"(0)) {
+      timeoutSysTick_ = TickDuration.currSystemTick +
+        TickDuration.from!"hnsecs"(timeout.total!"hnsecs");
     } else {
-      timeoutSysTick_ = 0;
+      timeoutSysTick_ = TickDuration(0);
     }
 
     queueMutex_ = new Mutex;
     queueNonEmptyCondition_ = new Condition(queueMutex_);
     futures_ = futures;
+    childCancellation_ = childCancellation;
 
     foreach (future; futures_) {
-      auto f = future;
-      f.completion.addCallback({
-        synchronized (queueMutex_) {
-          completedQueue_ ~= f;
+      future.completion.addCallback({
+        auto f = future;
+        return {
+          if (f.status == TFutureStatus.CANCELLED) return;
+          assert(f.status != TFutureStatus.RUNNING);
 
-          if (completedQueue_.length == 1) {
-            queueNonEmptyCondition_.notifyAll();
+          synchronized (queueMutex_) {
+            completedQueue_ ~= f;
+
+            if (completedQueue_.length == 1) {
+              queueNonEmptyCondition_.notifyAll();
+            }
           }
-        }
-      });
+        };
+      }());
     }
   }
 
@@ -424,33 +434,34 @@ final class TFutureAggregatorRange(T) {
         // The while loop is just being cautious about spurious wakeups, in
         // case they should be possible.
         while (completedQueue_.empty) {
-          auto remaining = to!Duration(timeoutSysTick_ - TickDuration.currSysTick);
+          auto remaining = to!Duration(timeoutSysTick_ -
+            TickDuration.currSystemTick);
 
           if (remaining <= dur!"hnsecs"(0)) {
             // No time left, but still no element received – we are empty now.
             finished_ = true;
-            foreach (f; futures_) f.cancel();
+            childCancellation_.trigger();
             return true;
           }
 
           queueNonEmptyCondition_.wait(remaining);
         }
 
-        future = finishedQueue.front;
-        finishedQueue.popFront();
+        future = completedQueue_.front;
+        completedQueue_.popFront();
       }
 
-      ++stats_.completedCount;
-      if (stats_.completedCount == futures_.length) {
+      ++completedCount_;
+      if (completedCount_ == futures_.length) {
         // This was the last future in the list, there is no possiblity
         // another result could ever become available.
         finished_ = true;
       }
 
-      if (future.state == TFutureState.FAILED) {
+      if (future.status == TFutureStatus.FAILED) {
         // This one failed, loop again and try getting another item from
         // the queue.
-        stats_.exceptions ~= future.getException();
+        exceptions_ ~= future.getException();
       } else {
         resultBuffer_ = future.get();
         bufferFilled_ = true;
@@ -499,11 +510,12 @@ final class TFutureAggregatorRange(T) {
    * The exceptions collected from failed TFutures so far.
    */
   Exception[] exceptions() @property {
-    return exceptions;
+    return exceptions_;
   }
 
 private:
   TFuture!T[] futures_;
+  TCancellationOrigin childCancellation_;
 
   // The system tick this operation will time out, or zero if no timeout has
   // been set.
@@ -530,7 +542,7 @@ private:
  * (see $(DMDBUG 6082, D Bugzilla enhancement requet 6082)).
  */
 TFutureAggregatorRange!T tFutureAggregatorRange(T)(TFuture!T[] futures,
-  Duration timeout = dur!"hnsecs"(0)
+  TCancellationOrigin childCancellation, Duration timeout = dur!"hnsecs"(0)
 ) {
-  return new TFutureAggregatorRange!T(futures, timeout);
+  return new TFutureAggregatorRange!T(futures, childCancellation, timeout);
 }

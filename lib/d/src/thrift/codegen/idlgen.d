@@ -248,7 +248,7 @@ template serviceIdlString(T) if (isService!T) {
     }
     result ~= " {\n";
 
-    foreach (methodName; FilterMethodNames!(__traits(derivedMembers, T))) {
+    foreach (methodName; FilterMethodNames!(T, __traits(derivedMembers, T))) {
       result ~= "  ";
 
       enum meta = find!`a.name == b`(T.methodMeta, methodName);

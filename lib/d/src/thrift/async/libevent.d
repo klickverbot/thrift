@@ -141,16 +141,16 @@ class TLibeventAsyncManager : TAsyncSocketManager {
             // waitFinishTimeout is zero, immediately exit in all cases.
           }
           cleanExit = (queuedCount_ == 0);
-
-          // We are going to nuke all currently enqueued items, so set the
-          // count to zero.
-          queuedCount_ = 0;
         }
 
         event_base_loopbreak(eventBase_);
         sendControlMsg(ControlMsg(MsgType.SHUTDOWN));
         workerThread_.join();
         workQueues_ = null;
+        // We have going nuked all currently enqueued items, so set the count
+        // to zero. This is safe to do without locking, since the worker thread
+        // is down.
+        queuedCount_ = 0;
         atomicStore(*(cast(shared)&workerThread_), cast(shared(Thread))null);
       }
     }
@@ -273,10 +273,12 @@ private:
           break;
 
         case MsgType.CANCEL:
+          // When processing a cancellation, we must not touch the first item,
+          // since it is already being processed.
           auto queue = workQueues_[msg.transport];
-          auto removed = removeEqual(queue, msg.work).length;
-          if (removed > 0) {
-            workQueues_[msg.transport] = queue[0 .. $ - removed];
+          if (queue.length > 0) {
+            workQueues_[msg.transport] = [queue[0]] ~
+              removeEqual(queue[1 .. $], msg.work);
           }
           break;
 

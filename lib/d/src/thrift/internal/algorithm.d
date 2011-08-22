@@ -25,7 +25,7 @@ if (isBidirectionalRange!Range)
     {
         for (;!range.empty;)
         {
-            if (range.front is e)
+            if (range.front !is e)
             {
                 range.popFront;
                 continue;
@@ -40,7 +40,7 @@ if (isBidirectionalRange!Range)
         auto tgt = range;
         for (; !range.empty; range.popFront)
         {
-            if (range.front !is e)
+            if (range.front is e)
             {
                 // yank this guy
                 result.popBack;

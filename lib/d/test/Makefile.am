@@ -53,6 +53,9 @@ targets = async_test_client async_test_server serialization_benchmark \
 async_test_client async_test_server: %: %.d async_test_common.d
 	$(DMD) $(d_test_flags) -of$@ $^
 
+client_pool_test: %: %.d
+	$(DMD) $(d_test_flags) -of$@ $^
+
 serialization_benchmark: %: %.d $(debug_proto_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 

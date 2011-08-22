@@ -29,6 +29,7 @@
  */
 module thrift.codegen.async_client_pool;
 
+import core.sync.mutex;
 import core.time : Duration, dur;
 import std.algorithm : map;
 import std.array : array;
@@ -78,6 +79,17 @@ interface TAsyncClientPoolBase(Interface) if (isService!Interface) :
    */
   bool delegate(Exception) rpcFaultFilter() const @property;
   void rpcFaultFilter(bool delegate(Exception)) @property; /// Ditto
+
+  /**
+   * Whether to open the underlying transports of a client before trying to
+   * execute a method if they are not open. This is usually desirable
+   * because it allows e.g. to automatically reconnect to a remote server
+   * if the network connection is dropped.
+   *
+   * Defaults to true.
+   */
+  bool reopenTransports() const @property;
+  void reopenTransports(bool) @property; /// Ditto
 }
 
 immutable bool delegate(Exception) defaultRpcFaultFilter;
@@ -105,32 +117,27 @@ static this() {
  *
  * If a TAsyncClient in the pool fails with an RPC exception for a number of
  * consecutive tries, it is temporarily disabled (not tried any longer) for
- * a certain duration. Both the limit and the timeout can be configured.
+ * a certain duration. Both the limit and the timeout can be configured. If all
+ * clients fail (and keepTrying is false), the operation fails with a
+ * TCompoundOperationException which contains the collected RPC exceptions.
  */
-class TAsyncClientPool(Interface) if (isService!Interface) :
+final class TAsyncClientPool(Interface) if (isService!Interface) :
   TAsyncClientPoolBase!Interface
 {
   ///
   this(Client[] clients) {
     pool_ = new TResourcePool!Client(clients);
     rpcFaultFilter_ = defaultRpcFaultFilter;
+    reopenTransports_ = true;
   }
 
-  override void addClient(Client client) {
+  /+override+/ void addClient(Client client) {
     pool_.add(client);
   }
 
-  override bool removeClient(Client client) {
+  /+override+/ bool removeClient(Client client) {
     return pool_.remove(client);
   }
-
-  /// Whether to open the underlying transports of a client before trying to
-  /// execute a method if they are not open. This is usually desirable
-  /// because it allows e.g. to automatically reconnect to a remote server
-  /// if the network connection is dropped.
-  ///
-  /// Defaults to true.
-  bool reopenTransports = true;
 
   /**
    * Whether to keep trying to find a working client if all have failed in a
@@ -192,12 +199,20 @@ class TAsyncClientPool(Interface) if (isService!Interface) :
     pool_.faultDisableDuration = value;
   }
 
-  bool delegate(Exception) rpcFaultFilter() const @property {
+  /+override+/ bool delegate(Exception) rpcFaultFilter() const @property {
     return rpcFaultFilter_;
   }
 
-  void rpcFaultFilter(bool delegate(Exception) value) @property {
+  /+override+/ void rpcFaultFilter(bool delegate(Exception) value) @property {
     rpcFaultFilter_ = value;
+  }
+
+  /+override+/ bool reopenTransports() const @property {
+    return reopenTransports_;
+  }
+
+  /+override+/ void reopenTransports(bool value) @property {
+    reopenTransports_ = value;
   }
 
   mixin(fallbackPoolForwardCode!Interface());
@@ -212,7 +227,8 @@ protected:
       throw new TException("No clients available to try.");
     }
 
-    auto promise = new TPromise!(ReturnType!(mixin("Interface." ~ method)));
+    auto promise = new TPromise!(ReturnType!(MemberType!(Interface, method)));
+    Exception[] rpcExceptions;
 
     void tryNext() {
       while (clients.empty) {
@@ -229,7 +245,8 @@ protected:
             }
           }
         } else {
-          promise.fail(new TException("All clients failed."));
+          promise.fail(new TCompoundOperationException("All clients failed.",
+            rpcExceptions));
           return;
         }
       }
@@ -249,7 +266,6 @@ protected:
         }
       }
 
-
       auto future = mixin("client." ~ method)(args, cancellation);
       future.completion.addCallback({
         if (future.status == TFutureStatus.CANCELLED) {
@@ -261,6 +277,7 @@ protected:
         if (e) {
           if (rpcFaultFilter_ && rpcFaultFilter_(e)) {
             pool_.recordFault(client);
+            rpcExceptions ~= e;
             tryNext();
             return;
           }
@@ -277,6 +294,7 @@ protected:
 private:
   TResourcePool!Client pool_;
   bool delegate(Exception) rpcFaultFilter_;
+  bool reopenTransports_;
 }
 
 /**
@@ -319,31 +337,41 @@ private {
  * server in the pool is tried. If all clients fail, the operation is marked
  * as failed with a TCompoundOperationException.
  */
-class TAsyncFastestClientPool(Interface) if (isService!Interface) :
+final class TAsyncFastestClientPool(Interface) if (isService!Interface) :
   TAsyncClientPoolBase!Interface
 {
   ///
   this(Client[] clients) {
     clients_ = clients;
     rpcFaultFilter_ = defaultRpcFaultFilter;
+    reopenTransports_ = true;
   }
 
-  override void addClient(Client client) {
+  /+override+/ void addClient(Client client) {
     clients_ ~= client;
   }
 
-  override bool removeClient(Client client) {
-    auto removed = removeEqual(clients_, client).length;
-    clients_ = clients_[0 .. $ - removed];
-    return (removed > 0);
+  /+override+/ bool removeClient(Client client) {
+    auto oldLength = clients_.length;
+    clients_ = removeEqual(clients_, client);
+    return clients_.length < oldLength;
   }
 
-  bool delegate(Exception) rpcFaultFilter() const @property {
+
+  /+override+/ bool delegate(Exception) rpcFaultFilter() const @property {
     return rpcFaultFilter_;
   }
 
-  void rpcFaultFilter(bool delegate(Exception) value) @property {
+  /+override+/ void rpcFaultFilter(bool delegate(Exception) value) @property {
     rpcFaultFilter_ = value;
+  }
+
+  /+override+/bool reopenTransports() const @property {
+    return reopenTransports_;
+  }
+
+  /+override+/ void reopenTransports(bool value) @property {
+    reopenTransports_ = value;
   }
 
   mixin(fastestPoolForwardCode!Interface());
@@ -351,6 +379,7 @@ class TAsyncFastestClientPool(Interface) if (isService!Interface) :
 private:
   Client[] clients_;
   bool delegate(Exception) rpcFaultFilter_;
+  bool reopenTransports_;
 }
 
 /**
@@ -375,12 +404,31 @@ private {
       code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
         "(ParameterTypeTuple!(" ~ qn ~ ") args, " ~
         "TCancellation cancellation = null) {\n";
-      code ~= "auto childCancel = new TCancellationOrigin;\n";
-      code ~= "auto futures = map!((Client c){ return mixin(`c." ~
-        methodName ~ "`)(args, childCancel); })(clients_);\n";
-      code ~= "return new FastestPoolJob!(ReturnType!(" ~ qn ~ "))(\n";
-      code ~= "array(futures), rpcFaultFilter, cancellation, childCancel\n";
-      code ~= ");\n";
+      code ~= "enum methodName = `" ~ methodName ~ "`;\n";
+      code ~= q{
+        alias ReturnType!(MemberType!(Interface, methodName)) ResultType;
+
+        auto childCancellation = new TCancellationOrigin;
+
+        TFuture!ResultType[] futures;
+        futures.reserve(clients_.length);
+
+        foreach (c; clients_) {
+          if (reopenTransports) {
+            if (!c.transport.isOpen) {
+              try {
+                c.transport.open();
+              } catch (Exception e) {
+                continue;
+              }
+            }
+          }
+          futures ~= mixin("c." ~ methodName)(args, childCancellation);
+        }
+
+        return new FastestPoolJob!(ResultType)(
+          futures, rpcFaultFilter, cancellation, childCancellation);
+      };
       code ~= "}\n";
     }
 
@@ -397,13 +445,15 @@ private {
       childCancellation_ = childCancellation;
 
       foreach (future; poolFutures) {
-        auto f = future;
-        f.completion.addCallback({ completionCallback(f); });
-        if (f.status != TFutureStatus.RUNNING) {
-          // If the current feature already completed, we are already done,
-          // don't bother adding callbacks for the others (they would just
-          // return immediately after acquiring the lock).
-          break;
+        future.completion.addCallback({
+          auto f = future;
+          return { completionCallback(f); };
+        }());
+        if (future.status != TFutureStatus.RUNNING) {
+          // If the current future is already completed, we are done, don't
+          // bother adding callbacks for the others (they would just return
+          // immediately after acquiring the lock).
+          return;
         }
       }
 
@@ -435,7 +485,7 @@ private {
     void completionCallback(TFuture!Result future) {
       synchronized {
         if (future.status == TFutureStatus.CANCELLED) {
-          assert(resultPromise_.status == TFutureStatus.CANCELLED);
+          assert(resultPromise_.status != TFutureStatus.RUNNING);
           return;
         }
 
@@ -462,11 +512,13 @@ private {
           }
         }
 
-        // Cancel the other futures, we would just discard their results.
-        childCancellation_.trigger();
-
         // Store the result to the target promise.
         resultPromise_.complete(future);
+
+        // Cancel the other futures, we would just discard their results.
+        // Note: We do this after we have stored the results to our promise,
+        // see the assert at the top of the function.
+        childCancellation_.trigger();
       }
     }
 
@@ -482,10 +534,9 @@ private {
  * Allows easily aggregating results from a number of TAsyncClients.
  *
  * Contrary to TAsync{Fallback, Fastest}ClientPool, this class does not
- * simply implement TFutureInterface!Interface. It manages a pool of clients
- * (technically, they could be any TFutureInterface!Interface implementation
- * here), but allows the user to specify a custom accumulator function to use
- * or to iterate over the results using a TFutureAggregatorRange.
+ * simply implement TFutureInterface!Interface. It manages a pool of clients,
+ * but allows the user to specify a custom accumulator function to use or to
+ * iterate over the results using a TFutureAggregatorRange.
  *
  * For each service method, TAsyncAggregator offers a method
  * accepting the same arguments, and an optional TCancellation instance, just
@@ -523,7 +574,7 @@ private {
  *  +
  *  + The acc alias can point to any callable accepting either an array of
  *  + return values or an array of return values and an array of exceptions;
- *  + see isAccumulator() for details. The default accumulator concatenates
+ *  + see isAccumulator!() for details. The default accumulator concatenates
  *  + return values that can be concatenated with each others (e.g. arrays),
  *  + and simply returns an array of values otherwise, failing with a
  *  + TCompoundOperationException no values were returned.
@@ -580,17 +631,31 @@ private {
  * // For lists, etc., it concatenates the results together.
  * pragma(msg, typeof(pool.bar().accumulate().get())); // byte[].
  * ---
+ *
+ * Note: For the accumulate!() interface, you might currently hit a »cannot use
+ * local '…' as parameter to non-global template accumulate«-error, see
+ * $(DMDBUG 5710, DMD issue 5710). If your accumulator function does not need
+ * to access the surrounding scope, you might want to use a function literal
+ * instead of a delegate to avoid the issue.
  */
 class TAsyncAggregator(Interface) if (isBaseService!Interface) {
   /// Shorthand for the client type this instance operates on.
-  alias TFutureInterface!Interface Client;
+  alias TAsyncClientBase!Interface Client;
 
   ///
   this(Client[] clients) {
     clients_ = clients;
   }
 
-  mixin(AggregatorOpDispatch!());
+  /// Whether to open the underlying transports of a client before trying to
+  /// execute a method if they are not open. This is usually desirable
+  /// because it allows e.g. to automatically reconnect to a remote server
+  /// if the network connection is dropped.
+  ///
+  /// Defaults to true.
+  bool reopenTransports = true;
+
+  mixin AggregatorOpDispatch!();
 
 protected:
   Client[] clients() @property {
@@ -606,14 +671,14 @@ class TAsyncAggregator(Interface) if (isDerivedService!Interface) :
   TAsyncAggregator!(BaseService!Interface)
 {
   /// Shorthand for the client type this instance operates on.
-  alias TFutureInterface!Interface Client;
+  alias TAsyncClientBase!Interface Client;
 
   ///
   this(Client[] clients) {
     super(clients);
   }
 
-  mixin(AggregatorOpDispatch!());
+  mixin AggregatorOpDispatch!();
 
 protected:
   override Client[] clients() @property {
@@ -639,8 +704,8 @@ protected:
  * failed with the given exception instead.
  */
 template isAccumulator(ValueType, alias fun) {
-  enum isAccumulator = is(typeof(fun(ValueType[].init))) ||
-    is(typeof(fun(ValueType[].init, Exception[].init)));
+  enum isAccumulator = is(typeof(fun(cast(ValueType[])[]))) ||
+    is(typeof(fun(cast(ValueType[])[], cast(Exception[])[])));
 }
 
 /**
@@ -649,40 +714,56 @@ template isAccumulator(ValueType, alias fun) {
  * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
  */
 TAsyncAggregator!Interface tAsyncAggregator(Interface)(
-  TFutureInterface!Interface[] clients
+  TAsyncClientBase!Interface[] clients
 ) if (isService!Interface) {
   return new typeof(return)(clients);
 }
 
 private {
   mixin template AggregatorOpDispatch() {
-    auto opDispatch(string name)(Args args, Cancellation cancellation = null) if (
-      is(typeof(mixin("Client.init." ~ name)(args)))
+    auto opDispatch(string name, Args...)(Args args) if (
+      is(typeof(mixin("Interface.init." ~ name)(args)))
     ) {
-      return aggregationResult(array(map!((Client c){
-        return mixin("c." ~methodName)(args, cancellation); }
-      )(clients)));
+      alias ReturnType!(MemberType!(Interface, name)) ResultType;
+
+      auto childCancellation = new TCancellationOrigin;
+
+      TFuture!ResultType[] futures;
+      futures.reserve(clients_.length);
+
+      foreach (c; clients) {
+        if (reopenTransports) {
+          if (!c.transport.isOpen) {
+            try {
+              c.transport.open();
+            } catch (Exception e) {
+              continue;
+            }
+          }
+        }
+        futures ~= mixin("c." ~ name)(args, childCancellation);
+      }
+
+      return AggregationResult!ResultType(futures, childCancellation);
     }
   }
 
   struct AggregationResult(T) {
-    TFuture!T futures;
-
     auto opSlice() {
       return range();
     }
 
     auto range(Duration timeout = dur!"hnsecs"(0)) {
-      return tFutureAggregatorRange(futures, timeout);
+      return tFutureAggregatorRange(futures_, childCancellation_, timeout);
     }
 
-    auto accumulate(alias acc = defaultAccumulator)() if (isAccumulator!acc) {
-      return new AccumulatorPoolJob!(T, accumulator)(futures);
+    auto accumulate(alias acc = defaultAccumulator)() if (isAccumulator!(T, acc)) {
+      return new AccumulatorJob!(T, acc)(futures_, childCancellation_);
     }
-  }
 
-  auto aggregationResult(T)(TFuture!T futures) {
-    return AggregationResult!T(futures);
+  private:
+    TFuture!T[] futures_;
+    TCancellationOrigin childCancellation_;
   }
 
   auto defaultAccumulator(T)(T[] values, Exception[] exceptions) {
@@ -691,42 +772,49 @@ private {
         exceptions);
     }
 
-    static if (T.init ~ T.init) {
+    static if (is(typeof(T.init ~ T.init))) {
+      import std.algorithm;
       return reduce!"a ~ b"(values);
     } else {
       return values;
     }
   }
 
-  final class AccumulatorPoolJob(Result, alias accumulator) if (
-    isAccumulator!(Result, accumulator)
-  ) : TFuture!(AccumulatorResult!accumulator) {
-    this(TFuture!Result futures) {
+  final class AccumulatorJob(T, alias accumulator) if (
+    isAccumulator!(T, accumulator)
+  ) : TFuture!(AccumulatorResult!(T, accumulator)) {
+    this(TFuture!T[] futures, TCancellationOrigin childCancellation) {
       futures_ = futures;
+      childCancellation_ = childCancellation;
+      resultMutex_ = new Mutex;
+      completionEvent_ = new TOneshotEvent;
 
       foreach (future; futures) {
-        auto f = future;
-        f.completion.addCallback({
-          synchronized (resultMutex_) {
-            if (f.status == TFutureStatus.CANCELLED) {
-              if (status_ == TFutureStatus.RUNNING) {
-                status_ = TFutureStatus.CANCELLED;
+        future.completion.addCallback({
+          auto f = future;
+          return {
+            synchronized (resultMutex_) {
+              if (f.status == TFutureStatus.CANCELLED) {
+                if (!finished_) {
+                  status_ = TFutureStatus.CANCELLED;
+                  finished_ = true;
+                }
+                return;
               }
-              return;
-            }
 
-            if (f.status == TFutureStatus.FAILED) {
-              exceptions_ ~= f.getException();
-            } else {
-              results_ ~= f.get();
-            }
+              if (f.status == TFutureStatus.FAILED) {
+                exceptions_ ~= f.getException();
+              } else {
+                results_ ~= f.get();
+              }
 
-            if (results_.length + exceptions_.length == futures_.length) {
-              finished_ = true;
-              completionEvent_.trigger();
+              if (results_.length + exceptions_.length == futures_.length) {
+                finished_ = true;
+                completionEvent_.trigger();
+              }
             }
-          }
-        });
+          };
+        }());
       }
     }
 
@@ -742,6 +830,8 @@ private {
           exception_ = e;
           status_ = TFutureStatus.FAILED;
         }
+
+        return status_;
       }
     }
 
@@ -749,7 +839,7 @@ private {
       return completionEvent_;
     }
 
-    auto get() {
+    AccumulatorResult!(T, accumulator) get() {
       auto s = status;
 
       enforce(s != TFutureStatus.RUNNING,
@@ -767,7 +857,7 @@ private {
 
       if (s == TFutureStatus.CANCELLED) throw new TCancelledException;
 
-      if (s == TFutureStatus.SUCCEDED) {
+      if (s == TFutureStatus.SUCCEEDED) {
         return null;
       }
       return exception_;
@@ -777,7 +867,7 @@ private {
       synchronized (resultMutex_) {
         if (!finished_) {
           finished_ = true;
-          foreach (f; futures_) f.cancel();
+          childCancellation_.trigger();
           completionEvent_.trigger();
         }
       }
@@ -790,23 +880,25 @@ private {
 
   private:
     TFuture!T[] futures_;
+    TCancellationOrigin childCancellation_;
 
     bool finished_;
     T[] results_;
     Exception[] exceptions_;
 
     TFutureStatus status_;
+    Mutex resultMutex_;
     union {
-      AccumulatorResult!accumulator result_;
+      AccumulatorResult!(T, accumulator) result_;
       Exception exception_;
     }
     TOneshotEvent completionEvent_;
   }
 
   auto invokeAccumulator(alias accumulator, T)(
-    T[] values, Exception[] exception
+    T[] values, Exception[] exceptions
   ) if (
-    isAccumulator!accumulator
+    isAccumulator!(T, accumulator)
   ) {
     static if (is(typeof(accumulator(values, exceptions)))) {
       return accumulator(values, exceptions);
@@ -815,8 +907,8 @@ private {
     }
   }
 
-  template AccumulatorResult(alias acc) {
-    alias typeof(invokeAccumulator!acc(Result[].init, Exception[].init))
+  template AccumulatorResult(T, alias acc) {
+    alias typeof(invokeAccumulator!acc(cast(T[])[], cast(Exception[])[]))
       AccumulatorResult;
   }
 }
