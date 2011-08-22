@@ -21,7 +21,6 @@ module client;
 import std.stdio;
 import thrift.base;
 import thrift.codegen.client;
-import thrift.codegen.client_pool;
 import thrift.protocol.binary;
 import thrift.transport.buffered;
 import thrift.transport.socket;
@@ -33,7 +32,7 @@ void main() {
   auto socket = new TSocket("localhost", 9090);
   auto transport = new TBufferedTransport(socket);
   auto protocol = tBinaryProtocol(transport);
-  auto client = new TClientPool!Calculator([tClient!Calculator(protocol)]);
+  auto client = tClient!Calculator(protocol);
 
   transport.open();
 
