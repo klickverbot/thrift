@@ -140,7 +140,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       TAsyncEventReason reason;
       asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
         connectTimeout,
-        (TAsyncEventReason r){ reason = r; fiber.call(); }
+        scopedDelegate((TAsyncEventReason r){ reason = r; fiber.call(); })
       );
       Fiber.yield();
 
@@ -236,7 +236,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     // Everything went well, just return the number of bytes written.
     if (r > 0) return r;
 
-    // Handle error conditions. TODO: Windows.
+    // Handle error conditions.
     if (r < 0) {
       auto lastErrno = getSocketErrno();
 
@@ -267,8 +267,6 @@ private:
 
       // We got an EAGAIN result, register a callback to return here once some
       // event happens and yield.
-      // TODO: It could be that we are needlessly capturing context here,
-      // maybe use scoped delegate?
 
       Duration timeout = void;
       final switch (eventType) {
@@ -283,10 +281,10 @@ private:
       auto fiber = Fiber.getThis();
       TAsyncEventReason eventReason = void;
       asyncManager_.addOneshotListener(socket_, eventType, timeout,
-        (TAsyncEventReason reason) {
+        scopedDelegate((TAsyncEventReason reason) {
           eventReason = reason;
           fiber.call();
-        }
+        })
       );
 
       // Yields execution back to the async manager, will return back here once
@@ -325,4 +323,12 @@ private {
   } else version (Win32) {
     import std.c.windows.winsock : SO_ERROR;
   } else static assert(false, "Don't know SO_ERROR on this platform.");
+
+  // This hack forces a delegate literal to be scoped, even if it is passed to
+  // a function accepting normal delegates as well. DMD likes to allocate the
+  // context on the heap anyway, but it seems to work for LDC.
+  import std.traits : isDelegate;
+  auto scopedDelegate(D)(scope D d) if (isDelegate!D) {
+    return d;
+  }
 }
