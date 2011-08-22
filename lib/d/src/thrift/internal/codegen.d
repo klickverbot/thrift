@@ -241,7 +241,7 @@ template ForAllWithList(alias Items, alias Operator, List...) if (
   static if (Items.Tuple.length == 0) {
     alias List ForAllWithList;
   } else {
-    alias ForAllWithList!(
+    alias .ForAllWithList!(
       ConfinedTuple!(Items.Tuple[1 .. $]),
       Operator,
       Operator!(Items.Tuple[0], List)

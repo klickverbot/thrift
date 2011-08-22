@@ -24,7 +24,8 @@
 module thrift.codegen.idlgen;
 
 import std.traits : EnumMembers, OriginalType;
-import std.typetuple : allSatisfy, staticIndexOf, staticMap, TypeTuple;
+import std.typetuple : allSatisfy, staticIndexOf, staticMap, NoDuplicates,
+  TypeTuple;
 import thrift.base;
 import thrift.codegen.base;
 import thrift.internal.codegen;
@@ -54,12 +55,15 @@ private {
     alias AddBaseServices!(ConfinedTuple!(staticFilter!(isService, Roots)))
       Services;
 
-    alias ForAllWithList!(
-      ConfinedTuple!(
-        staticFilter!(Not!isService, Roots),
-        staticMap!(CompositeTypeDeps, staticMap!(ServiceDeclTypes, Services))
-      ),
-      AddWithDependenciesIfNotPresent
+    alias TypeTuple!(
+      staticFilter!(isEnum, Roots),
+      ForAllWithList!(
+        ConfinedTuple!(
+          staticFilter!(Any!(isException, isStruct), Roots),
+          staticMap!(CompositeTypeDeps, staticMap!(ServiceDeclTypes, Services))
+        ),
+        AddStructWithDeps
+      )
     ) Types;
 
     enum result = ctfeJoin(
@@ -159,20 +163,34 @@ private {
     static assert(is(AddBaseServicesForFront!C == TypeTuple!(A, B, C)));
   }
 
-  template AddWithDependenciesIfNotPresent(T, List...) {
+  template AddStructWithDeps(T, List...) {
     static if (staticIndexOf!(T, List) == -1) {
-      alias ForAllWithList!(
-        ConfinedTuple!(
-          staticMap!(
-            CompositeTypeDeps,
-            staticMap!(PApply!(MemberType, T), valueMemberNames!T)
-          )
-        ),
-        .AddWithDependenciesIfNotPresent,
-        TypeTuple!(T, List)
-      ) AddWithDependenciesIfNotPresent;
+      // T is not already in the List, so add T and the types it depends on in
+      // the front. Because with the Thrift compiler types can only depend on
+      // other types that have already been defined, we collect all the
+      // dependencies, prepend them to the list, and then prune the duplicates
+      // (keeping the first occurences). If this requirement should ever be
+      // dropped from Thrift, this could be easily adapted to handle circular
+      // dependencies by passing TypeTuple!(T, List) to ForAllWithList instead
+      // of appending List afterwards, and removing the now unneccesary
+      // NoDuplicates.
+      alias NoDuplicates!(
+        TypeTuple!(
+          ForAllWithList!(
+            ConfinedTuple!(
+              staticMap!(
+                CompositeTypeDeps,
+                staticMap!(PApply!(MemberType, T), valueMemberNames!T)
+              )
+            ),
+            .AddStructWithDeps,
+            T
+          ),
+          List
+        )
+      ) AddStructWithDeps;
     } else {
-      alias List AddWithDependenciesIfNotPresent;
+      alias List AddStructWithDeps;
     }
   }
 
@@ -189,9 +207,31 @@ private {
       A a;
     }
 
-    static assert(is(AddWithDependenciesIfNotPresent!C == TypeTuple!(A, B, C)));
+    static assert(is(AddStructWithDeps!C == TypeTuple!(A, B, C)));
   }
 
+  version (unittest) {
+    // Circles in the type dependency graph are not allowed in Thrift, but make
+    // sure we fail in a sane way instead of crashing the compiler.
+
+    struct Rec1 {
+      Rec2[] other;
+    }
+
+    struct Rec2 {
+      Rec1[] other;
+    }
+
+    static assert(!__traits(compiles, AddStructWithDeps!Rec1));
+  }
+
+  /*
+   * Returns the non-primitive types T directly depends on.
+   *
+   * For example, CompositeTypeDeps!int would yield an empty type tuple,
+   * CompositeTypeDeps!SomeStruct would give SomeStruct, and
+   * CompositeTypeDeps!(A[B]) both CompositeTypeDeps!A and CompositeTypeDeps!B.
+   */
   template CompositeTypeDeps(T) {
     static if (is(FullyUnqual!T == bool) || is(FullyUnqual!T == byte) ||
       is(FullyUnqual!T == short) || is(FullyUnqual!T == int) ||
@@ -699,7 +739,7 @@ service Srv {
   OneOfEach structMethod(),
   void methodWithDefaultArgs(1: i32 something = 2, ),
   oneway void onewayMethod(),
-  void exceptionMethod() throws (1: Exception a, 2: Exception b),
+  void exceptionMethod() throws (1: Exception a, 2: Exception b, ),
 }
 
 service ChildSrv extends Srv {
