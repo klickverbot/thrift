@@ -296,14 +296,12 @@ private {
   string fallbackPoolForwardCode(Interface)() {
     string code = "";
 
-    foreach (methodName; __traits(allMembers, Interface)) {
+    foreach (methodName; AllMemberMethodNames!Interface)) {
       enum qn = "Interface." ~ methodName;
-      static if (isSomeFunction!(mixin(qn))) {
-        code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
-          "(ParameterTypeTuple!(" ~ qn ~ ") args, TCancellation cancellation = null) {\n";
-        code ~= "return executeOnPool!(`" ~ methodName ~ "`)(args, cancellation);\n";
-        code ~= "}\n";
-      }
+      code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
+        "(ParameterTypeTuple!(" ~ qn ~ ") args, TCancellation cancellation = null) {\n";
+      code ~= "return executeOnPool!(`" ~ methodName ~ "`)(args, cancellation);\n";
+      code ~= "}\n";
     }
 
     return code;
@@ -372,20 +370,18 @@ private {
   string fastestPoolForwardCode(Interface)() {
     string code = "";
 
-    foreach (methodName; __traits(allMembers, Interface)) {
+    foreach (methodName; AllMemberMethodNames!Interface) {
       enum qn = "Interface." ~ methodName;
-      static if (isSomeFunction!(mixin(qn))) {
-        code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
-          "(ParameterTypeTuple!(" ~ qn ~ ") args, " ~
-          "TCancellation cancellation = null) {\n";
-        code ~= "auto childCancel = new TCancellationOrigin;\n";
-        code ~= "auto futures = map!((Client c){ return mixin(`c." ~
-          methodName ~ "`)(args, childCancel); })(clients_);\n";
-        code ~= "return new FastestPoolJob!(ReturnType!(" ~ qn ~ "))(\n";
-        code ~= "array(futures), rpcFaultFilter, cancellation, childCancel\n";
-        code ~= ");\n";
-        code ~= "}\n";
-      }
+      code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
+        "(ParameterTypeTuple!(" ~ qn ~ ") args, " ~
+        "TCancellation cancellation = null) {\n";
+      code ~= "auto childCancel = new TCancellationOrigin;\n";
+      code ~= "auto futures = map!((Client c){ return mixin(`c." ~
+        methodName ~ "`)(args, childCancel); })(clients_);\n";
+      code ~= "return new FastestPoolJob!(ReturnType!(" ~ qn ~ "))(\n";
+      code ~= "array(futures), rpcFaultFilter, cancellation, childCancel\n";
+      code ~= ");\n";
+      code ~= "}\n";
     }
 
     return code;

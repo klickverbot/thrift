@@ -79,13 +79,7 @@ private {
   template ServiceTypeDeps(T) if (isService!T) {
     alias staticMap!(
       PApply!(MethodTypeDeps, T),
-      staticFilter!(
-        All!(
-          Compose!(hasType, PApply!(getMember, T)),
-          Compose!(isSomeFunction, PApply!(MemberType, T))
-        ),
-        __traits(derivedMembers, T)
-      )
+      FilterMethodNames!(T, __traits(derivedMembers, T))
     ) ServiceTypeDeps;
   }
 
@@ -241,78 +235,70 @@ template serviceIdlString(T) if (isService!T) {
     }
     result ~= " {\n";
 
-    foreach (methodName;
-      staticFilter!(
-        All!(
-          Compose!(hasType, PApply!(getMember, T)),
-          Compose!(isSomeFunction, PApply!(MemberType, T))
-        ),
-        __traits(derivedMembers, T)
-      )
-    ) {
-        result ~= "  ";
+    foreach (methodName; FilterMethodNames!(__traits(derivedMembers, T))) {
+      result ~= "  ";
 
-        enum meta = find!`a.name == b`(T.methodMeta, methodName);
+      enum meta = find!`a.name == b`(T.methodMeta, methodName);
 
-        static if (!meta.empty && meta.front.type == TMethodType.ONEWAY) {
-          result ~= "oneway ";
-        }
+      static if (!meta.empty && meta.front.type == TMethodType.ONEWAY) {
+        result ~= "oneway ";
+      }
 
-        alias ReturnType!(MemberType!(T, methodName)) RT;
-        static if (is(RT == void)) {
-          // We special-case this here instead of adding void to dToIdlType to
-          // avoid accepting things like void[].
-          result ~= "void ";
+      alias ReturnType!(MemberType!(T, methodName)) RT;
+      static if (is(RT == void)) {
+        // We special-case this here instead of adding void to dToIdlType to
+        // avoid accepting things like void[].
+        result ~= "void ";
+      } else {
+        result ~= dToIdlType!RT ~ " ";
+      }
+      result ~= methodName ~ "(";
+
+      short lastId;
+      foreach (i, ParamType; ParameterTypeTuple!(MemberType!(T, methodName))) {
+        static if (!meta.empty && i < meta.front.params.length) {
+          enum havePM = true;
         } else {
-          result ~= dToIdlType!RT ~ " ";
+          enum havePM = false;
         }
-        result ~= methodName ~ "(";
 
-        short lastId;
-        foreach (i, ParamType; ParameterTypeTuple!(MemberType!(T, methodName))) {
-          static if (!meta.empty && i < meta.front.params.length) {
-            enum havePM = true;
-          } else {
-            enum havePM = false;
-          }
+        short id;
+        static if (havePM) {
+          id = meta.front.params[i].id;
+        } else {
+          id = --lastId;
+        }
 
-          short id;
-          static if (havePM) {
-            id = meta.front.params[i].id;
-          } else {
-            id = --lastId;
-          }
+        string paramName;
+        static if (havePM) {
+          paramName = meta.front.params[i].name;
+        } else {
+          paramName = "param" ~ to!string(i + 1);
+        }
 
-          string paramName;
-          static if (havePM) {
-            paramName = meta.front.params[i].name;
-          } else {
-            paramName = "param" ~ to!string(i + 1);
-          }
+        result ~= to!string(id) ~ ": " ~ dToIdlType!ParamType ~ " " ~ paramName;
 
-          result ~= to!string(id) ~ ": " ~ dToIdlType!ParamType ~ " " ~ paramName;
+        static if (havePM && !meta.front.params[i].defaultValue.empty) {
+          result ~= " = " ~ dToIdlConst(mixin(meta.front.params[i].defaultValue));
+        } else {
+          // Unfortunately, getting the default value for parameters from a
+          // function alias isn't possible – we can't transfer the default
+          // value to the IDL e.g. for interface Foo { void foo(int a = 5); }
+          // without the user explicitly declaring it in metadata.
+        }
+        result ~= ", ";
+      }
+      result ~= ")";
 
-          static if (havePM && !meta.front.params[i].defaultValue.empty) {
-            result ~= " = " ~ dToIdlConst(mixin(meta.front.params[i].defaultValue));
-          } else {
-            // Unfortunately, getting the default value for parameters from a
-            // function alias isn't possible – we can't transfer the default
-            // value to the IDL e.g. for interface Foo { void foo(int a = 5); }
-            // without the user explicitly declaring it in metadata.
-          }
-          result ~= ", ";
+      static if (!meta.empty && !meta.front.exceptions.empty) {
+        result ~= " throws (";
+        foreach (e; meta.front.exceptions) {
+          result ~= to!string(e.id) ~ ": " ~ e.type ~ " " ~ e.name ~ ", ";
         }
         result ~= ")";
+      }
 
-        static if (!meta.empty && !meta.front.exceptions.empty) {
-          result ~= " throws (";
-          foreach (e; meta.front.exceptions) {
-            result ~= to!string(e.id) ~ ": " ~ e.type ~ " " ~ e.name ~ ", ";
-          }
-          result ~= ")";
-        }
-
-        result ~= ",\n";
+      result ~= ",\n";
     }
 
     result ~= "}\n";

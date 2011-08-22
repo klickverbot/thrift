@@ -25,6 +25,7 @@ import std.exception : enforce;
 import std.conv : to;
 import std.random : randomCover, rndGen;
 import std.range : zip;
+import thrift.internal.algorithm : removeEqual;
 
 /**
  * A pool of resources, which can be iterated over, and where resources that

@@ -19,8 +19,8 @@
 
 module thrift.internal.codegen;
 
-import std.traits : isSomeString;
-import std.typetuple : TypeTuple;
+import std.traits : InterfacesTuple, isSomeString;
+import std.typetuple : staticMap, NoDuplicates, TypeTuple;
 import thrift.codegen.base;
 
 /**
@@ -147,12 +147,38 @@ template valueMemberNames(T) {
     valueMemberNames;
 }
 
+template derivedMembers(T) {
+  alias TypeTuple!(__traits(derivedMembers, T)) derivedMembers;
+}
+
 template getMember(T, string name) {
   mixin("alias T." ~ name ~ " getMember;");
 }
 
 template hasType(alias T) {
   enum hasType = is(typeof(T));
+}
+
+template AllMemberMethodNames(T) if (isService!T) {
+  alias NoDuplicates!(
+    FilterMethodNames!(
+      T,
+      staticMap!(
+        derivedMembers,
+        TypeTuple!(T, InterfacesTuple!T)
+      )
+    )
+  ) AllMemberMethodNames;
+}
+
+private template FilterMethodNames(Type, MemberNames...) {
+  alias staticFilter!(
+    All!(
+      Compose!(hasType, PApply!(getMember, Type)),
+      Compose!(isSomeFunction, PApply!(MemberType, Type))
+    ),
+    MemberNames
+  ) FilterMethodNames;
 }
 
 /**

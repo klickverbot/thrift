@@ -22,6 +22,7 @@ import core.time : Duration, TickDuration;
 import thrift.base;
 import thrift.codegen.base;
 import thrift.codegen.client;
+import thrift.internal.codegen;
 import thrift.util.resource_pool;
 
 /**
@@ -189,7 +190,7 @@ protected:
             c.outputProtocol.transport.open();
           }
 
-          return work(client);
+          return work(c);
         } catch (Exception e) {
           if (rpcFaultFilter && rpcFaultFilter(e)) {
             pool_.recordFault(c);
@@ -227,15 +228,13 @@ private {
   string poolForwardCode(Interface)() {
     string code = "";
 
-    foreach (methodName; __traits(allMembers, Interface)) {
+    foreach (methodName; AllMemberMethodNames!Interface) {
       enum qn = "Interface." ~ methodName;
-      static if (isSomeFunction!(mixin(qn))) {
-        code ~= "ReturnType!(" ~ qn ~ ") " ~ methodName ~
-          "(ParameterTypeTuple!(" ~ qn ~ ") args) {\n";
-        code ~= "return executeOnPool!Client((Client c){ return c." ~
-          methodName ~ "(args); });\n";
-        code ~= "}\n";
-      }
+      code ~= "ReturnType!(" ~ qn ~ ") " ~ methodName ~
+        "(ParameterTypeTuple!(" ~ qn ~ ") args) {\n";
+      code ~= "return executeOnPool((Client c){ return c." ~
+        methodName ~ "(args); });\n";
+      code ~= "}\n";
     }
 
     return code;
