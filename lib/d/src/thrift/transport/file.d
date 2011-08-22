@@ -889,7 +889,7 @@ private {
           }
 
           // TODO: 2 syscalls here, is this a problem performance-wise?
-          // Probably abyssmal performance on Windows due to rawWrite
+          // Probably abysmal performance on Windows due to rawWrite
           // implementation.
           uint len = cast(uint)data.length;
           file.rawWrite(cast(ubyte[])(&len)[0..1]);

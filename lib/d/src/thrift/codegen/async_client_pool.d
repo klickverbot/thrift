@@ -296,7 +296,7 @@ private {
   string fallbackPoolForwardCode(Interface)() {
     string code = "";
 
-    foreach (methodName; AllMemberMethodNames!Interface)) {
+    foreach (methodName; AllMemberMethodNames!Interface) {
       enum qn = "Interface." ~ methodName;
       code ~= "TFuture!(ReturnType!(" ~ qn ~ ")) " ~ methodName ~
         "(ParameterTypeTuple!(" ~ qn ~ ") args, TCancellation cancellation = null) {\n";

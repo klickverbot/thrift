@@ -297,8 +297,6 @@ class TSocket : TSocketBase {
       // Something went wrong, find out how to handle it.
       lastErrno = getSocketErrno();
 
-      // TODO: Handle EAGAIN like C++ does.
-
       if (lastErrno == INTERRUPTED_ERRNO) {
         // If the syscall was interrupted, just try again.
         continue;

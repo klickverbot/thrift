@@ -19,7 +19,8 @@
 
 /**
  * Contains <b>experimental</b> functionality for generating Thrift IDL files
- * (.thrift) from existing D data structures.
+ * (.thrift) from existing D data structures, i.e. the reverse of what the
+ * Thrift compiler does.
  */
 module thrift.codegen.idlgen;
 
@@ -33,8 +34,16 @@ import thrift.internal.codegen;
 import thrift.internal.ctfe;
 import thrift.util.hashset;
 
+/**
+ * True if the passed type is a Thrift entity (struct, exception, enum,
+ * service).
+ */
 alias Any!(isStruct, isException, isEnum, isService) isThriftEntity;
 
+/**
+ * Returns an IDL string describing the passed »root« entities and all types
+ * they depend on.
+ */
 template idlString(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
   enum idlString = idlStringImpl!Roots.result;
 }
@@ -227,6 +236,10 @@ private {
   }
 }
 
+/**
+ * Returns an IDL string describing the passed service. IDL code for any type
+ * dependcies is not included.
+ */
 template serviceIdlString(T) if (isService!T) {
   enum serviceIdlString = {
     string result = "service " ~ T.stringof;
@@ -306,6 +319,10 @@ template serviceIdlString(T) if (isService!T) {
   }();
 }
 
+/**
+ * Returns an IDL string describing the passed enum. IDL code for any type
+ * dependcies is not included.
+ */
 template enumIdlString(T) if (isEnum!T) {
   enum enumIdlString = {
     static assert(is(OriginalType!T : long),
@@ -323,22 +340,10 @@ template enumIdlString(T) if (isEnum!T) {
   }();
 }
 
-unittest {
-  enum Foo {
-    a = 1,
-    b = 10,
-    c = 5
-  }
-
-  static assert(enumIdlString!Foo ==
-`enum Foo {
-  a = 1,
-  b = 10,
-  c = 5,
-}
-`);
-}
-
+/**
+ * Returns an IDL string describing the passed struct. IDL code for any type
+ * dependcies is not included.
+ */
 template structIdlString(T) if (isStruct!T || isException!T) {
   enum structIdlString = {
     mixin({
@@ -421,92 +426,109 @@ private {
       enum fieldInitB = mixin("T.init." ~ name);
     }
   }
-}
 
-template dToIdlType(T) {
-  static if (is(FullyUnqual!T == bool)) {
-    enum dToIdlType = "bool";
-  } else static if (is(FullyUnqual!T == byte)) {
-    enum dToIdlType = "byte";
-  } else static if (is(FullyUnqual!T == double)) {
-    enum dToIdlType = "double";
-  } else static if (is(FullyUnqual!T == short)) {
-    enum dToIdlType = "i16";
-  } else static if (is(FullyUnqual!T == int)) {
-    enum dToIdlType = "i32";
-  } else static if (is(FullyUnqual!T == long)) {
-    enum dToIdlType = "i64";
-  } else static if (is(FullyUnqual!T : string)) {
-    enum dToIdlType = "string";
-  } else static if (is(FullyUnqual!T _ : U[], U)) {
-    enum dToIdlType = "list<" ~ dToIdlType!U ~ ">";
-  } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
-    enum dToIdlType = "map<" ~ dToIdlType!K ~ ", " ~ dToIdlType!V ~ ">";
-  } else static if (is(FullyUnqual!T _ : HashSet!E, E)) {
-    enum dToIdlType = "set<" ~ dToIdlType!E ~ ">";
-  } else static if (is(FullyUnqual!T == struct) || is(FullyUnqual!T == enum) ||
-    is(FullyUnqual!T : TException)
-  ) {
-    enum dToIdlType = FullyUnqual!(T).stringof;
-  } else {
-    static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
-  }
-}
-
-string dToIdlReq(TReq req) {
-  switch (req) {
-    case TReq.REQUIRED: return " required";
-    case TReq.OPTIONAL: return " optional";
-    default: return "";
-  }
-}
-
-string dToIdlConst(T)(T value) {
-  static if (is(FullyUnqual!T == bool)) {
-    return value ? "1" : "0";
-  } else static if (is(FullyUnqual!T == byte) ||
-    is(FullyUnqual!T == short) || is(FullyUnqual!T == int) ||
-    is(FullyUnqual!T == long)
-  ) {
-    return to!string(value);
-  } else static if (is(FullyUnqual!T : string)) {
-    return `"` ~ to!string(value) ~ `"`;
-  } else static if (is(FullyUnqual!T == double)) {
-    return ctfeToString(value);
-  } else static if (is(FullyUnqual!T _ : U[], U) ||
-    is(FullyUnqual!T _ : HashSet!E, E)
-  ) {
-    string result = "[";
-    foreach (e; value) {
-      result ~= dToIdlConst(e) ~ ", ";
+  template dToIdlType(T) {
+    static if (is(FullyUnqual!T == bool)) {
+      enum dToIdlType = "bool";
+    } else static if (is(FullyUnqual!T == byte)) {
+      enum dToIdlType = "byte";
+    } else static if (is(FullyUnqual!T == double)) {
+      enum dToIdlType = "double";
+    } else static if (is(FullyUnqual!T == short)) {
+      enum dToIdlType = "i16";
+    } else static if (is(FullyUnqual!T == int)) {
+      enum dToIdlType = "i32";
+    } else static if (is(FullyUnqual!T == long)) {
+      enum dToIdlType = "i64";
+    } else static if (is(FullyUnqual!T : string)) {
+      enum dToIdlType = "string";
+    } else static if (is(FullyUnqual!T _ : U[], U)) {
+      enum dToIdlType = "list<" ~ dToIdlType!U ~ ">";
+    } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
+      enum dToIdlType = "map<" ~ dToIdlType!K ~ ", " ~ dToIdlType!V ~ ">";
+    } else static if (is(FullyUnqual!T _ : HashSet!E, E)) {
+      enum dToIdlType = "set<" ~ dToIdlType!E ~ ">";
+    } else static if (is(FullyUnqual!T == struct) || is(FullyUnqual!T == enum) ||
+      is(FullyUnqual!T : TException)
+    ) {
+      enum dToIdlType = FullyUnqual!(T).stringof;
+    } else {
+      static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
     }
-    result ~= "]";
-    return result;
-  } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
-    string result = "{";
-    foreach (key, val; value) {
-      result ~= dToIdlConst(key) ~ ": " ~ dToIdlConst(val) ~ ", ";
+  }
+
+  string dToIdlReq(TReq req) {
+    switch (req) {
+      case TReq.REQUIRED: return " required";
+      case TReq.OPTIONAL: return " optional";
+      default: return "";
     }
-    result ~= "}";
-    return result;
-  } else static if (is(FullyUnqual!T == enum)) {
-    import std.traits;
-    return to!string(cast(OriginalType!T)value);
-  } else static if (is(FullyUnqual!T == struct) ||
-    is(FullyUnqual!T : TException)
-  ) {
-    string result = "{";
-    foreach (name; __traits(derivedMembers, T)) {
-      static if (memberReq!(T, name) != TReq.IGNORE) {
-        result ~= name ~ ": " ~ dToIdlConst(mixin("value." ~ name)) ~ ", ";
+  }
+
+  string dToIdlConst(T)(T value) {
+    static if (is(FullyUnqual!T == bool)) {
+      return value ? "1" : "0";
+    } else static if (is(FullyUnqual!T == byte) ||
+      is(FullyUnqual!T == short) || is(FullyUnqual!T == int) ||
+      is(FullyUnqual!T == long)
+    ) {
+      return to!string(value);
+    } else static if (is(FullyUnqual!T : string)) {
+      return `"` ~ to!string(value) ~ `"`;
+    } else static if (is(FullyUnqual!T == double)) {
+      return ctfeToString(value);
+    } else static if (is(FullyUnqual!T _ : U[], U) ||
+      is(FullyUnqual!T _ : HashSet!E, E)
+    ) {
+      string result = "[";
+      foreach (e; value) {
+        result ~= dToIdlConst(e) ~ ", ";
       }
+      result ~= "]";
+      return result;
+    } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
+      string result = "{";
+      foreach (key, val; value) {
+        result ~= dToIdlConst(key) ~ ": " ~ dToIdlConst(val) ~ ", ";
+      }
+      result ~= "}";
+      return result;
+    } else static if (is(FullyUnqual!T == enum)) {
+      import std.traits;
+      return to!string(cast(OriginalType!T)value);
+    } else static if (is(FullyUnqual!T == struct) ||
+      is(FullyUnqual!T : TException)
+    ) {
+      string result = "{";
+      foreach (name; __traits(derivedMembers, T)) {
+        static if (memberReq!(T, name) != TReq.IGNORE) {
+          result ~= name ~ ": " ~ dToIdlConst(mixin("value." ~ name)) ~ ", ";
+        }
+      }
+      result ~= "}";
+      return result;
+    } else {
+      static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
     }
-    result ~= "}";
-    return result;
-  } else {
-    static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
   }
 }
+
+version (unittest) {
+  enum Foo {
+    a = 1,
+    b = 10,
+    c = 5
+  }
+
+  static assert(enumIdlString!Foo ==
+`enum Foo {
+  a = 1,
+  b = 10,
+  c = 5,
+}
+`);
+}
+
 
 version (unittest) {
   struct WithoutMeta {
@@ -598,9 +620,7 @@ version (unittest) {
       TFieldMeta(`bonks`, 3)
     ]);
   }
-}
 
-unittest {
   static assert(structIdlString!WithoutMeta ==
 `struct WithoutMeta {
   -1: string a,
@@ -694,9 +714,7 @@ version (unittest) {
   interface ChildSrv : Srv {
     int childMethod(int arg);
   }
-}
 
-unittest {
   static assert(idlString!ChildSrv ==
 `exception ExceptionWithAMap {
   1: string blah,
