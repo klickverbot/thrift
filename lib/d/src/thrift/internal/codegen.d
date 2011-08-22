@@ -123,36 +123,128 @@ template valueMemberNames(T) {
     valueMemberNames;
 }
 
-private {
-  template staticFilter(alias pred, T...) {
-    static if (T.length == 0) {
-      alias TypeTuple!() staticFilter;
-    } else static if (pred!(T[0])) {
+template getMember(T, string name) {
+  mixin("alias T." ~ name ~ " getMember;");
+}
+
+template hasType(alias T) {
+  enum hasType = is(typeof(T));
+}
+
+/**
+ * Returns a tuple containing only the elements of T for which pred compiles
+ * and is true.
+ */
+template staticFilter(alias pred, T...) {
+  static if (T.length == 0) {
+    alias TypeTuple!() staticFilter;
+  } else static if (is(typeof(pred!(T[0])) : bool)) {
+    static if (pred!(T[0])) {
       alias TypeTuple!(T[0], staticFilter!(pred, T[1 .. $])) staticFilter;
     } else {
       alias staticFilter!(pred, T[1 .. $]) staticFilter;
     }
+  } else {
+    alias staticFilter!(pred, T[1 .. $]) staticFilter;
   }
+}
 
-  /*
-   * Binds the first n arguments of a template to a particular value (where n is
-   * the number of arguments passed to PApply).
-   *
-   * Example:
-   * ---
-   * struct Foo(T, U, V) {}
-   * alias PApply!(Foo, A, B) PartialFoo;
-   * assert(is(PartialFoo!(C) == Foo!(A, B, C)));
-   * ---
-   */
-  template PApply(alias Target, T...) {
-    template PApply(U...) {
-      alias Target!(T, U) PApply;
+/**
+ * Binds the first n arguments of a template to a particular value (where n is
+ * the number of arguments passed to PApply).
+ *
+ * Example:
+ * ---
+ * struct Foo(T, U, V) {}
+ * alias PApply!(Foo, A, B) PartialFoo;
+ * assert(is(PartialFoo!(C) == Foo!(A, B, C)));
+ * ---
+ */
+template PApply(alias Target, T...) {
+  template PApply(U...) {
+    alias Target!(T, U) PApply;
+  }
+}
+unittest {
+  struct Test(T, U, V) {}
+  alias PApply!(Test, int, long) PartialTest;
+  static assert(is(PartialTest!float == Test!(int, long, float)));
+}
+
+template Compose(T...) {
+  static if (T.length == 0) {
+    template Compose(U...) {
+      alias U Compose;
+    }
+  } else {
+    template Compose(U...) {
+      alias Instantiate!(T[0], Instantiate!(.Compose!(T[1 .. $]), U)) Compose;
     }
   }
-  unittest {
-    struct Test(T, U, V) {}
-    alias PApply!(Test, int, long) PartialTest;
-    static assert(is(PartialTest!float == Test!(int, long, float)));
+}
+
+template Instantiate(alias Template, Params...) {
+  alias Template!Params Instantiate;
+}
+
+template All(T...) {
+  static if (T.length == 0) {
+    template All(U...) {
+      enum All = true;
+    }
+  } else {
+    template All(U...) {
+      static if (Instantiate!(T[0], U)) {
+        alias Instantiate!(.All!(T[1 .. $]), U) All;
+      } else {
+        enum All = false;
+      }
+    }
+  }
+}
+
+template Any(T...) {
+  static if (T.length == 0) {
+    template Any(U...) {
+      enum Any = false;
+    }
+  } else {
+    template Any(U...) {
+      static if (Instantiate!(T[0], U)) {
+        enum Any = true;
+      } else {
+        alias Instantiate!(.Any!(T[1 .. $]), U) Any;
+      }
+    }
+  }
+}
+
+template Not(alias T) {
+  template Not(U...) {
+    enum Not = !T!U;
+  }
+}
+
+template ConfinedTuple(T...) {
+  alias T Tuple;
+}
+
+/*
+ * foreach (Item; Items) {
+ *   List = Operator!(Item, List);
+ * }
+ * where Items is a ConfinedTuple.
+ */
+template ForAllWithList(alias Items, alias Operator, List...) if (
+  is(typeof(Items.Tuple.length) : size_t)
+){
+  static if (Items.Tuple.length == 0) {
+    alias List ForAllWithList;
+  } else {
+    alias ForAllWithList!(
+      ConfinedTuple!(Items.Tuple[1 .. $]),
+      Operator,
+      Operator!(Items.Tuple[0], List)
+    ) ForAllWithList;
   }
 }

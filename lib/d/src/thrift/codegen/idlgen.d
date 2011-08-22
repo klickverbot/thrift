@@ -23,11 +23,197 @@
  */
 module thrift.codegen.idlgen;
 
+import std.traits : EnumMembers, OriginalType;
+import std.typetuple : allSatisfy, staticIndexOf, staticMap, TypeTuple;
 import thrift.base;
 import thrift.codegen.base;
 import thrift.internal.codegen;
 import thrift.internal.ctfe;
 import thrift.util.hashset;
+
+template isStruct(T) {
+  enum isStruct = is(T == struct);
+}
+
+template isException(T) {
+ enum isException = is(T : Exception);
+}
+
+template isEnum(T) {
+  enum isEnum = is(T == enum);
+}
+
+alias Any!(isStruct, isException, isEnum, isService) isThriftEntity;
+
+template idlString(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
+  enum idlString = idlStringImpl!Roots.result;
+}
+
+private {
+  template idlStringImpl(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
+    alias AddBaseServices!(ConfinedTuple!(staticFilter!(isService, Roots)))
+      Services;
+
+    alias ForAllWithList!(
+      ConfinedTuple!(
+        staticFilter!(Not!isService, Roots),
+        staticMap!(CompositeTypeDeps, staticMap!(ServiceDeclTypes, Services))
+      ),
+      AddWithDependenciesIfNotPresent
+    ) Types;
+
+    enum result = ctfeJoin(
+      [
+        staticMap!(
+          enumIdlString,
+          staticFilter!(isEnum, Types)
+        ),
+        staticMap!(
+          structIdlString,
+          staticFilter!(isStruct, Types)
+        ),
+        staticMap!(
+          serviceIdlString,
+          Services
+        )
+      ],
+      "\n"
+    );
+  }
+
+  template ServiceDeclTypes(T) if (isService!T) {
+    alias staticMap!(
+      FunctionDeclTypes,
+      staticFilter!(
+        isSomeFunction,
+        staticMap!(
+          PApply!(MemberType, T),
+          staticFilter!(
+            Compose!(hasType, PApply!(getMember, T)),
+            __traits(derivedMembers, T)
+          )
+        )
+      )
+    ) ServiceDeclTypes;
+  }
+
+  template FunctionDeclTypes(T) if (isSomeFunction!T) {
+    alias TypeTuple!(ReturnType!T, ParameterTypeTuple!T) FunctionDeclTypes;
+  }
+
+  template AddBaseServices(alias Services, alias Rest = ConfinedTuple!()) if (
+    allSatisfy!(isService, Rest.Tuple) && allSatisfy!(isService, Services.Tuple)
+  ) {
+    static if (Services.Tuple.length == 0) {
+      alias Rest.Tuple AddBaseServices;
+    } else {
+      static if (staticIndexOf!(Services.Tuple[$ - 1], Rest.Tuple) == -1) {
+        alias AddBaseServices!(
+          ConfinedTuple!(Services.Tuple[0 .. $ - 1]),
+          ConfinedTuple!(AddBaseServicesForFront!(
+            TypeTuple!(Services.Tuple[$ - 1], Rest.Tuple)))
+        ) AddBaseServices;
+      } else {
+        alias AddBaseServices!(
+          ConfinedTuple!(Services.Tuple[0 .. $ - 1]),
+          Rest
+        ) AddBaseServices;
+      }
+    }
+  }
+
+  unittest {
+    interface A {}
+    interface B : A {}
+    interface C : B {}
+
+    static assert(is(AddBaseServices!(ConfinedTuple!(A, C)) ==
+      TypeTuple!(A, B, C)));
+  }
+
+  template AddBaseServicesForFront(T...) if (
+    T.length > 0 && allSatisfy!(isService, T)
+  ) {
+    static if (isDerivedService!(T[0])) {
+      alias AddBaseServicesForFront!(
+        PrependIfNotPresent!(BaseService!(T[0]), T)
+      ) AddBaseServicesForFront;
+    } else {
+      alias T AddBaseServicesForFront;
+    }
+  }
+
+  template PrependIfNotPresent(Elem, List...) {
+    static if (staticIndexOf!(Elem, List) == -1) {
+      alias TypeTuple!(Elem, List) PrependIfNotPresent;
+    } else {
+      alias List PrependIfNotPresent;
+    }
+  }
+
+  unittest {
+    interface A {}
+    interface B : A {}
+    interface C : B {}
+
+    static assert(is(AddBaseServicesForFront!C == TypeTuple!(A, B, C)));
+  }
+
+  template AddWithDependenciesIfNotPresent(T, List...) {
+    static if (staticIndexOf!(T, List) == -1) {
+      alias ForAllWithList!(
+        ConfinedTuple!(
+          staticMap!(
+            CompositeTypeDeps,
+            staticMap!(PApply!(MemberType, T), valueMemberNames!T)
+          )
+        ),
+        .AddWithDependenciesIfNotPresent,
+        TypeTuple!(T, List)
+      ) AddWithDependenciesIfNotPresent;
+    } else {
+      alias List AddWithDependenciesIfNotPresent;
+    }
+  }
+
+  unittest {
+    struct A {}
+    struct B {
+      A a;
+      int b;
+      A c;
+      string d;
+    }
+    struct C {
+      B b;
+      A a;
+    }
+
+    static assert(is(AddWithDependenciesIfNotPresent!C == TypeTuple!(A, B, C)));
+  }
+
+  template CompositeTypeDeps(T) {
+    static if (is(FullyUnqual!T == bool) || is(FullyUnqual!T == byte) ||
+      is(FullyUnqual!T == short) || is(FullyUnqual!T == int) ||
+      is(FullyUnqual!T == long) || is(FullyUnqual!T : string) ||
+      is(FullyUnqual!T == double) || is(FullyUnqual!T == void)
+    ) {
+      alias TypeTuple!() CompositeTypeDeps;
+    } else static if (is(FullyUnqual!T _ : U[], U)) {
+      alias CompositeTypeDeps!U CompositeTypeDeps;
+    } else static if (is(FullyUnqual!T _ : HashSet!E, E)) {
+      alias CompositeTypeDeps!E CompositeTypeDeps;
+    } else static if (is(FullyUnqual!T _ : V[K], K, V)) {
+      alias TypeTuple!(CompositeTypeDeps!K, CompositeTypeDeps!V) CompositeTypeDeps;
+    } else static if (is(FullyUnqual!T == enum) || is(FullyUnqual!T == struct) ||
+      is(FullyUnqual!T : TException)
+    ) {
+      alias TypeTuple!(FullyUnqual!T) CompositeTypeDeps;
+    } else {
+      static assert(false, "Cannot represent type in Thrift: " ~ T.stringof);
+    }
+  }
+}
 
 template serviceIdlString(T) if (isService!T) {
   enum serviceIdlString = {
@@ -37,8 +223,15 @@ template serviceIdlString(T) if (isService!T) {
     }
     result ~= " {\n";
 
-    foreach (methodName; __traits(derivedMembers, T)) {
-      static if (isSomeFunction!(MemberType!(T, methodName))) {
+    foreach (methodName;
+      staticFilter!(
+        All!(
+          Compose!(hasType, PApply!(getMember, T)),
+          Compose!(isSomeFunction, PApply!(MemberType, T))
+        ),
+        __traits(derivedMembers, T)
+      )
+    ) {
         result ~= "  ";
 
         enum meta = find!`a.name == b`(T.methodMeta, methodName);
@@ -84,8 +277,10 @@ template serviceIdlString(T) if (isService!T) {
           static if (havePM && !meta.front.params[i].defaultValue.empty) {
             result ~= " = " ~ dToIdlConst(mixin(meta.front.params[i].defaultValue));
           } else {
-            // Unfortunately, getting the default value for parameters isn't
-            // possible.
+            // Unfortunately, getting the default value for parameters from a
+            // function alias isn't possible – we can't transfer the default
+            // value to the IDL e.g. for interface Foo { void foo(int a = 5); }
+            // without the user explicitly declaring it in metadata.
           }
           result ~= ", ";
         }
@@ -94,13 +289,12 @@ template serviceIdlString(T) if (isService!T) {
         static if (!meta.empty && !meta.front.exceptions.empty) {
           result ~= " throws (";
           foreach (e; meta.front.exceptions) {
-            result ~= to!string(e.id) ~ ": " ~ e.type ~ " " ~ e.name;
+            result ~= to!string(e.id) ~ ": " ~ e.type ~ " " ~ e.name ~ ", ";
           }
           result ~= ")";
         }
 
         result ~= ",\n";
-      }
     }
 
     result ~= "}\n";
@@ -108,7 +302,40 @@ template serviceIdlString(T) if (isService!T) {
   }();
 }
 
-template structIdlString(T) if (is(T == struct) || is(T : Exception)) {
+template enumIdlString(T) if (isEnum!T) {
+  enum enumIdlString = {
+    static assert(is(OriginalType!T : long),
+      "Can only have integer enums in Thrift (not " ~ OriginalType!T.stringof ~
+      ", for " ~ T.stringof ~ ").");
+
+    string result = "enum " ~ T.stringof ~ " {\n";
+
+    foreach (name; __traits(derivedMembers, T)) {
+      result ~= "  " ~ name ~ " = " ~ dToIdlConst(getMember!(T, name)) ~ ",\n";
+    }
+
+    result ~= "}\n";
+    return result;
+  }();
+}
+
+unittest {
+  enum Foo {
+    a = 1,
+    b = 10,
+    c = 5
+  }
+
+  static assert(enumIdlString!Foo ==
+`enum Foo {
+  a = 1,
+  b = 10,
+  c = 5,
+}
+`);
+}
+
+template structIdlString(T) if (isStruct!T || isException!T) {
   enum structIdlString = {
     mixin({
       string code = "";
@@ -144,11 +371,11 @@ template structIdlString(T) if (is(T == struct) || is(T : Exception)) {
 
         static if (!meta.empty && !meta.front.defaultValue.empty) {
           result ~= " = " ~ dToIdlConst(mixin(meta.front.defaultValue));
-        } else static if (is(typeof(fieldInitA!(T, name).compiled) == bool)) {
-          static if (is(typeof(fieldInitA!(T, name).value)) &&
-            !is(typeof(fieldInitA!(T, name).value) == void)
+        } else static if (__traits(compiles, fieldInitA!(T, name))) {
+          static if (is(typeof(fieldInitA!(T, name))) &&
+            !is(typeof(fieldInitA!(T, name)) == void)
           ) {
-            result ~= " = " ~ dToIdlConst(fieldInitA!(T, name).value);
+            result ~= " = " ~ dToIdlConst(fieldInitA!(T, name));
           }
         } else static if (is(typeof(fieldInitB!(T, name))) &&
           !is(typeof(fieldInitB!(T, name)) == void)
@@ -174,9 +401,8 @@ private {
   // to use != if !is compiled as well (but was false), e.g. for floating point
   // types.
   template fieldInitA(T, string name) {
-    enum compiled = true;
     static if (mixin("T.init." ~ name) !is MemberType!(T, name).init) {
-      enum value = mixin("T.init." ~ name);
+      enum fieldInitA = mixin("T.init." ~ name);
     }
   }
 
@@ -255,7 +481,7 @@ string dToIdlConst(T)(T value) {
     return result;
   } else static if (is(FullyUnqual!T == enum)) {
     import std.traits;
-    return "cast(" ~ T.stringof ~ ")" ~ to!string(cast(OriginalType!T)value);
+    return to!string(cast(OriginalType!T)value);
   } else static if (is(FullyUnqual!T == struct) ||
     is(FullyUnqual!T : TException)
   ) {
@@ -435,7 +661,10 @@ version (unittest) {
       ),
       TMethodMeta(`exceptionMethod`,
         [],
-        [TExceptionMeta("a", 1, "Exception")]
+        [
+          TExceptionMeta("a", 1, "Exception"),
+          TExceptionMeta("b", 2, "Exception")
+        ]
       )
     ];
   }
@@ -446,18 +675,34 @@ version (unittest) {
 }
 
 unittest {
-  static assert(serviceIdlString!Srv ==
-`service Srv {
+  static assert(idlString!ChildSrv ==
+`struct OneOfEach {
+  1: bool im_true,
+  2: bool im_false,
+  3: byte a_bite = 127,
+  4: i16 integer16 = 32767,
+  5: i32 integer32,
+  6: i64 integer64 = 10000000000,
+  7: double double_precision,
+  8: string some_characters,
+  9: string zomg_unicode,
+  10: bool what_who,
+  11: string base64,
+  12: list<byte> byte_list = [1, 2, 3, ],
+  13: list<i16> i16_list = [1, 2, 3, ],
+  14: list<i64> i64_list = [1, 2, 3, ],
+}
+
+service Srv {
   void voidMethod(),
   i32 primitiveMethod(),
   OneOfEach structMethod(),
   void methodWithDefaultArgs(1: i32 something = 2, ),
   oneway void onewayMethod(),
-  void exceptionMethod() throws (1: Exception a),
+  void exceptionMethod() throws (1: Exception a, 2: Exception b),
 }
-`);
-  static assert(serviceIdlString!ChildSrv ==
-`service ChildSrv extends Srv {
+
+service ChildSrv extends Srv {
   i32 childMethod(-1: i32 param1, ),
 }
 `);
