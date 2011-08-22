@@ -350,7 +350,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import std.algorithm : canFind;
   import std.array : empty;
   import thrift.codegen.base;
-  import thrift.internal.codegen : isNullable, MemberType;
+  import thrift.internal.codegen : isNullable, MemberType, mergeFieldMeta;
   import thrift.protocol.base : TProtocol, isTProtocol;
 
   alias typeof(this) This;
