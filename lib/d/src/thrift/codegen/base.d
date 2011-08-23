@@ -438,7 +438,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
             } else {
               code ~= "result ~= `, `;\n";
             }
-            code ~= "result ~= `" ~ name ~ ": ` ~ to!string(this." ~ name ~ ");\n";
+            code ~= "result ~= `" ~ name ~ ": ` ~ to!string(cast()this." ~ name ~ ");\n";
             code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
             code ~= "result ~= ` (unset)`;\n";
             code ~= "}\n";
