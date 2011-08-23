@@ -655,10 +655,19 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
           "}\n" ~
           "p.readSetEnd();" ~
         "}";
-      } else static if (is(F == struct)) {
-        return v ~ " = typeof(" ~ v ~ ")();\n" ~ v ~ ".read(p);";
-      } else static if (is(F : TException)) {
-        return v ~ " = new typeof(" ~ v ~ ")();\n" ~ v ~ ".read(p);";
+      } else static if (is(F == struct) || is(F : TException)) {
+        static if (is(F == struct)) {
+          auto result = v ~ " = typeof(" ~ v ~ ")();\n";
+        } else {
+          auto result = v ~ " = new typeof(" ~ v ~ ")();\n";
+        }
+
+        static if (__traits(compiles, F.init.read(TProtocol.init))) {
+          result ~= v ~ ".read(p);";
+        } else {
+          result ~= "readStruct(" ~ v ~ ", p);";
+        }
+        return result;
       } else {
         static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
       }
@@ -836,10 +845,12 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
             writeValueCode!E(elem, level + 1) ~ "\n" ~
           "}\n" ~
           "p.writeSetEnd();";
-      } else static if (is(F == struct)) {
-        return v ~ ".write(p);";
-      } else static if (is(F : TException)) {
-        return v ~ ".write(p);";
+      } else static if (is(F == struct) || is(F : TException)) {
+        static if (__traits(compiles, F.init.write(TProtocol.init))) {
+          return v ~ ".write(p);";
+        } else {
+          return "writeStruct(" ~ v ~ ", p);";
+        }
       } else {
         static assert(false, "Cannot represent type in Thrift: " ~ F.stringof);
       }
