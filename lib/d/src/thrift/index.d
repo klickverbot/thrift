@@ -26,7 +26,7 @@ Ddoc
   <dd>The TTransport data source/sink interface used in the Thrift library and its imiplementations.</dd>
 
   <dt>$(D_CODE thrift.util)</dt>
-  <dd>General-purpose utility modules not specific to Thrift.</dd>
+  <dd>General-purpose utility modules not specific to Thrift, part of the public API.</dd>
 </dl>
 
 Macros:
