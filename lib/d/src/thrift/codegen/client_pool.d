@@ -23,7 +23,7 @@ import thrift.base;
 import thrift.codegen.base;
 import thrift.codegen.client;
 import thrift.internal.codegen;
-import thrift.util.resource_pool;
+import thrift.internal.resource_pool;
 
 /**
  * Manages a pool of TClients for the given interface, forwarding RPC calls to

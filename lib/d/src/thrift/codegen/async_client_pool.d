@@ -41,7 +41,7 @@ import thrift.internal.codegen;
 import thrift.util.awaitable;
 import thrift.util.cancellation;
 import thrift.util.future;
-import thrift.util.resource_pool;
+import thrift.internal.resource_pool;
 
 /**
  * Represents a generic client pool which implements TFutureInterface!Interface

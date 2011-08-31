@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-module thrift.util.resource_pool;
+module thrift.internal.resource_pool;
 
 import core.time : Duration, dur, TickDuration;
 import std.algorithm : minPos, reduce, remove;

@@ -53,12 +53,12 @@ d_transportdir = $(d_thriftdir)/transport
 d_transport_DATA = $(addprefix src/, $(addsuffix .d, $(d_transportmodules)))
 
 d_utilmodules = $(addprefix thrift/util/, awaitable cancellation future \
-	hashset resource_pool)
+	hashset)
 d_utildir = $(d_thriftdir)/util
 d_util_DATA = $(addprefix src/, $(addsuffix .d, $(d_utilmodules)))
 
 d_internalmodules = $(addprefix thrift/internal/, algorithm codegen ctfe \
-	endian socket)
+	endian resource_pool socket)
 d_internaldir = $(d_thriftdir)/internal
 d_internal_DATA = $(addprefix src/, $(addsuffix .d, $(d_internalmodules)))
 
