@@ -50,7 +50,6 @@ import thrift.util.future;
 // fail, even though we are testing the RPC exception handling.
 class TestServiceException : TException {
   int port;
-  mixin TStructHelpers!();
 }
 
 interface TestService {

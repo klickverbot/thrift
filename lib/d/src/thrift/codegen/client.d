@@ -336,7 +336,8 @@ template TPargsStruct(Interface, string methodName) {
         ")[" ~ to!string(i) ~ "] " ~ memberName ~ "Type;\n";
       memberCode ~= "const(" ~ memberName ~ "Type)* " ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~
+        ", TReq.OPT_IN_REQ_OUT)";
     }
 
     string code = "struct TPargsStruct {\n";

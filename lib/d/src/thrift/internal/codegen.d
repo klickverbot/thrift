@@ -100,8 +100,12 @@ template memberReq(T, string name, alias fieldMetaData = cast(TFieldMeta[])null)
 private {
   template memberReqImpl(T, string name, alias fieldMetaData) {
     enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
-    static if (meta.empty) {
-      enum result = TReq.OPT_IN_REQ_OUT;
+    static if (meta.empty || meta.front.req == TReq.AUTO) {
+      static if (isNullable!(MemberType!(T, name))) {
+        enum result = TReq.OPTIONAL;
+      } else {
+        enum result = TReq.REQUIRED;
+      }
     } else {
       enum result = meta.front.req;
     }

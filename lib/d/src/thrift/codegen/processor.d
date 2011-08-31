@@ -339,7 +339,8 @@ template TServiceProcessor(Interface, Protocols...) if (
  *   string a;
  *   bool b;
  *
- *   mixin TStructHelpers!([TFieldMeta("a", 1), TFieldMeta("b", 2)]);
+ *   mixin TStructHelpers!([TFieldMeta("a", 1, TReq.OPT_IN_REQ_OUT),
+ *     TFieldMeta("b", 2, TReq.OPT_IN_REQ_OUT)]);
  * }
  * ---
  *
@@ -379,7 +380,8 @@ template TArgsStruct(Interface, string methodName) {
       memberCode ~= "ParameterTypeTuple!(Interface." ~ methodName ~
         ")[" ~ to!string(i) ~ "]" ~ memberName ~ ";\n";
 
-      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~ ")";
+      fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~
+        ", TReq.OPT_IN_REQ_OUT)";
     }
 
     string code = "struct TArgsStruct {\n";

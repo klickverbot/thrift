@@ -487,9 +487,7 @@ class t_d_generator : public t_oop_generator {
 
         t_const_value* cv = (*m_iter)->get_value();
         t_field::e_req req = (*m_iter)->get_req();
-        if (req != t_field::T_OPT_IN_REQ_OUT || cv != NULL) {
-          out << ", " << render_req(req);
-        }
+        out << ", " << render_req(req);
         if (cv != NULL) {
           out << ", q{" << render_const_value((*m_iter)->get_type(), cv) << "}";
         }

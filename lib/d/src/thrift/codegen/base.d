@@ -31,8 +31,8 @@
  * metadata for a field/method has been found and the default behavior is
  * used instead. If this version is not defined, the templates just silently
  * behave like the Thrift compiler does in this situation, i.e. automatically
- * assign negative ids (starting at -1) for fields and assume
- * TReq.OPT_IN_REQ_OUT as requirement level.
+ * assign negative ids (starting at -1) for fields and assume TReq.AUTO as
+ * requirement level.
  */
 // Implementation note: All the templates in here taking a field metadata
 // parameter should ideally have a constraint that restricts the alias to
@@ -42,6 +42,7 @@ module thrift.codegen.base;
 import std.algorithm : find;
 import std.array : empty, front;
 import std.conv : to;
+import std.exception : enforce;
 import std.traits : BaseTypeTuple, isPointer, isSomeFunction, pointerTarget,
   ReturnType;
 import thrift.base;
@@ -58,6 +59,16 @@ import thrift.protocol.base;
  * Struct field requirement levels.
  */
 enum TReq {
+  /// Detect the requiredness from the field type: if it is nullable, treat
+  /// the field as optional, if it is non-nullable, treat the field as
+  /// required. This is the default used for handling structs not generated
+  /// from an IDL file, and never emitted by the Thrift compiler. TReq.AUTO
+  /// shouldn't be specified explicitly.
+  // Implementation note: thrift.codegen templates use
+  // thrift.internal.codegen.memberReq to resolve AUTO to REQUIRED/OPTIONAL
+  // instead of handling it directly.
+  AUTO,
+
   /// The field is treated as optional when deserializing/receiving the struct
   /// and as required when serializing/sending. This is the Thrift default if
   /// neither "required" nor "optional" are specified in the IDL file.
@@ -253,8 +264,8 @@ template BaseService(T) if (isDerivedService!T) {
  *   int c;
  *
  *   mixin TStructHelpers!([
- *     TFieldMeta("a", 1),
- *     TFieldMeta("b", 2),
+ *     TFieldMeta("a", 1), // Implicitly optional (nullable).
+ *     TFieldMeta("b", 2), // Implicitly required (non-nullable).
  *     TFieldMeta("c", 3, TReq.REQUIRED, "4")
  *   ]);
  * }
@@ -489,11 +500,16 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   void read(Protocol)(Protocol proto) if (isTProtocol!Protocol) {
-    readStruct(this, proto);
+    // Need to explicitly specify fieldMetaData here, since it isn't already
+    // picked up in some situations (e.g. the TArgs struct for methods with
+    // multiple parameters in async_test_servers) otherwise. Due to a DMD
+    // @@BUG@@, we need to explicitly specify the other template parameters
+    // as well.
+    readStruct!(This, Protocol, fieldMetaData, false)(this, proto);
   }
 
   void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol) {
-    writeStruct(this, proto);
+    writeStruct!(This, Protocol, fieldMetaData, false)(this, proto);
   }
 }
 
@@ -550,9 +566,7 @@ template TIsSetFlags(T, alias fieldMetaData) {
       } else static if (isNullable!(MemberType!(T, name))) {
         // If the field is nullable, we don't need an isSet flag as we can map
         // unset to null.
-      } else {
-        auto meta = find!`a.name == b`(fieldMetaData, name);
-        if (!meta.empty && meta.front.req == TReq.REQUIRED) continue;
+      } else static if (memberReq!(T, name, fieldMetaData) != TReq.REQUIRED) {
         boolDefinitions ~= "bool " ~ name ~ ";\n";
       }
     }
@@ -696,8 +710,14 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       return code;
     }
 
+    // Code for the local boolean flags used to make sure required fields have
+    // been found.
     string isSetFlagCode = "";
+
+    // Code for checking whether the flags for the required fields are true.
     string isSetCheckCode = "";
+
+    /// Code for the case statements storing the fields to the result struct.
     string readMembersCode = "";
 
     // The last automatically assigned id – fields with no meta information
@@ -705,33 +725,31 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // -1, just like the Thrift compiler does.
     short lastId;
 
-    foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
-        !isSomeFunction!(MemberType!(T, name)))
-      {
-        enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
-        static if (meta.empty) {
-          --lastId;
-          version (TVerboseCodegen) {
-            code ~= "pragma(msg, `[thrift.codegen.base.readStruct] Warning: No " ~
-              "meta information for field '" ~ name ~ "' in struct '" ~
-              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
-          }
-          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
-            name, lastId, TReq.OPT_IN_REQ_OUT);
-        } else static if (meta.front.req != TReq.IGNORE) {
-          if (meta.front.req == TReq.REQUIRED) {
-            // For required fields, generate bool flags to keep track whether
-            // the field has been encountered.
-            immutable n = "isSet_" ~ name;
-            isSetFlagCode ~= "bool " ~ n ~ ";\n";
-            isSetCheckCode ~= "enforce(" ~ n ~ ", new TProtocolException(" ~
-              "`Required field '" ~ name ~ "' not found in serialized data`, " ~
-              "TProtocolException.Type.INVALID_DATA));\n";
-          }
-          readMembersCode ~= readFieldCode!(MemberType!(T, name))(
-            name, meta.front.id, meta.front.req);
+    foreach (name; valueMemberNames!T) {
+      enum req = memberReq!(T, name, fieldMetaData);
+      if (req == TReq.REQUIRED) {
+        // For required fields, generate local bool flags to keep track
+        // whether the field has been encountered.
+        immutable n = "isSet_" ~ name;
+        isSetFlagCode ~= "bool " ~ n ~ ";\n";
+        isSetCheckCode ~= "enforce(" ~ n ~ ", new TProtocolException(" ~
+          "`Required field '" ~ name ~ "' not found in serialized data`, " ~
+          "TProtocolException.Type.INVALID_DATA));\n";
+      }
+
+      enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
+      static if (meta.empty) {
+        --lastId;
+        version (TVerboseCodegen) {
+          code ~= "pragma(msg, `[thrift.codegen.base.readStruct] Warning: No " ~
+            "meta information for field '" ~ name ~ "' in struct '" ~
+            T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
         }
+        readMembersCode ~= readFieldCode!(MemberType!(T, name))(
+          name, lastId, req);
+      } else static if (req != TReq.IGNORE) {
+        readMembersCode ~= readFieldCode!(MemberType!(T, name))(
+          name, meta.front.id, req);
       }
     }
 
@@ -781,18 +799,14 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // into the writeStruct function body this is inside the string mixin
     // block – the code wouldn't depend on it (this is an LDC bug, and because
     // of it a new array would be allocate on each method invocation at runtime).
-    foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
-        !isSomeFunction!(MemberType!(T, name)))
-      {
-        static if (isNullable!(MemberType!(T, name))) {
-          enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
-          static if (!meta.empty && meta.front.req == TReq.REQUIRED) {
-            code ~= `enforce(__traits(getMember, s, name) !is null,
-              new TException("Required field '` ~ name ~ `' is null."));\n`;
-          }
-        }
-      }
+    foreach (name; staticFilter!(
+      Compose!(isNullable, PApply!(MemberType, T)),
+      valueMemberNames!T
+    )) {
+       static if (memberReq!(T, name, fieldMetaData) == TReq.REQUIRED) {
+         code ~= `enforce(__traits(getMember, s, name) !is null,
+           new TException("Required field '` ~ name ~ `' is null."));\n`;
+       }
     }
 
     return code;
@@ -887,24 +901,20 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     short lastId;
 
     string code = "";
-    foreach (name; __traits(derivedMembers, T)) {
-      static if (is(MemberType!(T, name)) && !is(MemberType!(T, name) == void) &&
-        !isSomeFunction!(MemberType!(T, name)))
-      {
-        alias MemberType!(T, name) F;
-
-        auto meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
-        if (meta.empty) {
-          --lastId;
-          version (TVerboseCodegen) {
-            code ~= "pragma(msg, `[thrift.codegen.base.writeStruct] Warning: No " ~
-              "meta information for field '" ~ name ~ "' in struct '" ~
-              T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
-          }
-          code ~= writeFieldCode!F(name, lastId, TReq.OPT_IN_REQ_OUT);
-        } else if (meta.front.req != TReq.IGNORE) {
-          code ~= writeFieldCode!F(name, meta.front.id, meta.front.req);
+    foreach (name; valueMemberNames!T) {
+      alias MemberType!(T, name) F;
+      enum req = memberReq!(T, name, fieldMetaData);
+      enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
+      if (meta.empty) {
+        --lastId;
+        version (TVerboseCodegen) {
+          code ~= "pragma(msg, `[thrift.codegen.base.writeStruct] Warning: No " ~
+            "meta information for field '" ~ name ~ "' in struct '" ~
+            T.stringof ~ "'. Assigned id: " ~ to!string(lastId) ~ ".`);\n";
         }
+        code ~= writeFieldCode!F(name, lastId, req);
+      } else if (req != TReq.IGNORE) {
+        code ~= writeFieldCode!F(name, meta.front.id, req);
       }
     }
 
