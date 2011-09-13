@@ -523,7 +523,7 @@ version (unittest) {
 
     mixin TStructHelpers!([
       TFieldMeta("a", 1),
-      TFieldMeta("b", 2),
+      TFieldMeta("b", 2, TReq.OPT_IN_REQ_OUT),
       TFieldMeta("c", 3, TReq.REQUIRED, "4")
     ]);
   }
