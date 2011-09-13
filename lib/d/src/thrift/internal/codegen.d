@@ -66,11 +66,23 @@ template isEnum(T) {
 }
 
 /**
- * Returns the type of the T member called name.
+ * Aliases itself to T.name.
  */
-template MemberType(T, string name) {
-  alias typeof(__traits(getMember, T.init, name)) MemberType;
+template GetMember(T, string name) {
+  mixin("alias T." ~ name ~ " GetMember;");
 }
+
+/**
+ * Aliases itself to typeof(symbol).
+ */
+template TypeOf(alias symbol) {
+  alias typeof(symbol) TypeOf;
+}
+
+/**
+ * Aliases itself to the type of the T member called name.
+ */
+alias Compose!(TypeOf, GetMember) MemberType;
 
 /**
  * Returns the field metadata array for T if any, or an empty array otherwise.
@@ -87,7 +99,13 @@ template getFieldMeta(T) if (isStruct!T || isException!T) {
  * Merges the field metadata array for D with the passed array.
  */
 template mergeFieldMeta(T, alias fieldMetaData = cast(TFieldMeta[])null) {
-  enum mergeFieldMeta = getFieldMeta!T ~ fieldMetaData;
+  // Note: We don't use getFieldMeta here to avoid bug if it is instantiated
+  // from TIsSetFlags, see comment there.
+  static if (is(typeof(T.fieldMeta) == TFieldMeta[])) {
+    enum mergeFieldMeta = T.fieldMeta ~ fieldMetaData;
+  } else {
+    enum TFieldMeta[] mergeFieldMeta = fieldMetaData;
+  }
 }
 
 /**
@@ -147,20 +165,12 @@ template isValueMember(T, string name) {
  * inherited fields.
  */
 template valueMemberNames(T) {
-  alias staticFilter!(PApply!(isValueMember, T), __traits(derivedMembers, T))
+  alias StaticFilter!(PApply!(isValueMember, T), __traits(derivedMembers, T))
     valueMemberNames;
 }
 
 template derivedMembers(T) {
   alias TypeTuple!(__traits(derivedMembers, T)) derivedMembers;
-}
-
-template getMember(T, string name) {
-  mixin("alias T." ~ name ~ " getMember;");
-}
-
-template hasType(alias T) {
-  enum hasType = is(typeof(T));
 }
 
 template AllMemberMethodNames(T) if (isService!T) {
@@ -175,31 +185,32 @@ template AllMemberMethodNames(T) if (isService!T) {
   ) AllMemberMethodNames;
 }
 
-private template FilterMethodNames(Type, MemberNames...) {
-  alias staticFilter!(
-    All!(
-      Compose!(hasType, PApply!(getMember, Type)),
-      Compose!(isSomeFunction, PApply!(MemberType, Type))
+private template FilterMethodNames(T, MemberNames...) {
+  alias StaticFilter!(
+    CompilesAndTrue!(
+      Compose!(isSomeFunction, TypeOf, PApply!(GetMember, T))
     ),
     MemberNames
   ) FilterMethodNames;
 }
 
 /**
- * Returns a tuple containing only the elements of T for which pred compiles
- * and is true.
+ * Returns a type tuple containing only the elements of T for which the
+ * eponymous template predicate pred is true.
+ *
+ * Example:
+ * ---
+ * alias StaticFilter!(isIntegral, int, string, long, float[]) Filtered;
+ * static assert(is(Filtered == TypeTuple!(int, long)));
+ * ---
  */
-template staticFilter(alias pred, T...) {
+template StaticFilter(alias pred, T...) {
   static if (T.length == 0) {
-    alias TypeTuple!() staticFilter;
-  } else static if (is(typeof(pred!(T[0])) : bool)) {
-    static if (pred!(T[0])) {
-      alias TypeTuple!(T[0], staticFilter!(pred, T[1 .. $])) staticFilter;
-    } else {
-      alias staticFilter!(pred, T[1 .. $]) staticFilter;
-    }
+    alias TypeTuple!() StaticFilter;
+  } else static if (pred!(T[0])) {
+    alias TypeTuple!(T[0], StaticFilter!(pred, T[1 .. $])) StaticFilter;
   } else {
-    alias staticFilter!(pred, T[1 .. $]) staticFilter;
+    alias StaticFilter!(pred, T[1 .. $]) StaticFilter;
   }
 }
 
@@ -210,8 +221,8 @@ template staticFilter(alias pred, T...) {
  * Example:
  * ---
  * struct Foo(T, U, V) {}
- * alias PApply!(Foo, A, B) PartialFoo;
- * assert(is(PartialFoo!(C) == Foo!(A, B, C)));
+ * alias PApply!(Foo, int, long) PartialFoo;
+ * static assert(is(PartialFoo!float == Foo!(int, long, float)));
  * ---
  */
 template PApply(alias Target, T...) {
@@ -225,6 +236,29 @@ unittest {
   static assert(is(PartialTest!float == Test!(int, long, float)));
 }
 
+/**
+ * Composes a number of templates. The result is a template equivalent to
+ * all the passed templates evaluated from right to left, akin to the
+ * mathematical function composition notation: Instantiating Compose!(A, B, C)
+ * is the same as instantiating A!(B!(C!(…))).
+ *
+ * This is especially useful for creating a template to use with staticMap/
+ * StaticFilter, as demonstrated below.
+ *
+ * Example:
+ * ---
+ * template AllMethodNames(T) {
+ *   alias StaticFilter!(
+ *     CompilesAndTrue!(
+ *       Compose!(isSomeFunction, TypeOf, PApply!(GetMember, T))
+ *     ),
+ *     __traits(allMembers, T)
+ *   ) AllMethodNames;
+ * }
+ *
+ * pragma(msg, AllMethodNames!Object);
+ * ---
+ */
 template Compose(T...) {
   static if (T.length == 0) {
     template Compose(U...) {
@@ -237,10 +271,26 @@ template Compose(T...) {
   }
 }
 
+/**
+ * Instantiates the given template with the given list of parameters.
+ *
+ * Used to work around syntactic limiations of D with regard to instantiating
+ * a template from a type tuple (e.g. T[0]!(...) is not valid) or a template
+ * returning another template (e.g. Foo!(Bar)!(Baz) is not allowed).
+ */
 template Instantiate(alias Template, Params...) {
   alias Template!Params Instantiate;
 }
 
+/**
+ * Combines several template predicates using logical AND, i.e. instantiating
+ * All!(a, b, c) with parameters P for some templates a, b, c is equivalent to
+ * a!P && b!P && c!P.
+ *
+ * The templates are evaluated from left to right, aborting evaluation in a
+ * shurt-cut manner if a false result is encountered, in which case the latter
+ * instantiations do not need to compile.
+ */
 template All(T...) {
   static if (T.length == 0) {
     template All(U...) {
@@ -257,6 +307,15 @@ template All(T...) {
   }
 }
 
+/**
+ * Combines several template predicates using logical OR, i.e. instantiating
+ * Any!(a, b, c) with parameters P for some templates a, b, c is equivalent to
+ * a!P || b!P || c!P.
+ *
+ * The templates are evaluated from left to right, aborting evaluation in a
+ * shurt-cut manner if a true result is encountered, in which case the latter
+ * instantiations do not need to compile.
+ */
 template Any(T...) {
   static if (T.length == 0) {
     template Any(U...) {
@@ -273,26 +332,34 @@ template Any(T...) {
   }
 }
 
-template Not(alias T) {
-  template Not(U...) {
-    enum Not = !T!U;
-  }
+/**
+ * Negates the passed template predicate.
+ */
+template not(T...) if (T.length == 1 && is(typeof(!T[0]) : bool)) {
+  enum bool not = !val;
+}
+alias PApply!(Compose, not) Not;
+
+unittest {
+  alias Not!hasType hasNoType;
+  pragma(msg, hasNoType!true, hasNoType!int);
 }
 
 template ConfinedTuple(T...) {
   alias T Tuple;
+  enum length = T.length;
 }
 
 /*
  * foreach (Item; Items) {
  *   List = Operator!(Item, List);
  * }
- * where Items is a ConfinedTuple.
+ * where Items is a ConfinedTuple and List is a type tuple.
  */
 template ForAllWithList(alias Items, alias Operator, List...) if (
-  is(typeof(Items.Tuple.length) : size_t)
+  is(typeof(Items.length) : size_t)
 ){
-  static if (Items.Tuple.length == 0) {
+  static if (Items.length == 0) {
     alias List ForAllWithList;
   } else {
     alias .ForAllWithList!(
@@ -300,5 +367,19 @@ template ForAllWithList(alias Items, alias Operator, List...) if (
       Operator,
       Operator!(Items.Tuple[0], List)
     ) ForAllWithList;
+  }
+}
+
+/**
+ * Wraps the passed template predicate so it returns true if it compiles and
+ * evaluates to true, false it it doesn't compile or evaluates to false.
+ */
+template CompilesAndTrue(alias T) {
+  template CompilesAndTrue(U...) {
+    static if (is(typeof(T!U) : bool)) {
+      enum bool CompilesAndTrue = T!U;
+    } else {
+      enum bool CompilesAndTrue = false;
+    }
   }
 }

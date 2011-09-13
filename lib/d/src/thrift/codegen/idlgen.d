@@ -51,15 +51,15 @@ template idlString(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
 private {
   template idlStringImpl(Roots...) if (allSatisfy!(isThriftEntity, Roots)) {
     alias ForAllWithList!(
-      ConfinedTuple!(staticFilter!(isService, Roots)),
+      ConfinedTuple!(StaticFilter!(isService, Roots)),
       AddBaseServices
     ) Services;
 
     alias TypeTuple!(
-      staticFilter!(isEnum, Roots),
+      StaticFilter!(isEnum, Roots),
       ForAllWithList!(
         ConfinedTuple!(
-          staticFilter!(Any!(isException, isStruct), Roots),
+          StaticFilter!(Any!(isException, isStruct), Roots),
           staticMap!(CompositeTypeDeps, staticMap!(ServiceTypeDeps, Services))
         ),
         AddStructWithDeps
@@ -70,11 +70,11 @@ private {
       [
         staticMap!(
           enumIdlString,
-          staticFilter!(isEnum, Types)
+          StaticFilter!(isEnum, Types)
         ),
         staticMap!(
           structIdlString,
-          staticFilter!(Any!(isStruct, isException), Types)
+          StaticFilter!(Any!(isStruct, isException), Types)
         ),
         staticMap!(
           serviceIdlString,
@@ -332,7 +332,7 @@ template enumIdlString(T) if (isEnum!T) {
     string result = "enum " ~ T.stringof ~ " {\n";
 
     foreach (name; __traits(derivedMembers, T)) {
-      result ~= "  " ~ name ~ " = " ~ dToIdlConst(getMember!(T, name)) ~ ",\n";
+      result ~= "  " ~ name ~ " = " ~ dToIdlConst(GetMember!(T, name)) ~ ",\n";
     }
 
     result ~= "}\n";

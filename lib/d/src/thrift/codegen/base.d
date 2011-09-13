@@ -799,7 +799,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // into the writeStruct function body this is inside the string mixin
     // block – the code wouldn't depend on it (this is an LDC bug, and because
     // of it a new array would be allocate on each method invocation at runtime).
-    foreach (name; staticFilter!(
+    foreach (name; StaticFilter!(
       Compose!(isNullable, PApply!(MemberType, T)),
       valueMemberNames!T
     )) {
