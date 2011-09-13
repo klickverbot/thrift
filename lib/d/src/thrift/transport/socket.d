@@ -403,13 +403,13 @@ class TSocket : TSocketBase {
   /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
-private:
   override void setSocketOpts() {
     super.setSocketOpts();
     setTimeout(SocketOption.SNDTIMEO, sendTimeout_);
     setTimeout(SocketOption.RCVTIMEO, recvTimeout_);
   }
 
+protected:
   void setTimeout(SocketOption type, Duration value) {
     assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
     version (Win32) {
