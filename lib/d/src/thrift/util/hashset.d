@@ -79,8 +79,8 @@ final class HashSet(E) {
   }
 
   ///
-  bool opBinaryRight(string op : "in")(E e) const {
-    return (e in aa_) !is null;
+  E* opBinaryRight(string op : "in")(E e) const {
+    return e in aa_;
   }
 
   ///
