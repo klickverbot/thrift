@@ -58,7 +58,7 @@ d_utildir = $(d_thriftdir)/util
 d_util_DATA = $(addprefix src/, $(addsuffix .d, $(d_utilmodules)))
 
 d_internalmodules = $(addprefix thrift/internal/, algorithm codegen ctfe \
-	endian resource_pool socket)
+	endian resource_pool socket traits)
 d_internaldir = $(d_thriftdir)/internal
 d_internal_DATA = $(addprefix src/, $(addsuffix .d, $(d_internalmodules)))
 

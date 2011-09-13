@@ -34,6 +34,7 @@ import thrift.base;
 import thrift.async.base;
 import thrift.internal.c.event.event;
 import thrift.internal.socket;
+import thrift.internal.traits;
 import thrift.util.cancellation;
 
 // To avoid DMD @@BUG6395@@.
@@ -62,7 +63,8 @@ class TLibeventAsyncManager : TAsyncSocketManager {
 
     // Register an event for receiving control messages.
     controlReceiveEvent_ = event_new(eventBase_, controlReceiveSocket_.handle,
-      EV_READ | EV_PERSIST | EV_ET, &controlMsgReceiveCallback, cast(void*)this);
+      EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&controlMsgReceiveCallback),
+      cast(void*)this);
     event_add(controlReceiveEvent_, null);
 
     queuedCountMutex_ = new Mutex;
@@ -119,10 +121,13 @@ class TLibeventAsyncManager : TAsyncSocketManager {
     const tv = toTimeval(duration);
 
     // DMD @@BUG@@: Cannot deduce T to void delegate() here.
-    registerOneshotEvent!(void delegate())(-1, 0, &delayCallback, &tv, {
-      work();
-      decrementQueuedCount();
-    });
+    registerOneshotEvent!(void delegate())(
+      -1, 0, assumeNothrow(&delayCallback), &tv,
+      {
+        work();
+        decrementQueuedCount();
+      }
+    );
   }
 
   override bool stop(Duration waitFinishTimeout = dur!"hnsecs"(-1)) {
@@ -184,7 +189,7 @@ private:
      const(timeval)* timeout, TSocketEventListener listener
   ) {
     registerOneshotEvent(socket.handle, libeventEventType(eventType),
-      &socketCallback, timeout, listener);
+      assumeNothrow(&socketCallback), timeout, listener);
   }
 
   void registerOneshotEvent(T)(evutil_socket_t fd, short type,

@@ -239,7 +239,7 @@ struct TriggerInfo {
 TriggerInfo* g_triggerInfo;
 uint g_numTriggersFired;
 
-void alarmHandler(int) {
+extern(C) void alarmHandler(int) {
   // The alarm timed out, which almost certainly means we're stuck
   // on a transport that is incorrectly blocked.
   ++g_numTriggersFired;

@@ -48,6 +48,7 @@ import thrift.internal.c.event.event;
 import thrift.internal.c.event.event_compat;
 import thrift.internal.endian;
 import thrift.internal.socket;
+import thrift.internal.traits;
 import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
@@ -154,7 +155,8 @@ class TNonblockingServer : TServer {
 
     // Register the event for the listening socket.
     listenEvent_ = event_new(eventBase_, listenSocket_.handle,
-      EV_READ | EV_PERSIST | EV_ET, &acceptConnectionsCallback, cast(void*)this);
+      EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&acceptConnectionsCallback),
+      cast(void*)this);
     if (event_add(listenEvent_, null) == -1) {
       throw new TException("event_add for the listening socket event failed.");
     }
@@ -260,7 +262,8 @@ class TNonblockingServer : TServer {
 
       // Register an event for the task completion notification socket.
       completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
-        EV_READ | EV_PERSIST | EV_ET, &taskCompletionCallback, cast(void*)this);
+        EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&taskCompletionCallback),
+        cast(void*)this);
 
       if (event_add(completionEvent_, null) == -1) {
         throw new TException("event_add for the notification socket failed.");
@@ -1010,10 +1013,10 @@ private {
       if (!event_) {
         // If the event was not already allocated, do it now.
         event_ = event_new(server_.eventBase_, socket_.socketHandle,
-          eventFlags_, &workSocketCallback, cast(void*)this);
+          eventFlags_, assumeNothrow(&workSocketCallback), cast(void*)this);
       } else {
         event_assign(event_, server_.eventBase_, socket_.socketHandle,
-          eventFlags_, &workSocketCallback, cast(void*)this);
+          eventFlags_, assumeNothrow(&workSocketCallback), cast(void*)this);
       }
 
       // Add the event
