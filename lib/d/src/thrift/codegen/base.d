@@ -387,7 +387,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   void unset(string fieldName)() if (is(MemberType!(This, fieldName))) {
-    if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
+    static if (is(typeof(mixin("this.isSetFlags." ~ fieldName)) : bool)) {
       __traits(getMember, this.isSetFlags, fieldName) = false;
     }
     __traits(getMember, this, fieldName) = MemberType!(This, fieldName).init;
