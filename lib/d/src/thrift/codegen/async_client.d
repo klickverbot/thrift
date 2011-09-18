@@ -91,6 +91,15 @@ import thrift.util.future;
  * pragma(msg, typeof(result)); // TFuture!int
  * int resultValue = result.waitGet(); // Waits until the result is available.
  * ---
+ *
+ * Bugs:
+ *   Due to druntime @@BUG6443@@ (exception handling in fibers is broken), the
+ *   program will crash instead of the result future status being set to
+ *   FAILED on Linux x86_64 x86_and Windows. On Linux, this can be worked
+ *   around by disabling backtrace generation for exceptions:
+ * ---
+ * import core.runtime;
+ * Runtime.traceHandler = null;
  */
 interface TAsyncClientBase(Interface) if (isBaseService!Interface) :
   TFutureInterface!Interface
