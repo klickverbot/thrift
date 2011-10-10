@@ -162,7 +162,10 @@ private {
           ConfinedTuple!(
             staticMap!(
               CompositeTypeDeps,
-              staticMap!(PApply!(MemberType, T), valueMemberNames!T)
+              staticMap!(
+                PApply!(MemberType, T),
+                StaticFilter!(PApply!(notIgnored, T), valueMemberNames!T)
+              )
             )
           ),
           .AddStructWithDeps,
@@ -175,7 +178,11 @@ private {
     }
   }
 
-  unittest {
+  template notIgnored(T, string name) {
+    enum notIgnored = memberReq!(T, name) != TReq.IGNORE;
+  }
+
+  version (unittest) {
     struct A {}
     struct B {
       A a;
@@ -189,6 +196,12 @@ private {
     }
 
     static assert(is(AddStructWithDeps!C == TypeTuple!(A, B, C)));
+
+    struct D {
+      C c;
+      mixin TStructHelpers!([TFieldMeta("c", 0, TReq.IGNORE)]);
+    }
+    static assert(is(AddStructWithDeps!D == TypeTuple!(D)));
   }
 
   version (unittest) {
