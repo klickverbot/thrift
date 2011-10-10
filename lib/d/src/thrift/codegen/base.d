@@ -301,7 +301,7 @@ template BaseService(T) if (isDerivedService!T) {
  *  + assert(!f.isSet!"b");
  *  + ---
  *  +/
- * void unset(string fieldName);
+ * void unset(string fieldName)();
  *
  * /++
  *  + Returns whether member fieldName is set.
@@ -361,7 +361,8 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import std.algorithm : canFind;
   import std.array : empty;
   import thrift.codegen.base;
-  import thrift.internal.codegen : isNullable, MemberType, mergeFieldMeta;
+  import thrift.internal.codegen : isNullable, MemberType, mergeFieldMeta,
+    valueMemberNames;
   import thrift.protocol.base : TProtocol, isTProtocol;
 
   alias typeof(this) This;
@@ -463,13 +464,8 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   private bool thriftOpEqualsImpl(const ref This rhs) const {
-    foreach (i, name; __traits(derivedMembers, This)) {
-      static if (!is(MemberType!(This, name)) || is(MemberType!(This, name) == void)) {
-        // We hit something strange like the TStructHelpers template itself,
-        // just ignore.
-      } else {
-        if (mixin("this." ~ name) != mixin("rhs." ~ name)) return false;
-      }
+    foreach (name; valueMemberNames!This) {
+      if (mixin("this." ~ name) != mixin("rhs." ~ name)) return false;
     }
     return true;
   }
