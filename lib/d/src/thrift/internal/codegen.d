@@ -130,6 +130,11 @@ private {
   }
 }
 
+
+template notIgnored(T, string name, alias fieldMetaData = cast(TFieldMeta[])null) {
+  enum notIgnored = memberReq!(T, name, fieldMetaData) != TReq.IGNORE;
+}
+
 /**
  * Returns the method metadata array for T if any, or an empty array otherwise.
  */
@@ -161,12 +166,18 @@ template isValueMember(T, string name) {
 }
 
 /**
- * Returns a tuple containing the member variables of T, not including
- * inherited fields.
+ * Returns a tuple containing the names of the fields of T, not including
+ * inherited fields. If a member is marked as TReq.IGNORE, it is not included
+ * as well.
  */
-template valueMemberNames(T) {
-  alias StaticFilter!(PApply!(isValueMember, T), __traits(derivedMembers, T))
-    valueMemberNames;
+template FieldNames(T, alias fieldMetaData = cast(TFieldMeta[])null) {
+  alias StaticFilter!(
+    All!(
+      PApply!(isValueMember, T),
+      PApply!(notIgnored, T, PApplySkip, fieldMetaData)
+    ),
+    __traits(derivedMembers, T)
+  ) FieldNames;
 }
 
 template derivedMembers(T) {

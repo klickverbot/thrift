@@ -164,7 +164,7 @@ private {
               CompositeTypeDeps,
               staticMap!(
                 PApply!(MemberType, T),
-                StaticFilter!(PApply!(notIgnored, T), valueMemberNames!T)
+                FieldNames!T
               )
             )
           ),
@@ -176,10 +176,6 @@ private {
     } else {
       alias List AddStructWithDeps;
     }
-  }
-
-  template notIgnored(T, string name) {
-    enum notIgnored = memberReq!(T, name) != TReq.IGNORE;
   }
 
   version (unittest) {
@@ -380,7 +376,7 @@ template structIdlString(T) if (isStruct!T || isException!T) {
     // -1, just like the Thrift compiler does.
     short lastId;
 
-    foreach (name; valueMemberNames!T) {
+    foreach (name; FieldNames!T) {
       enum meta = find!`a.name == b`(getFieldMeta!T, name);
 
       static if (meta.empty || meta.front.req != TReq.IGNORE) {

@@ -362,7 +362,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   import std.array : empty;
   import thrift.codegen.base;
   import thrift.internal.codegen : isNullable, MemberType, mergeFieldMeta,
-    valueMemberNames;
+    FieldNames;
   import thrift.protocol.base : TProtocol, isTProtocol;
 
   alias typeof(this) This;
@@ -435,27 +435,16 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
     mixin({
       string code = "";
       bool first = true;
-      foreach (i, name; __traits(derivedMembers, This)) {
-        static if (!is(MemberType!(This, name)) || is(MemberType!(This, name) == void)) {
-          // We hit something strange like the TStructHelpers template itself,
-          // just ignore.
+      foreach (name; FieldNames!(This, fieldMeta)) {
+        if (first) {
+          first = false;
         } else {
-          import std.traits;
-          static if (isCallable!(MemberType!(This, name))) {
-            // We don't want to pick up e.g. the __ctor member for exceptions.
-            // Cannot use continue here due to »unreachable statement« warnings.
-          } else {
-            if (first) {
-              first = false;
-            } else {
-              code ~= "result ~= `, `;\n";
-            }
-            code ~= "result ~= `" ~ name ~ ": ` ~ to!string(cast()this." ~ name ~ ");\n";
-            code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
-            code ~= "result ~= ` (unset)`;\n";
-            code ~= "}\n";
-          }
+          code ~= "result ~= `, `;\n";
         }
+        code ~= "result ~= `" ~ name ~ ": ` ~ to!string(cast()this." ~ name ~ ");\n";
+        code ~= "if (!isSet!q{" ~ name ~ "}) {\n";
+        code ~= "result ~= ` (unset)`;\n";
+        code ~= "}\n";
       }
       return code;
     }());
@@ -464,7 +453,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   private bool thriftOpEqualsImpl(const ref This rhs) const {
-    foreach (name; valueMemberNames!This) {
+    foreach (name; FieldNames!This) {
       if (mixin("this." ~ name) != mixin("rhs." ~ name)) return false;
     }
     return true;
@@ -721,7 +710,7 @@ void readStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // -1, just like the Thrift compiler does.
     short lastId;
 
-    foreach (name; valueMemberNames!T) {
+    foreach (name; FieldNames!T) {
       enum req = memberReq!(T, name, fieldMetaData);
       if (req == TReq.REQUIRED) {
         // For required fields, generate local bool flags to keep track
@@ -797,7 +786,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     // of it a new array would be allocate on each method invocation at runtime).
     foreach (name; StaticFilter!(
       Compose!(isNullable, PApply!(MemberType, T)),
-      valueMemberNames!T
+      FieldNames!T
     )) {
        static if (memberReq!(T, name, fieldMetaData) == TReq.REQUIRED) {
          code ~= `enforce(__traits(getMember, s, name) !is null,
@@ -897,7 +886,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
     short lastId;
 
     string code = "";
-    foreach (name; valueMemberNames!T) {
+    foreach (name; FieldNames!T) {
       alias MemberType!(T, name) F;
       enum req = memberReq!(T, name, fieldMetaData);
       enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
