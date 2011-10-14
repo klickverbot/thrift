@@ -342,7 +342,8 @@ alias PApply!(Compose, not) Not;
 
 unittest {
   alias Not!hasType hasNoType;
-  pragma(msg, hasNoType!true, hasNoType!int);
+  static assert(hasNoType!true == false);
+  static assert(hasNoType!int == true);
 }
 
 template ConfinedTuple(T...) {
