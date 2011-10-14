@@ -76,7 +76,8 @@ string ctfeToString(T)(T val) if (isFloatingPoint!T) {
     result ~= to!string(first);
 
     b -= first;
-    if (b < (cast(real)10) ^^ (i - T.dig)) break;
+    import std.math;
+    if (b < pow(10.0, i - T.dig)) break;
     b *= 10;
   }
 
