@@ -20,7 +20,7 @@
 module thrift.internal.codegen;
 
 import std.traits : InterfacesTuple, isSomeString;
-import std.typetuple : staticMap, NoDuplicates, TypeTuple;
+import std.typetuple : staticIndexOf, staticMap, NoDuplicates, TypeTuple;
 import thrift.codegen.base;
 
 /**
@@ -218,23 +218,73 @@ template StaticFilter(alias pred, T...) {
  * Binds the first n arguments of a template to a particular value (where n is
  * the number of arguments passed to PApply).
  *
+ * The passed arguments are always applied starting from the left. However,
+ * the special PApplySkip marker template can be used to indicate that an
+ * argument should be skipped, so that e.g. the first and third argument
+ * to a template can be fixed, but the second and remaining arguments would
+ * still be left undefined.
+ *
+ * Skipping a number of parameters, but not providing enough arguments to
+ * assign all of them during instantiation of the resulting template is an
+ * error.
+ *
  * Example:
  * ---
  * struct Foo(T, U, V) {}
  * alias PApply!(Foo, int, long) PartialFoo;
  * static assert(is(PartialFoo!float == Foo!(int, long, float)));
+ *
+ * alias PApply!(Test, int, PApplySkip, float) SkippedTest;
+ * static assert(is(SkippedTest!long == Test!(int, long, float)));
  * ---
  */
 template PApply(alias Target, T...) {
   template PApply(U...) {
-    alias Target!(T, U) PApply;
+    alias Target!(PApplyMergeArgs!(ConfinedTuple!T, U).Result) PApply;
   }
 }
+
+/// Ditto.
+template PApplySkip() {}
+
+private template PApplyMergeArgs(alias Preset, Args...) {
+  static if (Preset.length == 0) {
+    alias Args Result;
+  } else {
+    enum nextSkip = staticIndexOf!(PApplySkip, Preset.Tuple);
+    static if (nextSkip == -1) {
+      alias TypeTuple!(Preset.Tuple, Args) Result;
+    } else static if (Args.length == 0) {
+      // Have to use a static if clause instead of putting the condition
+      // directly into the assert to avoid DMD trying to access Args[0]
+      // nevertheless below.
+      static assert(false,
+        "PArgsSkip encountered, but no argument left to bind.");
+    } else {
+      alias TypeTuple!(
+        Preset.Tuple[0 .. nextSkip],
+        Args[0],
+        PApplyMergeArgs!(
+          ConfinedTuple!(Preset.Tuple[nextSkip + 1 .. $]),
+          Args[1 .. $]
+        ).Result
+      ) Result;
+    }
+  }
+}
+
 unittest {
   struct Test(T, U, V) {}
   alias PApply!(Test, int, long) PartialTest;
   static assert(is(PartialTest!float == Test!(int, long, float)));
+
+  alias PApply!(Test, int, PApplySkip, float) SkippedTest;
+  static assert(is(SkippedTest!long == Test!(int, long, float)));
+
+  alias PApply!(Test, int, PApplySkip, PApplySkip) TwoSkipped;
+  static assert(!__traits(compiles, TwoSkipped!long));
 }
+
 
 /**
  * Composes a number of templates. The result is a template equivalent to
