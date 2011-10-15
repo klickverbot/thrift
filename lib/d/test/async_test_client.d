@@ -39,7 +39,7 @@ void main(string[] args) {
   bool trace;
 
   getopt(args,
-    "iterations", &numIterations,
+    "n|iterations", &numIterations,
     "trace", &trace,
     "host", (string, string value) {
       auto parts = split(value, ":");
