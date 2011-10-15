@@ -195,6 +195,17 @@ void main(string[] args) {
     &serverType, "ssl", &ssl, "task-pool-size", &taskPoolSize,
     "trace", &trace, "transport", &transportType);
 
+  if (serverType == ServerType.nonblocking ||
+    serverType == ServerType.pooledNonblocking
+  ) {
+    enforce(transportType == TransportType.framed,
+      "Need to use framed transport with non-blocking server.");
+    enforce(!ssl, "The non-blocking server does not support SSL yet.");
+
+    // Don't wrap the contents into another layer of framing.
+    transportType = TransportType.raw;
+  }
+
   // We don't need every last bit of performance here, so specifying the
   // actual transport types is not really needed in this case, but this
   // exercises the (template) code paths as well.
