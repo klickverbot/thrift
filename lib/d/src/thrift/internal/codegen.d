@@ -393,20 +393,6 @@ template Any(T...) {
   }
 }
 
-/**
- * Negates the passed template predicate.
- */
-template not(T...) if (T.length == 1 && is(typeof(!T[0]) : bool)) {
-  enum bool not = !val;
-}
-alias PApply!(Compose, not) Not;
-
-unittest {
-  alias Not!hasType hasNoType;
-  static assert(hasNoType!true == false);
-  static assert(hasNoType!int == true);
-}
-
 template ConfinedTuple(T...) {
   alias T Tuple;
   enum length = T.length;
