@@ -188,8 +188,9 @@ class TNonblockingServer : TServer {
         try {
           s.connect(new InternetAddress("127.0.0.1", port));
           s.close();
-        } catch (Exception e) {
-          logError("Could not send shutdown ping: %s", e);
+        } catch (SocketException e) {
+          // Failing here is expected, since the server thread might simply
+          // drop the connection and immediately shut down.
         }
       });
     }
@@ -203,7 +204,7 @@ class TNonblockingServer : TServer {
     listenSocket_.close();
     listenSocket_ = null;
 
-    shuttingDown_ = false;
+    atomicStore(shuttingDown_, false);
   }
 
   /**
@@ -367,12 +368,19 @@ private:
    * to handle those requests.
    */
   void acceptConnections(int fd, short eventFlags) {
-    if (!listenSocket_ && shuttingDown_) {
-      // The server is shutting down, the listening socket has already been
-      // closed – just ignore the event.
+    if (atomicLoad(shuttingDown_)) {
+      // If we are shutting down, check if there are any active connections
+      // left. If yes, just return, the thread will be woken up and terminated
+      // when the last connection is closed anyway. If no, just break out of the
+      // event loop now.
+      if (isIdle()) {
+        event_base_loopbreak(eventBase_);
+      }
       return;
     }
 
+    assert(!!listenSocket_,
+      "Server should be shutting down if listen socket is null.");
     assert(fd == listenSocket_.handle);
     assert(eventFlags & EV_READ);
 
@@ -556,12 +564,20 @@ private:
       GC.removeRoot(cast(void*)connection);
     }
 
-    if (atomicLoad(shuttingDown_) && numIdleConnections == numConnections) {
+    if (atomicLoad(shuttingDown_) && isIdle()) {
       event_base_loopbreak(eventBase_);
     }
   }
 
-  /// Server socket file descriptor
+  /**
+   * Whether the server is currently idle, i.e. there are no open
+   * client connections.
+   */
+  bool isIdle() {
+    return numIdleConnections == numConnections;
+  }
+
+  /// Socket used to listen for connections and accepting them.
   Socket listenSocket_;
 
   /// Port to listen on.

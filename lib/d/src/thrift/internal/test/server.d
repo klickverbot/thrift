@@ -51,9 +51,9 @@ void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
     serverThread.start();
 
     Thread.sleep(dur!"msecs"(5));
-    cancel.trigger();
     synchronized (doneMutex) {
-      assert(doneCondition.wait(dur!"msecs"(10)));
+      cancel.trigger();
+      assert(doneCondition.wait(dur!"msecs"(100)));
     }
   }
 }
