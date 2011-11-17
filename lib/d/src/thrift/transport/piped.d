@@ -36,7 +36,9 @@ import thrift.transport.memory;
  * of input/output buffering, all calls are passed to the underlying source
  * transport verbatim.
  */
-final class TPipedTransport : TBaseTransport {
+final class TPipedTransport(Source = TTransport) if (
+  isTTransport!Source
+) : TBaseTransport {
   /// The default initial buffer size if not explicitly specified, in bytes.
   enum DEFAULT_INITIAL_BUFFER_SIZE = 512;
 
@@ -51,7 +53,7 @@ final class TPipedTransport : TBaseTransport {
    *   initialBufferSize = The default size of the read/write buffers, for
    *     performance tuning.
    */
-  this(TTransport srcTrans, TTransport dstTrans,
+  this(Source srcTrans, TTransport dstTrans,
     size_t initialBufferSize = DEFAULT_INITIAL_BUFFER_SIZE
   ) {
     srcTrans_ = srcTrans;
@@ -159,7 +161,7 @@ final class TPipedTransport : TBaseTransport {
   }
 
 private:
-  TTransport srcTrans_;
+  Source srcTrans_;
   TTransport dstTrans_;
 
   TMemoryBuffer readBuffer_;
@@ -167,6 +169,17 @@ private:
 
   bool pipeReads_;
   bool pipeWrites_;
+}
+
+/**
+ * TPipedTransport construction helper to avoid having to explicitly
+ * specify the transport types, i.e. to allow the constructor being called
+ * using IFTI (see $(DMDBUG 6082, D Bugzilla enhancement request 6082)).
+ */
+TPipedTransport!Source tPipedTransport(Source)(
+  Source srcTrans, TTransport dstTrans
+) if (isTTransport!Source) {
+  return new typeof(return)(srcTrans, dstTrans);
 }
 
 version (unittest) {
@@ -178,7 +191,7 @@ version (unittest) {
 unittest {
   auto underlying = new TMemoryBuffer;
   auto pipeTarget = new TMemoryBuffer;
-  auto trans = new TPipedTransport(underlying, pipeTarget);
+  auto trans = tPipedTransport(underlying, pipeTarget);
 
   underlying.write(cast(ubyte[])"abcd");
 
