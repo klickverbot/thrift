@@ -418,7 +418,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
         return thriftOpEqualsImpl(rhs);
       }
 
-      return super.opEquals(other);
+      return (cast()super).opEquals(other);
     }
   } else {
     string toString() const {

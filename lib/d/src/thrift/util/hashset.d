@@ -101,6 +101,7 @@ final class HashSet(E) {
     static if (is(typeof(to!string(E.init)) : string)) {
       return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
     } else {
+      // Cast to work around Object not being const-correct.
       return (cast()super).toString();
     }
   }
@@ -112,7 +113,8 @@ final class HashSet(E) {
       return aa_ == rhs.aa_;
     }
 
-    return super.opEquals(other);
+    // Cast to work around Object not being const-correct.
+    return (cast()super).opEquals(other);
   }
 
 private:
