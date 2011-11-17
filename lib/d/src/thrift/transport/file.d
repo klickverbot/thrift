@@ -1072,10 +1072,10 @@ unittest {
       // looping over a very slow operation.
       assert(sw.peek.msecs < 100);
 
-      // Normally, it takes less than 1ms on my dev box.
+      // Normally, it takes less than 5ms on my dev box.
       // However, if the box is heavily loaded, some of the test runs
       // take longer, since we're just waiting for our turn on the CPU.
-      if (sw.peek.msecs > 1) {
+      if (sw.peek.msecs > 5) {
         ++numOver;
       }
 
@@ -1084,7 +1084,7 @@ unittest {
       if (!(n % 100)) GC.collect();
     }
 
-    // Make sure fewer than 10% of the runs took longer than 1000us
+    // Make sure fewer than 10% of the runs took longer than 5000us
     assert(numOver < NUM_ITERATIONS / 10);
   }
 }
