@@ -43,7 +43,7 @@ for protocol in $protocols; do
         server_rc=$?
 
         if [ $client_rc -ne 0 -o $server_rc -eq 1 ]; then
-          echo "Tests failed for: $args (server-type: $server)"
+          echo "Tests failed for: $args --server-type=$server"
           break 4
         fi
       done
