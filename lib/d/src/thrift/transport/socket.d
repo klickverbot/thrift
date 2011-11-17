@@ -178,7 +178,10 @@ protected:
   void setSocketOpts() {
     try {
       alias SocketOptionLevel.SOCKET lvlSock;
-      socket_.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+      linger l;
+      l.on = 0;
+      l.time = 0;
+      socket_.setOption(lvlSock, SocketOption.LINGER, l);
     } catch (SocketException e) {
       logError("Could not set socket option: %s", e);
     }

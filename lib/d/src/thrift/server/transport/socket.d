@@ -235,7 +235,10 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
 
   // Turn linger off to avoid blocking on socket close.
   try {
-    socket.setOption(lvlSock, SocketOption.LINGER, linger(0, 0));
+    linger l;
+    l.on = 0;
+    l.time = 0;
+    socket.setOption(lvlSock, SocketOption.LINGER, l);
   } catch (SocketException e) {
     throw new STE("Could not disable socket linger: " ~ to!string(e),
       STE.Type.RESOURCE_FAILED);
