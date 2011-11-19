@@ -300,6 +300,20 @@ AC_SEARCH_LIBS(dlopen, dl, [
 ])
 AC_SUBST(DMD_LIBDL_FLAGS)
 
+# Determine actual name of the generated D library for use in the command line
+# when compiling tests.
+lib_prefix=lib
+lib_suffix=a
+case "$host_os" in
+  cygwin* | mingw* | pw32* | cegcc*)
+    lib_prefix=""
+    lib_suffix=lib
+    ;;
+esac
+D_LIB_NAME="${lib_prefix}thriftd.${lib_suffix}"
+AC_SUBST(D_LIB_NAME)
+
+
 AC_C_CONST
 AC_C_INLINE
 AC_C_VOLATILE

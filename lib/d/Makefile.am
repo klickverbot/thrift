@@ -88,25 +88,25 @@ d_modules = $(d_publicmodules) $(d_internalmodules) $(d_testmodules) \
 	$(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
 
 d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
-libthriftd.a: $(d_sources)
-	$(DMD) -oflibthriftd -w -wi -lib $^
+$(D_LIB_NAME): $(d_sources)
+	$(DMD) -of$(D_LIB_NAME) -w -wi -lib $^
 
 docs: $(d_publicsources) src/thrift/index.d
 	dil ddoc docs -hl --kandil $^
 
-all-local: libthriftd.a
+all-local: $(D_LIB_NAME)
 
 clean-local:
-	$(RM) -rf docs libthriftd.a unittest
+	$(RM) -rf docs $(D_LIB_NAME) unittest
 
-lib_LIBRARIES = libthriftd.a
-
+install-exec-local:
+	$(INSTALL_PROGRAM) $(D_LIB_NAME) $(DESTDIR)$(libdir)
 
 #
 # Unit tests
 #
-d_test_flags = -w -gc -I$(top_srcdir)/lib/d/src -L-L$(top_builddir)/lib/d \
-	-L-lthriftd $(DMD_LIBDL_FLAGS)
+d_test_flags = -w -gc -I$(top_srcdir)/lib/d/src \
+	$(top_builddir)/lib/d/$(D_LIB_NAME) $(DMD_LIBDL_FLAGS)
 
 unittest/emptymain.d: unittest/.directory
 	@echo 'void main(){}' >$@
