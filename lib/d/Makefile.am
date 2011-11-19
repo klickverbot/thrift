@@ -17,7 +17,7 @@
 # under the License.
 #
 
-SUBDIRS = test
+SUBDIRS = . test
 
 d_thriftmodules = $(addprefix thrift/, base)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
