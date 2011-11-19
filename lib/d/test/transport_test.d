@@ -20,21 +20,15 @@
 /**
  * Exercises various transports, combined with the buffered/framed wrappers.
  *
- * In large parts directly ported from the C++ version.
+ * Originally ported from the C++ version, with Windows support code added.
  */
 module transport_test;
 
-version (Posix) {} else {
-  static assert(false, "This test is Posix-only, because it depends on signals.");
-}
-
+import core.atomic;
 import core.time : Duration;
 import core.thread : Thread;
-import core.sys.posix.unistd : alarm;
-import core.sys.posix.signal;
-import core.sys.posix.stdlib;
 import std.datetime;
-import std.file;
+static import std.file;
 import std.getopt;
 import std.random : rndGen, uniform, unpredictableSeed;
 import std.socket;
@@ -49,7 +43,6 @@ import thrift.transport.http;
 import thrift.transport.memory;
 import thrift.transport.socket;
 import thrift.transport.zlib;
-
 
 /*
  * Size generation helpers – used to be able to run the same testing code
@@ -152,9 +145,10 @@ private:
   InnerCoupledTransports inner_;
 }
 
-alias Curry!(CoupledWrapperTransports, TBufferedTransport) CoupledBufferedTransports;
-alias Curry!(CoupledWrapperTransports, TFramedTransport) CoupledFramedTransports;
-alias Curry!(CoupledWrapperTransports, TZlibTransport) CoupledZlibTransports;
+import thrift.internal.codegen : PApply;
+alias PApply!(CoupledWrapperTransports, TBufferedTransport) CoupledBufferedTransports;
+alias PApply!(CoupledWrapperTransports, TFramedTransport) CoupledFramedTransports;
+alias PApply!(CoupledWrapperTransports, TZlibTransport) CoupledZlibTransports;
 
 /**
  * Coupled TMemoryBuffers.
@@ -185,10 +179,14 @@ class CoupledSocketTransports : CoupledTransports!TSocket {
  */
 class CoupledFileTransports : CoupledTransports!TTransport {
   this() {
-    fileName_ = to!string(mktemp(cast(char*)toStringz(tmpDir ~
-      "/thrift.transport_test.XXXXXX")));
+    // We actually need the file name of the temp file here, so we can't just
+    // use the usual tempfile facilities.
+    do {
+      fileName_ = tmpDir ~ "/thrift.transport_test." ~ to!string(rndGen().front);
+      rndGen().popFront();
+    } while (std.file.exists(fileName_));
 
-      writefln("Using temp file: %s", fileName_);
+    writefln("Using temp file: %s", fileName_);
 
     auto writer = new TFileWriterTransport(fileName_);
     writer.open();
@@ -205,114 +203,13 @@ class CoupledFileTransports : CoupledTransports!TTransport {
 
   ~this() {
     // FIXME: Can't remove file, because can't allocate in destructor…
-    // remove(fileName_);
+    // std.file.remove(fileName_);
   }
 
   static string tmpDir;
 
 private:
   string fileName_;
-}
-
-
-/*
- * Alarm handling code for use in tests that check the transport blocking
- * semantics.
- *
- * If the timeout expires, we will write additional data to the transport in
- * the SIGALRM handler to unblock it.
- */
-
-struct TriggerInfo {
-  this(Duration timeout, TTransport transport, size_t writeLength) {
-    this.timeout = timeout;
-    this.transport = transport;
-    this.writeLength = writeLength;
-  }
-
-  Duration timeout;
-  TTransport transport;
-  size_t writeLength;
-  TriggerInfo* next;
-}
-
-TriggerInfo* g_triggerInfo;
-uint g_numTriggersFired;
-
-extern(C) void alarmHandler(int) {
-  // The alarm timed out, which almost certainly means we're stuck
-  // on a transport that is incorrectly blocked.
-  ++g_numTriggersFired;
-
-  if (g_triggerInfo is null) {
-    stderr,writeln("Timeout expired, but trigger stack is empty!");
-    exit(1);
-  }
-
-  // Pop off the first TriggerInfo.
-  // If there is another one, schedule an alarm for it.
-  auto info = g_triggerInfo;
-  g_triggerInfo = info.next;
-  setAlarm();
-
-  // Write some data to the transport to hopefully unblock it.
-  auto buf = new ubyte[info.writeLength];
-  buf[] = 'b';
-  info.transport.write(buf);
-  info.transport.flush();
-}
-
-void setAlarm() {
-  if (g_triggerInfo is null) {
-    // clear any alarm
-    alarm(0);
-    return;
-  }
-
-  sigaction_t action;
-  action.sa_handler = &alarmHandler;
-  action.sa_flags = SA_RESETHAND;
-  sigemptyset(&action.sa_mask);
-  sigaction(SIGALRM, &action, null);
-
-  alarm(to!uint(g_triggerInfo.timeout.total!"seconds"));
-}
-
-/**
- * Add a trigger to be scheduled "seconds" seconds after the
- * last currently scheduled trigger.
- *
- * (Note that this is not "seconds" from now.  That might be more logical, but
- * would require slightly more complicated sorting, rather than just appending
- * to the end.)
- */
-void addTrigger(Duration timeout, TTransport transport, size_t writeLen) {
-  auto info = new TriggerInfo(timeout, transport, writeLen);
-
-  if (g_triggerInfo is null) {
-    // This is the first trigger.
-    // Set triggerInfo, and schedule the alarm
-    g_triggerInfo = info;
-    setAlarm();
-  } else {
-    // Add this trigger to the end of the list
-    auto prev = g_triggerInfo;
-    while (prev.next) {
-      prev = prev.next;
-    }
-    prev.next = info;
-  }
-}
-
-void clearTriggers() {
-  alarm(0);
-  g_triggerInfo = null;
-  g_numTriggersFired = 0;
-}
-
-void setTrigger(Duration timeout, TTransport transport, size_t writeLen) {
-  clearTriggers();
-  addTrigger(timeout, transport, writeLen);
 }
 
 
@@ -460,7 +357,7 @@ void testReadPartAvailable(CoupledTransports)() if (
   setTrigger(dur!"seconds"(3), transports.output, 1);
 
   auto bytesRead = transports.input.read(readBuf);
-  enforce(g_numTriggersFired == 0);
+  enforce(atomicLoad(g_numTriggersFired) == 0);
   enforce(bytesRead == 9);
 
   clearTriggers();
@@ -513,7 +410,7 @@ void testReadPartialMidframe(CoupledTransports)() if (
   while (totalRead < 9) {
     setTrigger(dur!"seconds"(3), transports.output, 1);
     bytesRead = transports.input.read(readBuf[4 + totalRead .. 14]);
-    enforce(g_numTriggersFired == 0);
+    enforce(atomicLoad(g_numTriggersFired) == 0);
     enforce(bytesRead > 0);
     totalRead += bytesRead;
     enforce(totalRead <= 9);
@@ -543,7 +440,7 @@ void testBorrowPartAvailable(CoupledTransports)() if (
 
   auto borrowLen = readBuf.length;
   auto borrowedBuf = transports.input.borrow(readBuf.ptr, borrowLen);
-  enforce(g_numTriggersFired == 0);
+  enforce(atomicLoad(g_numTriggersFired) == 0);
   enforce(borrowedBuf is null);
 
   clearTriggers();
@@ -569,9 +466,9 @@ void testReadNoneAvailable(CoupledTransports)() if (
 
   auto bytesRead = transports.input.read(readBuf);
   if (bytesRead == 0) {
-    enforce(g_numTriggersFired == 0);
+    enforce(atomicLoad(g_numTriggersFired) == 0);
   } else {
-    enforce(g_numTriggersFired == 1);
+    enforce(atomicLoad(g_numTriggersFired) == 1);
     enforce(bytesRead == 2);
   }
 
@@ -593,7 +490,7 @@ void testBorrowNoneAvailable(CoupledTransports)() if (
   auto borrowLen = 10;
   auto borrowedBuf = transports.input.borrow(null, borrowLen);
   enforce(borrowedBuf is null);
-  enforce(g_numTriggersFired == 0);
+  enforce(atomicLoad(g_numTriggersFired) == 0);
 
   clearTriggers();
 }
@@ -715,9 +612,22 @@ void testBlocking(C)() if (isCoupledTransports!C) {
 // A quick hack, for the sake of brevity…
 float g_sizeMultiplier = 1;
 
+version (Posix) {
+  immutable defaultTempDir = "/tmp";
+} else version (Windows) {
+  import core.sys.windows.windows;
+  extern(Windows) DWORD GetTempPathA(DWORD nBufferLength, LPTSTR lpBuffer);
+
+  string defaultTempDir() @property {
+    char[MAX_PATH + 1] dir;
+    enforce(GetTempPathA(dir.length, dir.ptr));
+    return to!string(dir.ptr)[0 .. $ - 1];
+  }
+} else static assert(false);
+
 void main(string[] args) {
-  int seed = unpredictableSeed;
-  string tmpDir = "/tmp";
+  int seed = unpredictableSeed();
+  string tmpDir = defaultTempDir;
 
   getopt(args, "seed", &seed, "size-multiplier", &g_sizeMultiplier,
     "tmp-dir", &tmpDir);
@@ -789,26 +699,187 @@ void main(string[] args) {
   testBlocking!CoupledFileTransports();
 }
 
-private {
-  /*
-   * Curries a given template by tying the first n arguments to particular
-   * types (where n is the number of types passed to Curry).
-   *
-   * Example:
-   * ---
-   * struct Foo(T, U, V) {}
-   * alias Curry!(Foo, A, B) CurriedFoo;
-   * assert(is(CurriedFoo!(C) == Foo!(A, B, C)));
-   * ---
-   */
-  template Curry(alias Target, T...) {
-      template Curry(U...) {
-          alias Target!(T, U) Curry;
-      }
+
+/*
+ * Timer handling code for use in tests that check the transport blocking
+ * semantics.
+ *
+ * If the timeout expires, we will write additional data to the transport in
+ * to unblock it.
+ *
+ * On Posix, this is implemented using alarm() and a custom signal handler, on
+ * Windows, a timer queue is used. The semantics actually differ a bit between
+ * these two (the timer queue version will not interrupt syscalls, but instead
+ * run in another thread), but this should not have too much effect on our
+ * tests.
+ */
+
+/// The number of triggers fired since the last clearTriggers()/setTrigger()
+/// call.
+shared uint g_numTriggersFired;
+
+/**
+ * Adds a trigger to be invoked the given duration after the last currently
+ * scheduled trigger.
+ */
+void addTrigger(Duration timeout, TTransport transport, size_t writeLen) {
+  auto info = new TriggerInfo(timeout, transport, writeLen);
+
+  if (g_triggerInfo is null) {
+    // This is the first trigger, set triggerInfo, and schedule the alarm.
+    g_triggerInfo = info;
+    setTimer();
+  } else {
+    // Add this trigger to the end of the list.
+    auto prev = g_triggerInfo;
+    while (prev.next) {
+      prev = prev.next;
+    }
+    prev.next = info;
   }
-  unittest {
-      struct Test(T, U, V) {}
-      alias Curry!(Test, Foo, Bar) CurriedTest;
-      static assert(is(CurriedTest!Baz == Test!(Foo, Bar, Baz)));
+}
+
+/**
+ * Clears all currently active triggers.
+ */
+void clearTriggers() {
+  clearTimer();
+  g_triggerInfo = null;
+  atomicStore(g_numTriggersFired, 0);
+}
+
+/**
+ * Sets a new trigger, disabling all currently active ones first.
+ */
+void setTrigger(Duration timeout, TTransport transport, size_t writeLen) {
+  clearTriggers();
+  addTrigger(timeout, transport, writeLen);
+}
+
+private {
+  struct TriggerInfo {
+    this(Duration timeout, TTransport transport, size_t writeLength) {
+      this.timeout = timeout;
+      this.transport = transport;
+      this.writeLength = writeLength;
+    }
+
+    Duration timeout;
+    TTransport transport;
+    size_t writeLength;
+    TriggerInfo* next;
+  }
+
+  __gshared TriggerInfo* g_triggerInfo;
+
+  void triggerCallback() {
+    atomicOp!"+="(g_numTriggersFired, 1);
+
+    if (g_triggerInfo is null) {
+      stderr.writeln("Timeout expired, but trigger stack is empty!");
+      assert(0);
+    }
+
+    // Pop off the first TriggerInfo.
+    // If there is another one, schedule an alarm for it.
+    auto info = g_triggerInfo;
+    g_triggerInfo = info.next;
+    setTimer();
+
+    // Write some data to the transport to hopefully unblock it.
+    auto buf = new ubyte[info.writeLength];
+    buf[] = 'b';
+    info.transport.write(buf);
+    info.transport.flush();
+  }
+
+  version (Posix) {
+    import core.sys.posix.signal;
+    import core.sys.posix.unistd : alarm;
+
+    extern(C) void alarmHandler(int) {
+      triggerCallback();
+    }
+
+    void setTimer() {
+      if (g_triggerInfo is null) {
+        clearTimer();
+        return;
+      }
+
+      sigaction_t action;
+      action.sa_handler = &alarmHandler;
+      action.sa_flags = SA_RESETHAND;
+      sigemptyset(&action.sa_mask);
+      sigaction(SIGALRM, &action, null);
+
+      alarm(to!uint(g_triggerInfo.timeout.total!"seconds"));
+    }
+
+    void clearTimer() {
+      alarm(0);
+    }
+  } else version (Windows){
+    import core.sys.windows.windows;
+    extern (Windows) {
+      alias VOID function(
+        PVOID lpParameter,
+        bool TimerOrWaitFired
+      ) WAITORTIMERCALLBACK;
+
+      BOOL CreateTimerQueueTimer(
+        HANDLE* phNewTimer,
+        HANDLE TimerQueue,
+        WAITORTIMERCALLBACK Callback,
+        PVOID Parameter,
+        DWORD DueTime,
+        DWORD Period,
+        ULONG Flags
+      );
+      BOOL DeleteTimerQueueTimer(
+        HANDLE TimerQueue,
+        HANDLE Timer,
+        HANDLE CompletionEvent
+      );
+    }
+
+    HANDLE g_currentTimer;
+
+    extern(Windows) void timerCallback(void* data, bool) {
+      if (data !is g_triggerInfo) {
+        // Apparently, not-yet-executed cannot be removed 100% reliably from the
+        // timer queue, so just ignore old calls.
+        return;
+      }
+      triggerCallback();
+    }
+
+    void setTimer() {
+      if (g_triggerInfo is null) {
+        clearTimer();
+        return;
+      }
+
+      enforce(CreateTimerQueueTimer(
+        &g_currentTimer,
+        null,
+        &timerCallback,
+        g_triggerInfo,
+        to!uint(g_triggerInfo.timeout.total!"msecs"),
+        0,
+        0
+      ));
+    }
+
+    void clearTimer() {
+      if (g_currentTimer !is null) {
+        // No return code handling here since ERROR_IO_PENDING can legitimately occur,
+        // which would require extra boilerplate not worth the effort.
+        DeleteTimerQueueTimer(null, g_currentTimer, null);
+        g_currentTimer = null;
+      }
+    }
+  } else {
+    static assert(false, "Timer triggers not implemented on this platform.");
   }
 }
