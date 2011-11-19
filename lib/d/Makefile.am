@@ -115,8 +115,8 @@ unittest/.directory:
 	mkdir -p unittest || exists unittest
 	touch $@
 
-unittest/%: src/%.d libthriftd.a unittest/emptymain.d
-	$(DMD) -unittest -of$@ $(d_test_flags) unittest/emptymain.d $<
+unittest/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
+	$(DMD) -unittest -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) unittest/emptymain.d $<
 
 TESTS = $(addprefix unittest/, $(d_publicmodules))
 

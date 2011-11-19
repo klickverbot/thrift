@@ -1,13 +1,15 @@
 dnl @synopsis AX_DMD
 dnl
 dnl Test for the presence of a DMD-compatible D2 compiler, and (optionally)
-dnl specified .
+dnl specified modules on the import path.
 dnl
 dnl If "DMD" is defined in the environment, that will be the only
-dnl dmd command tested.  Otherwise, a hard-coded list will be used.
+dnl dmd command tested. Otherwise, a hard-coded list will be used.
 dnl
 dnl After AX_DMD runs, the shell variables "success" and "ax_dmd" are set to
-dnl "yes" or "no", and "DMD" is set to the appropriate commands.
+dnl "yes" or "no", and "DMD" is set to the appropriate command. Furthermore,
+dnl "DMD_OF_DIRSEP" will be set to the directory separator to use when passing
+dnl -of to DMD (OPTLINK/Windows requires a backslash.)
 dnl
 dnl AX_CHECK_D_MODULE must be run after AX_DMD. It tests for the presence of a
 dnl module in the import path of the chosen compiler, and sets the shell
@@ -51,7 +53,18 @@ AC_DEFUN([AX_DMD],
             fi
           done
 
-          rm -f configtest_ax_dmd configtest_ax_dmd.o configtest_ax_dmd.d
+          if test "$success" == "yes" ; then
+            echo "Testing whether backslash in -of is required" >&AS_MESSAGE_LOG_FD
+            if $DMD -ofaclocal/../configtest_ax_dmd configtest_ax_dmd.d >&AS_MESSAGE_LOG_FD 2>&1 ; then
+              DMD_OF_DIRSEP="/"
+            else
+              # This actually produces double slashes in the final configure
+              # output, but at least it works.
+              DMD_OF_DIRSEP="\\\\"
+            fi
+          fi
+
+          rm -f configtest_ax_dmd*
 
           if test "$success" != "yes" ; then
             AC_MSG_RESULT(no)

@@ -284,6 +284,7 @@ AX_THRIFT_LIB(d, [D], yes)
 if test "$with_d" = "yes";  then
   AX_DMD
   AC_SUBST(DMD)
+  AC_SUBST(DMD_OF_DIRSEP)
   if test "x$DMD" != "x"; then
     have_d="yes"
   fi
