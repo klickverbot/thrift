@@ -804,7 +804,7 @@ private {
           }
 
           // Write the frame size into the four bytes reserved for it.
-          auto size = hostToNet(writeBuffer_.length - 4);
+          auto size = hostToNet(cast(uint)(writeBuffer_.length - 4));
           writeBuffer_[0 .. 4] = cast(ubyte[])((&size)[0 .. 1]);
 
           writeBufferPos_ = 0;
