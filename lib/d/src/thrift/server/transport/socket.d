@@ -59,6 +59,8 @@ class TServerSocket : TServerTransport {
     recvTimeout_ = recvTimeout;
 
     cancellationNotifier_ = new TSocketNotifier;
+
+    socketSet_ = new SocketSet;
   }
 
   /// The port the server socket listens at.
@@ -131,17 +133,17 @@ class TServerSocket : TServerTransport {
     uint numEintrs;
 
     while (true) {
-      // Avoid reallocating this?
-      auto set = new SocketSet(2);
-      set.add(serverSocket_);
-      set.add(cancellationNotifier_.socket);
+      socketSet_.reset();
+      socketSet_.add(serverSocket_);
+      socketSet_.add(cancellationNotifier_.socket);
 
-      auto ret = Socket.select(set, null, null);
+      auto ret = Socket.select(socketSet_, null, null);
       enforce(ret != 0, new STE("Socket.select() returned 0.",
         STE.Type.RESOURCE_FAILED));
 
       if (ret < 0) {
-        // error cases
+        // Select itself failed, check if it was just due to an interrupted
+        // syscall.
         if (errno == EINTR && (numEintrs++ < MAX_EINTRS)) {
           continue;
         }
@@ -149,12 +151,12 @@ class TServerSocket : TServerTransport {
           socketErrnoString(getSocketErrno()), STE.Type.RESOURCE_FAILED);
       } else {
         // Check for a ping on the interrupt socket.
-        if (set.isSet(cancellationNotifier_.socket)) {
+        if (socketSet_.isSet(cancellationNotifier_.socket)) {
           cancellation.throwIfTriggered();
         }
 
         // Check for the actual server socket having a connection waiting.
-        if (set.isSet(serverSocket_)) {
+        if (socketSet_.isSet(serverSocket_)) {
           break;
         }
       }
@@ -190,6 +192,9 @@ private:
 
   Socket serverSocket_;
   TSocketNotifier cancellationNotifier_;
+
+  // Keep socket set between accept() calls to avoid reallocating.
+  SocketSet socketSet_;
 }
 
 Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
