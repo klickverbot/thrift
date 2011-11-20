@@ -251,8 +251,8 @@ void main(string[] args) {
   auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
     transportFactory, protocolFactory);
 
-  writefln("Starting %s/%s %s ThriftTest server on port %s...", protocolType,
-    transportType, serverType, port);
+  writefln("Starting %s/%s %s ThriftTest server %son port %s...", protocolType,
+    transportType, serverType, ssl ? "": "(using SSL) ", port);
   server.serve();
   writeln("done.");
 }
