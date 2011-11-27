@@ -1,4 +1,7 @@
 #!/bin/bash
+# Runs the D ThriftTest client and servers for all combinations of transport,
+# protocol, SSL-mode and server type.
+# Pass -k to keep going after failed tests.
 
 protocols="binary compact json"
 transports="buffered framed http raw"
@@ -17,8 +20,8 @@ for protocol in $protocols; do
           *$server*) if [ $transport != "framed" ] || [ $ssl != "" ]; then continue; fi;;
         esac
 
-        args="--transport=$transport --protocol=$protocol $ssl"
-        ./thrift_test_server $args --server-type=$server&
+        args="--transport=$transport --protocol=$protocol$ssl"
+        ./thrift_test_server $args --server-type=$server > /dev/null &
         server_pid=$!
 
         # Give the server some time to get up and check if it runs (yes, this
@@ -43,10 +46,20 @@ for protocol in $protocols; do
         server_rc=$?
 
         if [ $client_rc -ne 0 -o $server_rc -eq 1 ]; then
-          echo "Tests failed for: $args --server-type=$server"
-          break 4
+          echo -e "\nTests failed for: $args --server-type=$server"
+          failed="true"
+          if [ "$1" != "-k" ]; then
+            exit 1
+          fi
+        else
+           echo -n "."
         fi
       done
     done
   done
 done
+
+echo
+if [ -z "$failed" ]; then
+  echo "All tests passed."
+fi
