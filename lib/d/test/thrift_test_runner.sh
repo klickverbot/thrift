@@ -10,7 +10,7 @@ framed_only_servers="nonblocking pooledNonblocking"
 trap "kill $(jobs -p) 2>/dev/null" INT TERM
 
 for protocol in $protocols; do
-  for ssl in "--ssl" ""; do
+  for ssl in "" " --ssl"; do
     for transport in $transports; do
       for server in $servers $framed_only_servers; do
         case $framed_only_servers in
