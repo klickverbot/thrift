@@ -744,6 +744,7 @@ TJsonProtocol!Transport tJsonProtocol(Transport)(Transport trans,
 }
 
 unittest {
+  import std.exception;
   import thrift.transport.memory;
 
   // Check the message header format.
@@ -754,10 +755,11 @@ unittest {
 
   auto header = new ubyte[13];
   buf.readAll(header);
-  assert(cast(char[])header == `[1,"foo",1,0]`);
+  enforce(cast(char[])header == `[1,"foo",1,0]`);
 }
 
 unittest {
+  import std.exception;
   import thrift.transport.memory;
 
   // Check that short binary data is read correctly (the Thrift JSON format
@@ -766,7 +768,7 @@ unittest {
   auto json = tJsonProtocol(buf);
   json.writeBinary([1, 2]);
   json.reset();
-  assert(json.readBinary() == [1, 2]);
+  enforce(json.readBinary() == [1, 2]);
 }
 
 unittest {

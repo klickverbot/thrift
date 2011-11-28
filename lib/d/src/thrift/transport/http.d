@@ -452,7 +452,7 @@ private {
       bAZ
     }
 
-    assert(capMemberName(Foo.bar) == "Bar");
-    assert(capMemberName(Foo.bAZ) == "BAZ");
+    enforce(capMemberName(Foo.bar) == "Bar");
+    enforce(capMemberName(Foo.bAZ) == "BAZ");
   }
 }

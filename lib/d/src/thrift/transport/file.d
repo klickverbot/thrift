@@ -953,7 +953,7 @@ unittest {
   }
 
   immutable fileName = "unittest.dat.tmp";
-  assert(!exists(fileName), "Unit test output file " ~ fileName ~
+  enforce(!exists(fileName), "Unit test output file " ~ fileName ~
     " already exists.");
 
   /*
@@ -977,7 +977,7 @@ unittest {
 
     auto buf = new ubyte[7];
     reader.readAll(buf);
-    assert(buf == [1, 2, 3, 4, 5, 6, 7]);
+    enforce(buf == [1, 2, 3, 4, 5, 6, 7]);
   }
 
   /*
@@ -1006,7 +1006,7 @@ unittest {
 
       try {
         writer.write(new ubyte[CHUNK_SIZE]);
-        assert(false, "Could write event not fitting in a single chunk.");
+        enforce(false, "Could write event not fitting in a single chunk.");
       } catch (TTransportException e) {}
 
       writer.flush();
@@ -1015,10 +1015,10 @@ unittest {
     // Check the raw contents of the file to see if chunk padding was written
     // as expected.
     auto file = File(fileName, "r");
-    assert(file.size == 26);
+    enforce(file.size == 26);
     auto written = new ubyte[26];
     file.rawRead(written);
-    assert(written == [
+    enforce(written == [
       1, 0, 0, 0, 0xde,
       1, 0, 0, 0, 0xad,
       1, 0, 0, 0, 0xbe,
@@ -1035,7 +1035,7 @@ unittest {
 
       auto buf = new ubyte[5];
       reader.readAll(buf);
-      assert(buf == [0xde, 0xad, 0xbe, 0xef, 0x12]);
+      enforce(buf == [0xde, 0xad, 0xbe, 0xef, 0x12]);
     }
   }
 
@@ -1070,7 +1070,7 @@ unittest {
       // If any attempt takes more than 100ms, treat that as a failure.
       // Treat this as a fatal failure, so we'll return now instead of
       // looping over a very slow operation.
-      assert(sw.peek.msecs < 100);
+      enforce(sw.peek.msecs < 100);
 
       // Normally, it takes less than 5ms on my dev box.
       // However, if the box is heavily loaded, some of the test runs
@@ -1085,6 +1085,6 @@ unittest {
     }
 
     // Make sure fewer than 10% of the runs took longer than 5000us
-    assert(numOver < NUM_ITERATIONS / 10);
+    enforce(numOver < NUM_ITERATIONS / 10);
   }
 }

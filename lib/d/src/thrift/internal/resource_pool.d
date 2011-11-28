@@ -299,39 +299,39 @@ unittest {
     auto r = pool[];
 
     foreach (i, o; objs) {
-      assert(!r.empty);
-      assert(r.front == o);
+      enforce(!r.empty);
+      enforce(r.front == o);
       r.popFront();
     }
 
-    assert(r.empty);
-    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+    enforce(r.empty);
+    enforce(!r.willBecomeNonempty(dummyRes, dummyDur));
   }
 
   {
     pool.faultDisableCount = 2;
 
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordSuccess(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
 
     auto r = pool[];
-    assert(r.front == b);
+    enforce(r.front == b);
     r.popFront();
-    assert(r.front == c);
+    enforce(r.front == c);
     r.popFront();
-    assert(r.empty);
-    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+    enforce(r.empty);
+    enforce(!r.willBecomeNonempty(dummyRes, dummyDur));
 
     Thread.sleep(dur!"msecs"(5));
     // Not in cycle mode, has to be still empty after the timeouts expired.
-    assert(r.empty);
-    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+    enforce(r.empty);
+    enforce(!r.willBecomeNonempty(dummyRes, dummyDur));
 
     foreach (o; objs) pool.recordSuccess(o);
   }
@@ -346,8 +346,8 @@ unittest {
     pool.recordFault(c);
 
     auto r = pool[];
-    assert(r.empty);
-    assert(!r.willBecomeNonempty(dummyRes, dummyDur));
+    enforce(r.empty);
+    enforce(!r.willBecomeNonempty(dummyRes, dummyDur));
 
     foreach (o; objs) pool.recordSuccess(o);
   }
@@ -358,8 +358,8 @@ unittest {
     auto r = pool[];
 
     foreach (o; objs ~ objs) {
-      assert(!r.empty);
-      assert(r.front == o);
+      enforce(!r.empty);
+      enforce(r.front == o);
       r.popFront();
     }
   }
@@ -367,31 +367,31 @@ unittest {
   {
     pool.faultDisableCount = 2;
 
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordSuccess(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
     pool.recordFault(a);
 
     auto r = pool[];
-    assert(r.front == b);
+    enforce(r.front == b);
     r.popFront();
-    assert(r.front == c);
+    enforce(r.front == c);
     r.popFront();
-    assert(r.front == b);
+    enforce(r.front == b);
 
     Thread.sleep(dur!"msecs"(5));
 
     r.popFront();
-    assert(r.front == c);
+    enforce(r.front == c);
 
     r.popFront();
-    assert(r.front == a);
+    enforce(r.front == a);
 
-    assert(pool[].front == a);
+    enforce(pool[].front == a);
 
     foreach (o; objs) pool.recordSuccess(o);
   }
@@ -406,13 +406,13 @@ unittest {
     pool.recordFault(c);
 
     auto r = pool[];
-    assert(r.empty);
+    enforce(r.empty);
 
     Object nextRes;
     Duration nextWait;
-    assert(r.willBecomeNonempty(nextRes, nextWait));
-    assert(nextRes == a);
-    assert(nextWait > dur!"hnsecs"(0));
+    enforce(r.willBecomeNonempty(nextRes, nextWait));
+    enforce(nextRes == a);
+    enforce(nextWait > dur!"hnsecs"(0));
 
     foreach (o; objs) pool.recordSuccess(o);
   }

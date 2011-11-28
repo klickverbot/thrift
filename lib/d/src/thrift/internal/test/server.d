@@ -22,6 +22,7 @@ import core.sync.condition;
 import core.sync.mutex;
 import core.thread;
 import std.datetime;
+import std.exception;
 import std.typecons;
 import thrift.protocol.processor;
 import thrift.server.base;
@@ -53,7 +54,7 @@ void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
     Thread.sleep(dur!"msecs"(5));
     synchronized (doneMutex) {
       cancel.trigger();
-      assert(doneCondition.wait(dur!"msecs"(100)));
+      enforce(doneCondition.wait(dur!"msecs"(100)));
     }
   }
 }

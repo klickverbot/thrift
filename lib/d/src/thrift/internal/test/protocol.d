@@ -37,7 +37,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
     prot.reset();
 
     auto e = cast(TProtocolException)collectException(prot.readListBegin());
-    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    enforce(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     prot.reset();
     buffer.reset();
   }
@@ -48,7 +48,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
     prot.reset();
 
     auto e = cast(TProtocolException)collectException(prot.readMapBegin());
-    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    enforce(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     prot.reset();
     buffer.reset();
   }
@@ -59,7 +59,7 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
     prot.reset();
 
     auto e = cast(TProtocolException)collectException(prot.readSetBegin());
-    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    enforce(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     prot.reset();
     buffer.reset();
   }
@@ -77,10 +77,10 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.reset();
 
       auto list = prot.readListBegin();
-      assert(list.elemType == TType.I32);
-      assert(list.size == 2);
-      assert(prot.readI32() == 0);
-      assert(prot.readI32() == 1);
+      enforce(list.elemType == TType.I32);
+      enforce(list.size == 2);
+      enforce(prot.readI32() == 0);
+      enforce(prot.readI32() == 1);
       prot.readListEnd();
 
       prot.reset();
@@ -97,13 +97,13 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.reset();
 
       auto map = prot.readMapBegin();
-      assert(map.keyType == TType.I32);
-      assert(map.valueType == TType.I32);
-      assert(map.size == 2);
-      assert(prot.readI32() == 0);
-      assert(prot.readI32() == 1);
-      assert(prot.readI32() == 2);
-      assert(prot.readI32() == 3);
+      enforce(map.keyType == TType.I32);
+      enforce(map.valueType == TType.I32);
+      enforce(map.size == 2);
+      enforce(prot.readI32() == 0);
+      enforce(prot.readI32() == 1);
+      enforce(prot.readI32() == 2);
+      enforce(prot.readI32() == 3);
       prot.readMapEnd();
 
       prot.reset();
@@ -118,10 +118,10 @@ void testContainerSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.reset();
 
       auto set = prot.readSetBegin();
-      assert(set.elemType == TType.I32);
-      assert(set.size == 2);
-      assert(prot.readI32() == 0);
-      assert(prot.readI32() == 1);
+      enforce(set.elemType == TType.I32);
+      enforce(set.size == 2);
+      enforce(prot.readI32() == 0);
+      enforce(prot.readI32() == 1);
       prot.readSetEnd();
 
       prot.reset();
@@ -142,7 +142,7 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
     prot.reset();
 
     auto e = cast(TProtocolException)collectException(prot.readString());
-    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    enforce(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     prot.reset();
     buffer.reset();
   }
@@ -152,7 +152,7 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
     prot.reset();
 
     auto e = cast(TProtocolException)collectException(prot.readBinary());
-    assert(e && e.type == TProtocolException.Type.SIZE_LIMIT);
+    enforce(e && e.type == TProtocolException.Type.SIZE_LIMIT);
     prot.reset();
     buffer.reset();
   }
@@ -166,7 +166,7 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.writeString("as");
       prot.reset();
 
-      assert(prot.readString() == "as");
+      enforce(prot.readString() == "as");
       prot.reset();
       buffer.reset();
     }
@@ -175,7 +175,7 @@ void testStringSizeLimit(Protocol)() if (isTProtocol!Protocol) {
       prot.writeBinary([1, 2]);
       prot.reset();
 
-      assert(prot.readBinary() == [1, 2]);
+      enforce(prot.readBinary() == [1, 2]);
       prot.reset();
       buffer.reset();
     }

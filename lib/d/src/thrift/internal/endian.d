@@ -59,15 +59,15 @@ unittest {
   IntBuf!short s;
   s.bytes = [1, 2];
   s.value = byteSwap(s.value);
-  assert(s.bytes == [2, 1]);
+  enforce(s.bytes == [2, 1]);
 
   IntBuf!int i;
   i.bytes = [1, 2, 3, 4];
   i.value = byteSwap(i.value);
-  assert(i.bytes == [4, 3, 2, 1]);
+  enforce(i.bytes == [4, 3, 2, 1]);
 
   IntBuf!long l;
   l.bytes = [1, 2, 3, 4, 5, 6, 7, 8];
   l.value = byteSwap(l.value);
-  assert(l.bytes == [8, 7, 6, 5, 4, 3, 2, 1]);
+  enforce(l.bytes == [8, 7, 6, 5, 4, 3, 2, 1]);
 }

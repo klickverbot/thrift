@@ -228,10 +228,10 @@ unittest {
 
       // Check frame size.
       int frameSize = bswap((cast(int[])(actualData[0..int.sizeof]))[0]);
-      assert(frameSize == writtenData.length);
+      enforce(frameSize == writtenData.length);
 
       // Check actual data.
-      assert(actualData[int.sizeof..$] == writtenData);
+      enforce(actualData[int.sizeof..$] == writtenData);
     }
   }
 
@@ -254,7 +254,7 @@ unittest {
         framed.read(readData[oldReadLen..$]);
       }
 
-      assert(readData == data[0..readData.length]);
+      enforce(readData == data[0..readData.length]);
     }
   }
 
@@ -295,12 +295,12 @@ unittest {
         // frame per read, so by just requesting all of the data, we should
         // always get exactly one frame.
         auto got = framed.read(remainToRead);
-        assert(got == fSize);
+        enforce(got == fSize);
         remainToRead = remainToRead[fSize..$];
       }
 
-      assert(remainToRead.empty);
-      assert(readData == data[0..readData.length]);
+      enforce(remainToRead.empty);
+      enforce(readData == data[0..readData.length]);
     }
   }
 }
@@ -313,22 +313,22 @@ unittest {
   immutable out2 = [0, 0, 0, 1, 'a', 0, 0, 0, 2, 'b', 'c'];
 
   framed.flush();
-  assert(buf.getContents() == []);
+  enforce(buf.getContents() == []);
   framed.flush();
   framed.flush();
-  assert(buf.getContents() == []);
+  enforce(buf.getContents() == []);
   framed.write(cast(ubyte[])"a");
-  assert(buf.getContents() == []);
+  enforce(buf.getContents() == []);
   framed.flush();
-  assert(buf.getContents() == out1);
+  enforce(buf.getContents() == out1);
   framed.flush();
   framed.flush();
-  assert(buf.getContents() == out1);
+  enforce(buf.getContents() == out1);
   framed.write(cast(ubyte[])"bc");
-  assert(buf.getContents() == out1);
+  enforce(buf.getContents() == out1);
   framed.flush();
-  assert(buf.getContents() == out2);
+  enforce(buf.getContents() == out2);
   framed.flush();
   framed.flush();
-  assert(buf.getContents() == out2);
+  enforce(buf.getContents() == out2);
 }

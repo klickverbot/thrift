@@ -636,6 +636,7 @@ private {
 }
 
 unittest {
+  import std.exception;
   import thrift.transport.memory;
 
   // Check the message header format.
@@ -645,7 +646,7 @@ unittest {
 
   auto header = new ubyte[7];
   buf.readAll(header);
-  assert(header == [
+  enforce(header == [
     130, // Protocol id.
     33, // Version/type byte.
     0, // Sequence id.

@@ -128,19 +128,21 @@ auto hashSet(E)(E[] elems...) {
 }
 
 unittest {
+  import std.exception;
+
   auto a = hashSet(1, 2, 2, 3);
-  assert(a.length == 3);
-  assert(2 in a);
-  assert(5 !in a);
-  assert(a.toString().length == 9);
+  enforce(a.length == 3);
+  enforce(2 in a);
+  enforce(5 !in a);
+  enforce(a.toString().length == 9);
   a.remove(2);
-  assert(a.length == 2);
-  assert(2 !in a);
+  enforce(a.length == 2);
+  enforce(2 !in a);
   a.removeAll();
-  assert(a.empty);
-  assert(a.toString == "{}");
+  enforce(a.empty);
+  enforce(a.toString == "{}");
 
   void delegate() dg;
   auto b = hashSet(dg);
-  assert(b.toString() == "thrift.util.hashset.HashSet!(void delegate()).HashSet");
+  enforce(b.toString() == "thrift.util.hashset.HashSet!(void delegate()).HashSet");
 }

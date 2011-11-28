@@ -745,11 +745,11 @@ private {
   }
 
   unittest {
-    assert(matchName("thrift.apache.org", "*.apache.org"));
-    assert(!matchName("thrift.apache.org", "apache.org"));
-    assert(matchName("thrift.apache.org", "thrift.*.*"));
-    assert(matchName("", ""));
-    assert(!matchName("", "*"));
+    enforce(matchName("thrift.apache.org", "*.apache.org"));
+    enforce(!matchName("thrift.apache.org", "apache.org"));
+    enforce(matchName("thrift.apache.org", "thrift.*.*"));
+    enforce(matchName("", ""));
+    enforce(!matchName("", "*"));
   }
 }
 

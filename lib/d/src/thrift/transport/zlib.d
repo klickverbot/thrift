@@ -412,7 +412,7 @@ unittest {
 
   auto result = new ubyte[data.length];
   zlib.readAll(result);
-  assert(data == result);
+  enforce(data == result);
   zlib.verifyChecksum();
 }
 
@@ -422,7 +422,7 @@ unittest {
   {
     scope zlib = new TZlibTransport(buf);
   }
-  assert(buf.getContents().length == 0);
+  enforce(buf.getContents().length == 0);
 }
 
 // Make sure calling write()/flush()/finish() again after finish() throws.
@@ -434,13 +434,13 @@ unittest {
   zlib.finish();
 
   auto ex = collectException!TTransportException(zlib.write([6]));
-  assert(ex && ex.type == TTransportException.Type.BAD_ARGS);
+  enforce(ex && ex.type == TTransportException.Type.BAD_ARGS);
 
   ex = collectException!TTransportException(zlib.flush());
-  assert(ex && ex.type == TTransportException.Type.BAD_ARGS);
+  enforce(ex && ex.type == TTransportException.Type.BAD_ARGS);
 
   ex = collectException!TTransportException(zlib.finish());
-  assert(ex && ex.type == TTransportException.Type.BAD_ARGS);
+  enforce(ex && ex.type == TTransportException.Type.BAD_ARGS);
 }
 
 // Make sure verifying the checksum works even if it requires starting a new
@@ -458,7 +458,7 @@ unittest {
 
   auto result = new ubyte[data.length];
   zlib.readAll(result);
-  assert(data == result);
+  enforce(data == result);
 
   zlib.verifyChecksum();
 }
@@ -486,7 +486,7 @@ unittest {
     } catch (TZlibException e) {}
 
     auto ex = collectException!TTransportException(reader.verifyChecksum());
-    assert(ex && ex.type == TTransportException.Type.CORRUPTED_DATA);
+    enforce(ex && ex.type == TTransportException.Type.CORRUPTED_DATA);
   }
 
   testCorrupted(buf.getContents()[0 .. $ - 1]);

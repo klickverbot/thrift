@@ -347,6 +347,7 @@ TBinaryProtocol!Transport tBinaryProtocol(Transport)(Transport trans,
 }
 
 unittest {
+  import std.exception;
   import thrift.transport.memory;
 
   // Check the message header format.
@@ -356,7 +357,7 @@ unittest {
 
   auto header = new ubyte[15];
   buf.readAll(header);
-  assert(header == [
+  enforce(header == [
     128, 1, 0, 1, // Version 1, TMessageType.CALL
     0, 0, 0, 3, // Method name length
     102, 111, 111, // Method name ("foo")

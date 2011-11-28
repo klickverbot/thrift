@@ -186,6 +186,7 @@ version (unittest) {
   // DMD @@BUG@@: UFCS for std.array.empty doesn't work when import is moved
   // into unittest block.
   import std.array;
+  import std.exception : enforce;
 }
 
 unittest {
@@ -197,22 +198,22 @@ unittest {
 
   ubyte[4] buffer;
   trans.readAll(buffer[0 .. 2]);
-  assert(buffer[0 .. 2] == "ab");
-  assert(pipeTarget.getContents().empty);
+  enforce(buffer[0 .. 2] == "ab");
+  enforce(pipeTarget.getContents().empty);
 
   trans.readEnd();
-  assert(pipeTarget.getContents() == "ab");
+  enforce(pipeTarget.getContents() == "ab");
   pipeTarget.reset();
 
   underlying.write(cast(ubyte[])"ef");
   trans.readAll(buffer[0 .. 2]);
-  assert(buffer[0 .. 2] == "cd");
-  assert(pipeTarget.getContents().empty);
+  enforce(buffer[0 .. 2] == "cd");
+  enforce(pipeTarget.getContents().empty);
 
   trans.readAll(buffer[0 .. 2]);
-  assert(buffer[0 .. 2] == "ef");
-  assert(pipeTarget.getContents().empty);
+  enforce(buffer[0 .. 2] == "ef");
+  enforce(pipeTarget.getContents().empty);
 
   trans.readEnd();
-  assert(pipeTarget.getContents() == "cdef");
+  enforce(pipeTarget.getContents() == "cdef");
 }

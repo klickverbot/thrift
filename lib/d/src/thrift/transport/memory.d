@@ -199,35 +199,35 @@ unittest {
   auto a = new TMemoryBuffer(5);
   immutable(ubyte[]) testData = [1, 2, 3, 4];
   auto buf = new ubyte[testData.length];
-  assert(a.isOpen);
+  enforce(a.isOpen);
 
   // a should be empty.
-  assert(!a.peek());
-  assert(a.read(buf) == 0);
+  enforce(!a.peek());
+  enforce(a.read(buf) == 0);
   assertThrown!TTransportException(a.readAll(buf));
 
   // Write some data and read it back again.
   a.write(testData);
-  assert(a.peek());
-  assert(a.getContents() == testData);
-  assert(a.read(buf) == testData.length);
-  assert(buf == testData);
+  enforce(a.peek());
+  enforce(a.getContents() == testData);
+  enforce(a.read(buf) == testData.length);
+  enforce(buf == testData);
 
   // a should be empty again.
-  assert(!a.peek);
-  assert(a.read(buf) == 0);
+  enforce(!a.peek);
+  enforce(a.read(buf) == 0);
   assertThrown!TTransportException(a.readAll(buf));
 
   // Test the constructor which directly accepts initial data.
   auto b = new TMemoryBuffer(testData);
-  assert(b.isOpen);
-  assert(b.peek());
-  assert(b.getContents() == testData);
+  enforce(b.isOpen);
+  enforce(b.peek());
+  enforce(b.getContents() == testData);
 
   // Test borrow().
   auto borrowed = b.borrow(null, testData.length);
-  assert(borrowed == testData);
-  assert(b.peek());
+  enforce(borrowed == testData);
+  enforce(b.peek());
   b.consume(testData.length);
-  assert(!b.peek());
+  enforce(!b.peek());
 }
