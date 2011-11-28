@@ -103,10 +103,9 @@ install-exec-local:
 	$(INSTALL_PROGRAM) $(D_LIB_NAME) $(DESTDIR)$(libdir)
 
 #
-# Unit tests
+# Unit tests (built both in debug and release mode).
 #
-d_test_flags = -w -gc -I$(top_srcdir)/lib/d/src \
-	$(top_builddir)/lib/d/$(D_LIB_NAME) $(DMD_LIBDL_FLAGS)
+d_test_flags = -unittest -w -wi -I$(top_srcdir)/lib/d/src $(DMD_LIBDL_FLAGS)
 
 unittest/emptymain.d: unittest/.directory
 	@echo 'void main(){}' >$@
@@ -115,10 +114,14 @@ unittest/.directory:
 	mkdir -p unittest || exists unittest
 	touch $@
 
-unittest/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
-	$(DMD) -unittest -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) unittest/emptymain.d $<
+unittest/debug/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
+	$(DMD) -gc -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) $^
 
-TESTS = $(addprefix unittest/, $(d_publicmodules))
+unittest/release/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
+	$(DMD) -O -release -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) $^
+
+TESTS = $(addprefix unittest/debug/, $(d_publicmodules)) \
+	$(addprefix unittest/release/, $(d_publicmodules))
 
 
 EXTRA_DIST = \
