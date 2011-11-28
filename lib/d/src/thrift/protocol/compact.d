@@ -397,7 +397,7 @@ private:
   }
 
   void writeVarint32(uint n) {
-    ubyte buf[5] = void;
+    ubyte[5] buf = void;
     ubyte wsize;
 
     while (true) {
@@ -417,7 +417,7 @@ private:
    * Write an i64 as a varint. Results in 1-10 bytes on the wire.
    */
   void writeVarint64(ulong n) {
-    ubyte buf[10] = void;
+    ubyte[10] buf = void;
     ubyte wsize;
 
     while (true) {
@@ -485,7 +485,7 @@ private:
   long readVarint64() {
     ulong val;
     ubyte shift;
-    ubyte buf[10] = void;  // 64 bits / (7 bits/byte) = 10 bytes.
+    ubyte[10] buf = void;  // 64 bits / (7 bits/byte) = 10 bytes.
     auto bufSize = buf.sizeof;
     auto borrowed = trans_.borrow(buf.ptr, bufSize);
 
