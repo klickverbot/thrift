@@ -206,11 +206,20 @@ void main(string[] args) {
     transportType = TransportType.raw;
   }
 
-  // We don't need every last bit of performance here, so specifying the
-  // actual transport types is not really needed in this case, but this
-  // exercises the (template) code paths as well.
-  alias TypeTuple!(TBufferedTransport, TFramedTransport, TServerHttpTransport)
-    AvailableTransports;
+  version (ThriftTestTemplates) {
+    // Only exercise the specialized template code paths if explicitly enabled
+    // to reduce memory consumption on regular test suite runs – there should
+    // not be much that can go wrong with that specifically anyway.
+    alias TypeTuple!(TBufferedTransport, TFramedTransport, TServerHttpTransport)
+      AvailableTransports;
+    alias TypeTuple!(
+      staticMap!(TBinaryProtocol, AvailableTransports),
+      staticMap!(TCompactProtocol, AvailableTransports)
+    ) AvailableProtocols;
+  } else {
+    alias TypeTuple!() AvailableTransports;
+    alias TypeTuple!() AvailableProtocols;
+  }
 
   TProtocolFactory protocolFactory;
   final switch (protocolType) {
@@ -225,13 +234,8 @@ void main(string[] args) {
       break;
   }
 
-  auto processor = new TServiceProcessor!(
-    ThriftTest,
-    TypeTuple!(
-      staticMap!(TBinaryProtocol, AvailableTransports),
-      staticMap!(TCompactProtocol, AvailableTransports)
-    )
-  )(new TestHandler(trace));
+  auto processor = new TServiceProcessor!(ThriftTest, AvailableProtocols)(
+    new TestHandler(trace));
 
   TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;
