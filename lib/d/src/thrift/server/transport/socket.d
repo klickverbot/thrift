@@ -113,7 +113,7 @@ class TServerSocket : TServerTransport {
     serverSocket_ = null;
   }
 
-  override bool isListening() {
+  override bool isListening() @property {
     return serverSocket_ !is null;
   }
 

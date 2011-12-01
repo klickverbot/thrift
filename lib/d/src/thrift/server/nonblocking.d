@@ -180,9 +180,9 @@ class TNonblockingServer : TServer {
         if (port == 0) {
           // If we were using port 0 for listening, we have to find out the
           // actual port used first to be connect to the server to wake it up.
-          auto listenAddr = cast(InternetAddress)listenSocket_.localAddress;
+          auto listenAddr = cast(InternetAddress)listenSocket_.localAddress();
           assert(listenAddr);
-          port = listenAddr.port;
+          port = listenAddr.port();
         }
 
         try {
@@ -243,12 +243,12 @@ class TNonblockingServer : TServer {
    *
    * Can safely be set even when the server is already running.
    */
-  TaskPool taskPool() {
+  TaskPool taskPool() @property {
     return taskPool_;
   }
 
   /// ditto
-  void taskPool(TaskPool pool) {
+  void taskPool(TaskPool pool) @property {
     taskPool_ = pool;
 
     // If we are now using a task pool, but the completion notification

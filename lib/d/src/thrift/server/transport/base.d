@@ -50,7 +50,7 @@ interface TServerTransport {
   /**
    * Returns whether the server transport is currently listening.
    */
-  bool isListening();
+  bool isListening() @property;
 
   /**
    * Accepts a client connection and returns an opened TTransport for it,

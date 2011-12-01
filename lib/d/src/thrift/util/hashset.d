@@ -140,7 +140,7 @@ unittest {
   enforce(2 !in a);
   a.removeAll();
   enforce(a.empty);
-  enforce(a.toString == "{}");
+  enforce(a.toString() == "{}");
 
   void delegate() dg;
   auto b = hashSet(dg);

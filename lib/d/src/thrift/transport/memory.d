@@ -214,7 +214,7 @@ unittest {
   enforce(buf == testData);
 
   // a should be empty again.
-  enforce(!a.peek);
+  enforce(!a.peek());
   enforce(a.read(buf) == 0);
   assertThrown!TTransportException(a.readAll(buf));
 

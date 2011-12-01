@@ -74,7 +74,8 @@ interface TFuture(ResultType) {
     completion.wait();
     return get();
   }
-  alias waitGet this;
+  final auto waitGetProperty() @property { return waitGet(); }
+  alias waitGetProperty this;
 
   /**
    * Convenience shorthand for waiting until the result is available and then

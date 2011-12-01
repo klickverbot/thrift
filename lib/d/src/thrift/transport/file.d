@@ -843,7 +843,7 @@ private {
       if (shutdownRequested) break;
 
       bool forceFlush;
-      receiveTimeout(maxFlushInterval - flushTimer.peek,
+      receiveTimeout(maxFlushInterval - flushTimer.peek(),
         (immutable(ubyte)[] data) {
           while (hasIOError) {
             logError("Writer thread going to sleep for %s µs due to IO errors",
@@ -918,7 +918,7 @@ private {
       bool flush;
       if (forceFlush || shutdownRequested || unflushedByteCount > maxFlushBytes) {
         flush = true;
-      } else if (cast(Duration)flushTimer.peek > maxFlushInterval) {
+      } else if (cast(Duration)flushTimer.peek() > maxFlushInterval) {
         if (unflushedByteCount == 0) {
           // If the flush timer is due, but no data has been written, don't
           // needlessly fsync, but do reset the timer.
@@ -1070,12 +1070,12 @@ unittest {
       // If any attempt takes more than 100ms, treat that as a failure.
       // Treat this as a fatal failure, so we'll return now instead of
       // looping over a very slow operation.
-      enforce(sw.peek.msecs < 100);
+      enforce(sw.peek().msecs < 100);
 
       // Normally, it takes less than 5ms on my dev box.
       // However, if the box is heavily loaded, some of the test runs
       // take longer, since we're just waiting for our turn on the CPU.
-      if (sw.peek.msecs > 5) {
+      if (sw.peek().msecs > 5) {
         ++numOver;
       }
 

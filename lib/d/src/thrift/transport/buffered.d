@@ -68,7 +68,7 @@ final class TBufferedTransport : TBaseTransport {
   /// The default size of the read/write buffers, in bytes.
   enum int DEFAULT_BUFFER_SIZE = 512;
 
-  override bool isOpen() {
+  override bool isOpen() @property {
     return transport_.isOpen();
   }
 

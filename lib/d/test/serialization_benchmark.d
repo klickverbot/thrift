@@ -46,7 +46,7 @@ void main() {
     }
     sw.stop();
 
-    auto msecs = sw.peek.msecs;
+    auto msecs = sw.peek().msecs;
     writefln("Write: %s ms (%s kHz)", msecs, ITERATIONS / msecs);
   }
 
@@ -64,7 +64,7 @@ void main() {
     }
     sw.stop();
 
-    auto msecs = sw.peek.msecs;
+    auto msecs = sw.peek().msecs;
     writefln(" Read: %s ms (%s kHz)", msecs, ITERATIONS / msecs);
   }
 }
