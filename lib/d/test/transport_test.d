@@ -141,6 +141,10 @@ class CoupledWrapperTransports(WrapperTransport, InnerCoupledTransports) if (
     }
   }
 
+  ~this() {
+    clear(inner_);
+  }
+
 private:
   InnerCoupledTransports inner_;
 }
@@ -172,6 +176,11 @@ class CoupledSocketTransports : CoupledTransports!TSocket {
     input = new TSocket(sockets[0]);
     output = new TSocket(sockets[1]);
   }
+
+  ~this() {
+    input.close();
+    output.close();
+  }
 }
 
 /**
@@ -202,8 +211,9 @@ class CoupledFileTransports : CoupledTransports!TTransport {
   }
 
   ~this() {
-    // FIXME: Can't remove file, because can't allocate in destructor…
-    // std.file.remove(fileName_);
+    input.close();
+    output.close();
+    std.file.remove(fileName_);
   }
 
   static string tmpDir;
@@ -250,7 +260,7 @@ void testReadWrite(CoupledTransports)(
 ) if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
@@ -342,7 +352,7 @@ void testReadWrite(CoupledTransports)(
 void testReadPartAvailable(CoupledTransports)() if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
@@ -363,7 +373,7 @@ void testReadPartAvailable(CoupledTransports)() if (
 void testReadPartialMidframe(CoupledTransports)() if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
@@ -419,7 +429,7 @@ void testReadPartialMidframe(CoupledTransports)() if (
 void testBorrowPartAvailable(CoupledTransports)() if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
@@ -441,7 +451,7 @@ void testBorrowPartAvailable(CoupledTransports)() if (
 void testReadNoneAvailable(CoupledTransports)() if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
@@ -468,7 +478,7 @@ void testReadNoneAvailable(CoupledTransports)() if (
 void testBorrowNoneAvailable(CoupledTransports)() if (
   isCoupledTransports!CoupledTransports
 ) {
-  auto transports = new CoupledTransports;
+  scope transports = new CoupledTransports;
   assert(transports.input);
   assert(transports.output);
 
