@@ -621,7 +621,6 @@ final class TFileWriterTransport : TBaseTransport {
 
     writerThread_ = spawn(
       &writerThread,
-      thisTid(),
       path_,
       chunkSize_,
       maxFlushBytes_,
@@ -638,7 +637,7 @@ final class TFileWriterTransport : TBaseTransport {
   override void close() {
     if (!isOpen) return;
 
-    prioritySend(writerThread_, ShutdownMessage()); // FIXME: Should use normal send here.
+    prioritySend(writerThread_, ShutdownMessage(), thisTid); // FIXME: Should use normal send here.
     receive((ShutdownMessage msg, Tid tid){});
     isOpen_ = false;
   }
@@ -680,7 +679,7 @@ final class TFileWriterTransport : TBaseTransport {
     enforce(isOpen, new TTransportException(
       "Cannot flush file if not open.", TTransportException.Type.NOT_OPEN));
 
-    send(writerThread_, FlushMessage());
+    send(writerThread_, FlushMessage(), thisTid);
     receive((FlushMessage msg, Tid tid){});
   }
 
@@ -816,7 +815,6 @@ private {
   }
 
   void writerThread(
-    Tid owner,
     string path,
     ulong chunkSize,
     size_t maxFlushBytes,
@@ -838,11 +836,13 @@ private {
     auto flushTimer = StopWatch(AutoStart.yes);
     size_t unflushedByteCount;
 
+    Tid shutdownRequestTid;
     bool shutdownRequested;
     while (true) {
       if (shutdownRequested) break;
 
       bool forceFlush;
+      Tid flushRequestTid;
       receiveTimeout(maxFlushInterval - flushTimer.peek(),
         (immutable(ubyte)[] data) {
           while (hasIOError) {
@@ -852,7 +852,7 @@ private {
             // Sleep for ioErrorSleepDuration, being ready to be interrupted
             // by shutdown requests.
             auto timedOut = receiveTimeout(ioErrorSleepDuration,
-              (ShutdownMessage msg){});
+              (ShutdownMessage msg, Tid tid){ shutdownRequestTid = tid; });
             if (!timedOut) {
               // We got a shutdown request, just drop all events and exit the
               // main loop as to not block application shutdown with our tries
@@ -904,12 +904,14 @@ private {
           maxFlushInterval = msg.value;
         }, (IoErrorSleepDurationMessage msg) {
           ioErrorSleepDuration = msg.value;
-        }, (FlushMessage msg) {
+        }, (FlushMessage msg, Tid tid) {
           forceFlush = true;
+          flushRequestTid = tid;
         }, (OwnerTerminated msg) {
           shutdownRequested = true;
-        }, (ShutdownMessage msg) {
+        }, (ShutdownMessage msg, Tid tid) {
           shutdownRequested = true;
+          shutdownRequestTid = tid;
         }
       );
 
@@ -932,11 +934,13 @@ private {
         file.flush();
         flushTimer.reset();
         unflushedByteCount = 0;
-        if (forceFlush) send(owner, FlushMessage(), thisTid());
+        if (forceFlush) send(flushRequestTid, FlushMessage(), thisTid);
       }
     }
 
-    send(owner, ShutdownMessage(), thisTid());
+    if (shutdownRequestTid != Tid.init) {
+      send(shutdownRequestTid, ShutdownMessage(), thisTid);
+    }
   }
 }
 
