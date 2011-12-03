@@ -197,7 +197,7 @@ class CoupledFileTransports : CoupledTransports!TTransport {
 
     auto reader = new TFileReaderTransport(fileName_);
     reader.open();
-    reader.readTimeout(dur!"seconds"(-1));
+    reader.readTimeout(dur!"msecs"(-1));
     input = reader;
   }
 
