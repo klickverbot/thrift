@@ -354,13 +354,10 @@ void testReadPartAvailable(CoupledTransports)() if (
   transports.output.write(writeBuf[0 .. 9]);
   transports.output.flush();
 
-  setTrigger(dur!"seconds"(3), transports.output, 1);
-
+  auto t = Trigger(dur!"seconds"(3), transports.output, 1);
   auto bytesRead = transports.input.read(readBuf);
-  enforce(atomicLoad(g_numTriggersFired) == 0);
+  enforce(t.fired == 0);
   enforce(bytesRead == 9);
-
-  clearTriggers();
 }
 
 void testReadPartialMidframe(CoupledTransports)() if (
@@ -408,17 +405,15 @@ void testReadPartialMidframe(CoupledTransports)() if (
   // this case.)
   size_t totalRead = 0;
   while (totalRead < 9) {
-    setTrigger(dur!"seconds"(3), transports.output, 1);
+    auto t = Trigger(dur!"seconds"(3), transports.output, 1);
     bytesRead = transports.input.read(readBuf[4 + totalRead .. 14]);
-    enforce(atomicLoad(g_numTriggersFired) == 0);
+    enforce(t.fired == 0);
     enforce(bytesRead > 0);
     totalRead += bytesRead;
     enforce(totalRead <= 9);
   }
 
   enforce(totalRead == 9);
-
-  clearTriggers();
 }
 
 void testBorrowPartAvailable(CoupledTransports)() if (
@@ -436,14 +431,11 @@ void testBorrowPartAvailable(CoupledTransports)() if (
   transports.output.write(writeBuf);
   transports.output.flush();
 
-  setTrigger(dur!"seconds"(3), transports.output, 1);
-
+  auto t = Trigger(dur!"seconds"(3), transports.output, 1);
   auto borrowLen = readBuf.length;
   auto borrowedBuf = transports.input.borrow(readBuf.ptr, borrowLen);
-  enforce(atomicLoad(g_numTriggersFired) == 0);
+  enforce(t.fired == 0);
   enforce(borrowedBuf is null);
-
-  clearTriggers();
 }
 
 void testReadNoneAvailable(CoupledTransports)() if (
@@ -461,18 +453,16 @@ void testReadNoneAvailable(CoupledTransports)() if (
   // even if less than the amount requested becomes available.
   ubyte[10] readBuf;
 
-  setTrigger(dur!"seconds"(1), transports.output, 2);
-  addTrigger(dur!"seconds"(1), transports.output, 8);
+  auto t = Trigger(dur!"seconds"(1), transports.output, 2);
+  t.add(dur!"seconds"(1), transports.output, 8);
 
   auto bytesRead = transports.input.read(readBuf);
   if (bytesRead == 0) {
-    enforce(atomicLoad(g_numTriggersFired) == 0);
+    enforce(t.fired == 0);
   } else {
-    enforce(atomicLoad(g_numTriggersFired) == 1);
+    enforce(t.fired == 1);
     enforce(bytesRead == 2);
   }
-
-  clearTriggers();
 }
 
 void testBorrowNoneAvailable(CoupledTransports)() if (
@@ -485,14 +475,12 @@ void testBorrowNoneAvailable(CoupledTransports)() if (
   ubyte[16] writeBuf = 'a';
 
   // Attempting to borrow when no data is available should fail immediately
-  setTrigger(dur!"seconds"(1), transports.output, 10);
+  auto t = Trigger(dur!"seconds"(1), transports.output, 10);
 
   auto borrowLen = 10;
   auto borrowedBuf = transports.input.borrow(null, borrowLen);
   enforce(borrowedBuf is null);
-  enforce(atomicLoad(g_numTriggersFired) == 0);
-
-  clearTriggers();
+  enforce(t.fired == 0);
 }
 
 
@@ -704,60 +692,82 @@ void main(string[] args) {
  * Timer handling code for use in tests that check the transport blocking
  * semantics.
  *
- * If the timeout expires, we will write additional data to the transport in
- * to unblock it.
- *
- * On Posix, this is implemented using alarm() and a custom signal handler, on
- * Windows, a timer queue is used. The semantics actually differ a bit between
- * these two (the timer queue version will not interrupt syscalls, but instead
- * run in another thread), but this should not have too much effect on our
- * tests.
+ * The implementation has been hacked together in a hurry and wastes a lot of
+ * threads, but speed should not be the concern here.
  */
 
-/// The number of triggers fired since the last clearTriggers()/setTrigger()
-/// call.
-shared uint g_numTriggersFired;
-
-/**
- * Adds a trigger to be invoked the given duration after the last currently
- * scheduled trigger.
- */
-void addTrigger(Duration timeout, TTransport transport, size_t writeLen) {
-  auto info = new TriggerInfo(timeout, transport, writeLen);
-
-  if (g_triggerInfo is null) {
-    // This is the first trigger, set triggerInfo, and schedule the alarm.
-    g_triggerInfo = info;
-    setTimer();
-  } else {
-    // Add this trigger to the end of the list.
-    auto prev = g_triggerInfo;
-    while (prev.next) {
-      prev = prev.next;
-    }
-    prev.next = info;
+struct Trigger {
+  this(Duration timeout, TTransport transport, size_t writeLength) {
+    mutex_ = new Mutex;
+    cancelCondition_ = new Condition(mutex_);
+    info_ = new Info(timeout, transport, writeLength);
+    startThread();
   }
-}
 
-/**
- * Clears all currently active triggers.
- */
-void clearTriggers() {
-  clearTimer();
-  g_triggerInfo = null;
-  atomicStore(g_numTriggersFired, 0);
-}
+  ~this() {
+    synchronized (mutex_) {
+      info_ = null;
+      cancelCondition_.notifyAll();
+    }
+    if (thread_) thread_.join();
+  }
 
-/**
- * Sets a new trigger, disabling all currently active ones first.
- */
-void setTrigger(Duration timeout, TTransport transport, size_t writeLen) {
-  clearTriggers();
-  addTrigger(timeout, transport, writeLen);
-}
+  @disable this(this) { assert(0); }
 
-private {
-  struct TriggerInfo {
+  void add(Duration timeout, TTransport transport, size_t writeLength) {
+    synchronized (mutex_) {
+      auto info = new Info(timeout, transport, writeLength);
+      if (info_) {
+        auto prev = info_;
+        while (prev.next) prev = prev.next;
+        prev.next = info;
+      } else {
+        info_ = info;
+        startThread();
+      }
+    }
+  }
+
+  @property short fired() {
+    return atomicLoad(fired_);
+  }
+
+private:
+  void timerThread() {
+    // KLUDGE: Make sure the std.concurrency mbox is initialized on the timer
+    // thread to be able to unblock the file transport.
+    import std.concurrency;
+    thisTid;
+
+    synchronized (mutex_) {
+      while (info_) {
+        auto cancelled = cancelCondition_.wait(info_.timeout);
+        if (cancelled) {
+          info_ = null;
+          break;
+        }
+
+        atomicOp!"+="(fired_, 1);
+
+        // Write some data to the transport to unblock it.
+        auto buf = new ubyte[info_.writeLength];
+        buf[] = 'b';
+        info_.transport.write(buf);
+        info_.transport.flush();
+
+        info_ = info_.next;
+      }
+    }
+
+    thread_ = null;
+  }
+
+  void startThread() {
+    thread_ = new Thread(&timerThread);
+    thread_.start();
+  }
+
+  struct Info {
     this(Duration timeout, TTransport transport, size_t writeLength) {
       this.timeout = timeout;
       this.transport = transport;
@@ -767,119 +777,15 @@ private {
     Duration timeout;
     TTransport transport;
     size_t writeLength;
-    TriggerInfo* next;
+    Info* next;
   }
 
-  __gshared TriggerInfo* g_triggerInfo;
+  Info* info_;
+  Thread thread_;
+  shared short fired_;
 
-  void triggerCallback() {
-    atomicOp!"+="(g_numTriggersFired, 1);
-
-    if (g_triggerInfo is null) {
-      stderr.writeln("Timeout expired, but trigger stack is empty!");
-      assert(0);
-    }
-
-    // Pop off the first TriggerInfo.
-    // If there is another one, schedule an alarm for it.
-    auto info = g_triggerInfo;
-    g_triggerInfo = info.next;
-    setTimer();
-
-    // Write some data to the transport to hopefully unblock it.
-    auto buf = new ubyte[info.writeLength];
-    buf[] = 'b';
-    info.transport.write(buf);
-    info.transport.flush();
-  }
-
-  version (Posix) {
-    import core.sys.posix.signal;
-    import core.sys.posix.unistd : alarm;
-
-    extern(C) void alarmHandler(int) {
-      triggerCallback();
-    }
-
-    void setTimer() {
-      if (g_triggerInfo is null) {
-        clearTimer();
-        return;
-      }
-
-      sigaction_t action;
-      action.sa_handler = &alarmHandler;
-      action.sa_flags = SA_RESETHAND;
-      sigemptyset(&action.sa_mask);
-      sigaction(SIGALRM, &action, null);
-
-      alarm(to!uint(g_triggerInfo.timeout.total!"seconds"));
-    }
-
-    void clearTimer() {
-      alarm(0);
-    }
-  } else version (Windows){
-    import core.sys.windows.windows;
-    extern (Windows) {
-      alias VOID function(
-        PVOID lpParameter,
-        bool TimerOrWaitFired
-      ) WAITORTIMERCALLBACK;
-
-      BOOL CreateTimerQueueTimer(
-        HANDLE* phNewTimer,
-        HANDLE TimerQueue,
-        WAITORTIMERCALLBACK Callback,
-        PVOID Parameter,
-        DWORD DueTime,
-        DWORD Period,
-        ULONG Flags
-      );
-      BOOL DeleteTimerQueueTimer(
-        HANDLE TimerQueue,
-        HANDLE Timer,
-        HANDLE CompletionEvent
-      );
-    }
-
-    HANDLE g_currentTimer;
-
-    extern(Windows) void timerCallback(void* data, bool) {
-      if (data !is g_triggerInfo) {
-        // Apparently, not-yet-executed cannot be removed 100% reliably from the
-        // timer queue, so just ignore old calls.
-        return;
-      }
-      triggerCallback();
-    }
-
-    void setTimer() {
-      if (g_triggerInfo is null) {
-        clearTimer();
-        return;
-      }
-
-      enforce(CreateTimerQueueTimer(
-        &g_currentTimer,
-        null,
-        &timerCallback,
-        g_triggerInfo,
-        to!uint(g_triggerInfo.timeout.total!"msecs"),
-        0,
-        0
-      ));
-    }
-
-    void clearTimer() {
-      if (g_currentTimer !is null) {
-        // No return code handling here since ERROR_IO_PENDING can legitimately occur,
-        // which would require extra boilerplate not worth the effort.
-        DeleteTimerQueueTimer(null, g_currentTimer, null);
-        g_currentTimer = null;
-      }
-    }
-  } else {
-    static assert(false, "Timer triggers not implemented on this platform.");
-  }
+  import core.sync.mutex;
+  Mutex mutex_;
+  import core.sync.condition;
+  Condition cancelCondition_;
 }
