@@ -49,16 +49,6 @@ import thrift.internal.algorithm;
  * is destroyed. So, to ensure a clean program teardown, either make sure this
  * instance gets destroyed (e.g. by using scope), or manually call stop() at
  * the end.
- *
- * Bugs:
- *   Due to druntime @@BUG6443@@ (exception handling in fibers is broken), the
- *   program will crash instead of the result future status being set to
- *   FAILED on Linux x86_64 x86_and Windows. On Linux, this can be worked
- *   around by disabling backtrace generation for exceptions:
- * ---
- * import core.runtime;
- * Runtime.traceHandler = null;
- * ---
  */
 class TLibeventAsyncManager : TAsyncSocketManager {
   this() {
