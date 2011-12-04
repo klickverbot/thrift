@@ -80,13 +80,13 @@ class TestHandler : ThriftTest {
     return thing;
   }
 
-  override Xtruct testStruct(Xtruct thing) {
+  override Xtruct testStruct(ref const(Xtruct) thing) {
     if (trace_) writefln("testStruct({\"%s\", %s, %s, %s})",
       thing.string_thing, thing.byte_thing, thing.i32_thing, thing.i64_thing);
     return thing;
   }
 
-  override Xtruct2 testNest(Xtruct2 nest) {
+  override Xtruct2 testNest(ref const(Xtruct2) nest) {
     auto thing = nest.struct_thing;
     if (trace_) writefln("testNest({%s, {\"%s\", %s, %s, %s}, %s})",
       nest.byte_thing, thing.string_thing, thing.byte_thing, thing.i32_thing,
@@ -130,7 +130,7 @@ class TestHandler : ThriftTest {
     return testMapMapReturn;
   }
 
-  override Insanity[Numberz][UserId] testInsanity(Insanity argument) {
+  override Insanity[Numberz][UserId] testInsanity(ref const(Insanity) argument) {
     if (trace_) writeln("testInsanity()");
     return testInsanityReturn;
   }

@@ -239,6 +239,7 @@ class t_d_generator : public t_oop_generator {
     // emit the necessary aliases later.
     set<t_type*> exception_types;
 
+    // Print the method signatures.
     vector<t_function*> functions = tservice->get_functions();
     vector<t_function*>::iterator fn_iter;
     for (fn_iter = functions.begin(); fn_iter != functions.end(); ++fn_iter) {
@@ -523,7 +524,8 @@ class t_d_generator : public t_oop_generator {
       } else {
         out << ", ";
       }
-      out << render_type_name((*f_iter)->get_type()) << " " << (*f_iter)->get_name();
+      out << render_type_name((*f_iter)->get_type(), true) << " " <<
+          (*f_iter)->get_name();
     }
 
     out << ")";
@@ -654,8 +656,11 @@ class t_d_generator : public t_oop_generator {
 
   /**
    * Returns the name of the D repesentation of ttype.
+   *
+   * If isArg is true, a const reference to the type will be returned for
+   * structs.
    */
-  string render_type_name(const t_type* ttype) const {
+  string render_type_name(const t_type* ttype, bool isArg = false) const {
     if (ttype->is_base_type()) {
       t_base_type::t_base tbase = ((t_base_type*)ttype)->get_base();
       switch (tbase) {
@@ -708,7 +713,11 @@ class t_d_generator : public t_oop_generator {
       }
     }
 
-    return ttype->get_name();
+    if (ttype->is_struct() && isArg) {
+      return "ref const(" + ttype->get_name() + ")";
+    } else {
+      return ttype->get_name();
+    }
   }
 
   /**

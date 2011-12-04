@@ -18,7 +18,7 @@
  */
 module thrift.codegen.processor;
 
-import std.traits : ParameterTypeTuple;
+import std.traits : ParameterTypeTuple, Unqual;
 import std.typetuple : allSatisfy, TypeTuple;
 import std.variant : Variant;
 import thrift.base;
@@ -377,8 +377,10 @@ template TArgsStruct(Interface, string methodName) {
         memberName = "param" ~ to!string(i + 1);
       }
 
-      memberCode ~= "ParameterTypeTuple!(Interface." ~ methodName ~
-        ")[" ~ to!string(i) ~ "]" ~ memberName ~ ";\n";
+      // Unqual!() is needed to generate mutable fields for ref const()
+      // struct parameters.
+      memberCode ~= "Unqual!(ParameterTypeTuple!(Interface." ~ methodName ~
+        ")[" ~ to!string(i) ~ "])" ~ memberName ~ ";\n";
 
       fieldMetaCodes ~= "TFieldMeta(`" ~ memberName ~ "`, " ~ memberId ~
         ", TReq.OPT_IN_REQ_OUT)";

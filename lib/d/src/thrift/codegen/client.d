@@ -21,7 +21,8 @@ module thrift.codegen.client;
 import std.algorithm : find;
 import std.array : empty, front;
 import std.conv : to;
-import std.traits : isSomeFunction, ParameterTypeTuple;
+import std.traits : isSomeFunction, ParameterStorageClass,
+  ParameterStorageClassTuple, ParameterTypeTuple;
 import thrift.codegen.base;
 import thrift.internal.codegen;
 import thrift.internal.ctfe;
@@ -167,7 +168,10 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             paramName = "param" ~ to!string(i + 1);
           }
 
-          paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+          paramList ~=
+            ((ParameterStorageClassTuple!(mixin("Interface." ~ methodName))[i] &
+              ParameterStorageClass.ref_ ) ? "ref " : "") ~
+            "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
           paramAssignCode ~= "args." ~ paramName ~ " = &" ~ paramName ~ ";\n";
         }
