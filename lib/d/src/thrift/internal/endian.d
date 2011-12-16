@@ -56,6 +56,8 @@ version (BigEndian) {
 }
 
 unittest {
+  import std.exception;
+
   IntBuf!short s;
   s.bytes = [1, 2];
   s.value = byteSwap(s.value);
