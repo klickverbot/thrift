@@ -228,7 +228,7 @@ private:
   void ensureWorkerThreadRunning() {
     // Technically, only half barriers would be required here, but adding the
     // argument seems to trigger a DMD template argument deduction @@BUG@@.
-    if (!atomicLoad(cast(shared)workerThread_)) {
+    if (!atomicLoad(*(cast(shared)&workerThread_))) {
       synchronized (this) {
         if (!workerThread_) {
           auto thread = new Thread({ event_base_loop(eventBase_, 0); });
