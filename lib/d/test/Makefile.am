@@ -20,7 +20,7 @@
 # General build flags
 
 d_test_flags = -w -wi -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
-	$(top_builddir)/lib/d/$(D_LIB_NAME) $(DMD_LIBDL_FLAGS)
+	$(top_builddir)/lib/d/$(D_LIB_NAME)
 
 
 # Thrift compiler rules
@@ -46,9 +46,30 @@ $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 
 
 # The actual test targets.
-
-targets = async_test_client async_test_server serialization_benchmark \
+# There just must be some way to reassign a variable without warnings in
+# Automake...
+targets__ = async_test_client async_test_server serialization_benchmark \
 	stress_test_server thrift_test_client thrift_test_server transport_test
+
+libevent_dependent_targets = async_test_client stress_test_server \
+	thrift_test_server
+
+openssl_dependent_targets = thrift_test_client thrift_test_server
+
+if WITH_D_EVENT_TESTS
+d_test_flags += $(DMD_LIBEVENT_FLAGS) ../$(D_EVENT_LIB_NAME)
+targets_ = $(targets__)
+else
+targets_ = $(filter-out $(libevent_dependent_targets), $(targets__))
+endif
+
+if WITH_D_SSL_TESTS
+d_test_flags += $(DMD_OPENSSL_FLAGS) ../$(D_SSL_LIB_NAME)
+targets = $(targets_)
+else
+targets = $(filter-out $(openssl_dependent_targets), $(targets_))
+endif
+
 
 async_test_client async_test_server: %: %.d async_test_common.d
 	$(DMD) $(d_test_flags) -of$@ $^

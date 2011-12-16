@@ -8,8 +8,10 @@ dnl dmd command tested. Otherwise, a hard-coded list will be used.
 dnl
 dnl After AX_DMD runs, the shell variables "success" and "ax_dmd" are set to
 dnl "yes" or "no", and "DMD" is set to the appropriate command. Furthermore,
-dnl "DMD_OF_DIRSEP" will be set to the directory separator to use when passing
-dnl -of to DMD (OPTLINK/Windows requires a backslash.)
+dnl "dmd_optlink" will be set to "yes" or "no" depending on whether OPTLINK is
+dnl used as the linker (DMD/Windows), and "dmd_of_dirsep" will be set to the
+dnl directory separator to use when passing -of to DMD (OPTLINK requires a
+dnl backslash).
 dnl
 dnl AX_CHECK_D_MODULE must be run after AX_DMD. It tests for the presence of a
 dnl module in the import path of the chosen compiler, and sets the shell
@@ -38,6 +40,7 @@ AC_DEFUN([AX_DMD],
 
           AC_MSG_CHECKING(for DMD)
 
+          # std.algorithm as a quick way to check for D2/Phobos.
           echo "import std.algorithm; void main() {}" > configtest_ax_dmd.d
           success=no
           oIFS="$IFS"
@@ -53,19 +56,6 @@ AC_DEFUN([AX_DMD],
             fi
           done
 
-          if test "$success" == "yes" ; then
-            echo "Testing whether backslash in -of is required" >&AS_MESSAGE_LOG_FD
-            if $DMD -ofaclocal/../configtest_ax_dmd configtest_ax_dmd.d >&AS_MESSAGE_LOG_FD 2>&1 ; then
-              DMD_OF_DIRSEP="/"
-            else
-              # This actually produces double slashes in the final configure
-              # output, but at least it works.
-              DMD_OF_DIRSEP="\\\\"
-            fi
-          fi
-
-          rm -f configtest_ax_dmd*
-
           if test "$success" != "yes" ; then
             AC_MSG_RESULT(no)
             DMD=""
@@ -74,6 +64,27 @@ AC_DEFUN([AX_DMD],
           fi
 
           ax_dmd="$success"
+
+          # Test whether OPTLINK is used by trying if DMD accepts -L/? without
+          # erroring out.
+          if test "$success" == "yes" ; then
+            AC_MSG_CHECKING(whether DMD uses OPTLINK)
+            echo "Running \”$DMD -L/? configtest_ax_dmd.d\"" >&AS_MESSAGE_LOG_FD
+            if $DMD -L/? configtest_ax_dmd.d >&AS_MESSAGE_LOG_FD 2>&1 ; then
+              AC_MSG_RESULT(yes)
+              dmd_optlink="yes"
+
+              # This actually produces double slashes in the final configure
+              # output, but at least it works.
+              dmd_of_dirsep="\\\\"
+            else
+              AC_MSG_RESULT(no)
+              dmd_optlink="no"
+              dmd_of_dirsep="/"
+            fi
+          fi
+
+          rm -f configtest_ax_dmd*
          ])
 
 
@@ -84,7 +95,7 @@ AC_DEFUN([AX_CHECK_D_MODULE],
           echo "import $1; void main() {}" > configtest_ax_dmd.d
 
           echo "Running \"$DMD configtest_ax_dmd.d\"" >&AS_MESSAGE_LOG_FD
-          if $DMD configtest_ax_dmd.d >&AS_MESSAGE_LOG_FD 2>&1 ; then
+          if $DMD -c configtest_ax_dmd.d >&AS_MESSAGE_LOG_FD 2>&1 ; then
             AC_MSG_RESULT(yes)
             success=yes
           else

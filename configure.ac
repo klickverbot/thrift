@@ -93,6 +93,9 @@ AC_ARG_VAR([D_IMPORT_PREFIX], [Prefix for installing D modules.
                            [INCLUDEDIR/d2]])
 AS_IF([test "x$D_IMPORT_PREFIX" = x], [D_IMPORT_PREFIX="${includedir}/d2"])
 
+AC_ARG_VAR([DMD_LIBEVENT_FLAGS], [DMD flags for linking libevent.])
+AC_ARG_VAR([DMD_OPENSSL_FLAGS], [DMD flags for linking OpenSSL.])
+
 AC_PROG_CC
 AC_PROG_CPP
 AC_PROG_CXX
@@ -280,29 +283,19 @@ if test "$with_go" = "yes";  then
 fi
 AM_CONDITIONAL(WITH_GO, [test "$have_go" = "yes"])
 
+
 AX_THRIFT_LIB(d, [D], yes)
 if test "$with_d" = "yes";  then
   AX_DMD
   AC_SUBST(DMD)
-  AC_SUBST(DMD_OF_DIRSEP)
   if test "x$DMD" != "x"; then
     have_d="yes"
   fi
 fi
-AM_CONDITIONAL(WITH_D, [test "$have_d" = "yes"])
-
-# The OpenSSL bindings need the dl*() functions, which are typically in libdl
-# on Linux and libc on FreeBSD.
-DMD_LIBDL_FLAGS=""
-AC_SEARCH_LIBS(dlopen, dl, [
-  if test "$ac_cv_search_dlopen" != "none required"; then
-    DMD_LIBDL_FLAGS="-L$ac_cv_search_dlopen"
-  fi
-])
-AC_SUBST(DMD_LIBDL_FLAGS)
 
 # Determine actual name of the generated D library for use in the command line
-# when compiling tests.
+# when compiling tests. This is needed because the -l<lib> syntax doesn't work
+# with OPTLINK (Windows).
 lib_prefix=lib
 lib_suffix=a
 case "$host_os" in
@@ -313,6 +306,69 @@ case "$host_os" in
 esac
 D_LIB_NAME="${lib_prefix}thriftd.${lib_suffix}"
 AC_SUBST(D_LIB_NAME)
+D_EVENT_LIB_NAME="${lib_prefix}thriftd-event.${lib_suffix}"
+AC_SUBST(D_EVENT_LIB_NAME)
+D_SSL_LIB_NAME="${lib_prefix}thriftd-ssl.${lib_suffix}"
+AC_SUBST(D_SSL_LIB_NAME)
+
+if test "$have_d" = "yes"; then
+  AX_CHECK_D_MODULE(deimos.event2.event)
+  have_deimos_event2=$success
+
+  with_d_event_tests="no"
+  if test "$have_deimos_event2" = "yes"; then
+    if test "x$DMD_LIBEVENT_FLAGS" = "x"; then
+      if test "$dmd_optlink" = "yes"; then
+        AC_MSG_WARN([D libevent interface found, but cannot auto-detect \
+          linker flags for OPTLINK. Please set DMD_LIBEVENT_FLAGS manually.])
+      else
+        AX_LIB_EVENT([2.0])
+        if test "$success" = "yes"; then
+          DMD_LIBEVENT_FLAGS=$(echo "$LIBEVENT_LDFLAGS $LIBEVENT_LIBS" | \
+            sed -e 's/^ *//g;s/ *$//g;s/^\(.\)/-L\1/g;s/  */ -L/g')
+          with_d_event_tests="yes"
+        else
+          AC_MSG_WARN([D libevent interface present, but libevent library not found.])
+        fi
+      fi
+    else
+      with_d_event_tests="yes"
+    fi
+  fi
+
+  AX_CHECK_D_MODULE(deimos.openssl.ssl)
+  have_deimos_openssl=$success
+
+  with_d_ssl_tests="no"
+  if test "$have_deimos_openssl" = "yes"; then
+    if test "x$DMD_OPENSSL_FLAGS" = "x"; then
+      if test "$dmd_optlink" = "yes"; then
+        AC_MSG_WARN([D OpenSSL interface found, but cannot auto-detect \
+          linker flags for OPTLINK. Please set DMD_OPENSSL_FLAGS manually.])
+      else
+        AX_CHECK_OPENSSL([with_d_ssl_tests="yes"])
+        if test "$with_d_ssl_tests" = "yes"; then
+          DMD_OPENSSL_FLAGS=$(echo "$OPENSSL_LDFLAGS $OPENSSL_LIBS" | \
+            sed -e 's/^ *//g;s/ *$//g;s/^\(.\)/-L\1/g;s/  */ -L/g')
+        else
+          AC_MSG_WARN([D OpenSSL interface present, but OpenSSL library not found.])
+        fi
+      fi
+    else
+      with_d_ssl_tests="yes"
+    fi
+  fi
+fi
+
+AM_CONDITIONAL(WITH_D, [test "$have_d" = "yes"])
+AM_CONDITIONAL(DMD_OPTLINK, [test "$dmd_optlink" = "yes"])
+AC_SUBST(DMD_OF_DIRSEP, "$dmd_of_dirsep")
+AM_CONDITIONAL(HAVE_DEIMOS_EVENT2, [test "$have_deimos_event2" = "yes"])
+AM_CONDITIONAL(WITH_D_EVENT_TESTS, [test "$with_d_event_tests" = "yes"])
+AC_SUBST(DMD_LIBEVENT_FLAGS)
+AM_CONDITIONAL(HAVE_DEIMOS_OPENSSL, [test "$have_deimos_openssl" = "yes"])
+AM_CONDITIONAL(WITH_D_SSL_TESTS, [test "$with_d_ssl_tests" = "yes"])
+AC_SUBST(DMD_OPENSSL_FLAGS)
 
 
 AC_C_CONST
@@ -543,7 +599,7 @@ echo "Building Perl Library ........ : $have_perl"
 echo "Building PHP Library ......... : $have_php"
 echo "Building Erlang Library ...... : $have_erlang"
 echo "Building Go Library .......... : $have_go"
-echo "Building D Library. .......... : $have_d"
+echo "Building D Library ........... : $have_d"
 if test "$have_cpp" = "yes" ; then
   echo
   echo "Building TZlibTransport ...... : $have_zlib"
@@ -595,7 +651,9 @@ if test "$have_go" = "yes" ; then
 fi
 if test "$have_d" = "yes" ; then
   echo
-  echo "Using D Compiler.............. : $DMD"
+  echo "Using D Compiler ............. : $DMD"
+  echo "Building D libevent tests .... : $with_d_event_tests"
+  echo "Building D SSL tests ......... : $with_d_ssl_tests"
 fi
 echo
 echo "If something is missing that you think should be present,"

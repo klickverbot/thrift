@@ -19,6 +19,13 @@
 
 SUBDIRS = . test
 
+#
+# Enumeration of all the public and private modules.
+#
+# We unconditionally install all of them, even if libevent or OpenSSL are
+# not available, but build the respective libraries only if the Deimos headers
+# could be found.
+#
 d_thriftmodules = $(addprefix thrift/, base)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = $(addprefix src/, $(addsuffix .d, $(d_thriftmodules)))
@@ -62,19 +69,6 @@ d_internalmodules = $(addprefix thrift/internal/, algorithm codegen ctfe \
 d_internaldir = $(d_thriftdir)/internal
 d_internal_DATA = $(addprefix src/, $(addsuffix .d, $(d_internalmodules)))
 
-d_cmodules = $(addprefix thrift/internal/c/, loader)
-d_cdir = $(d_internaldir)/c
-d_c_DATA = $(addprefix src/, $(addsuffix .d, $(d_cmodules)))
-
-d_eventmodules = $(addprefix thrift/internal/c/event/, event event_compat loader)
-d_eventdir = $(d_cdir)/event
-d_event_DATA = $(addprefix src/, $(addsuffix .d, $(d_eventmodules)))
-
-d_opensslmodules = $(addprefix thrift/internal/c/openssl/, asn1 bio crypto err \
-	loader objects rand safestack ssl stack x509 x509_vfy x509v3)
-d_openssldir = $(d_cdir)/openssl
-d_openssl_DATA = $(addprefix src/, $(addsuffix .d, $(d_opensslmodules)))
-
 d_testmodules = $(addprefix thrift/internal/test/, protocol server)
 d_testdir = $(d_internaldir)/test
 d_test_DATA = $(addprefix src/, $(addsuffix .d, $(d_testmodules)))
@@ -84,28 +78,79 @@ d_publicmodules = $(d_thriftmodules) $(d_asyncmodules) \
 	$(d_servertransportmodules) $(d_transportmodules) $(d_utilmodules)
 d_publicsources = $(addprefix src/, $(addsuffix .d, $(d_publicmodules)))
 
-d_modules = $(d_publicmodules) $(d_internalmodules) $(d_testmodules) \
-	$(d_cmodules) $(d_eventmodules) $(d_opensslmodules)
+d_modules = $(d_publicmodules) $(d_internalmodules) $(d_testmodules)
 
-d_sources = $(addprefix src/, $(addsuffix .d, $(d_modules)))
-$(D_LIB_NAME): $(d_sources)
-	$(DMD) -of$(D_LIB_NAME) -w -wi -lib $^
+# List modules with external dependencies and remove them from the main list
+d_libevent_dependent_modules = thrift/async/libevent thrift/server/nonblocking
+d_openssl_dependent_modules = thrift/transport/ssl thrift/server/transport/ssl
+d_main_modules = $(filter-out $(d_libevent_dependent_modules) \
+	$(d_openssl_dependent_modules),$(d_modules))
+
+#
+# Main library target.
+#
+d_lib_flags = -w -wi -Isrc -lib
+$(D_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_main_modules)))
+	$(DMD) -of$(D_LIB_NAME) $(d_lib_flags) $^
+all_targets = $(D_LIB_NAME)
+
+#
+# libevent-dependent modules.
+#
+if HAVE_DEIMOS_EVENT2
+$(D_EVENT_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_libevent_dependent_modules)))
+	$(DMD) -of$(D_EVENT_LIB_NAME) $(d_lib_flags) $^
+all_targets += $(D_EVENT_LIB_NAME)
+endif
+
+#
+# OpenSSL-dependent modules.
+#
+if HAVE_DEIMOS_OPENSSL
+$(D_SSL_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_openssl_dependent_modules)))
+	$(DMD) -of$(D_SSL_LIB_NAME) $(d_lib_flags) $^
+all_targets += $(D_SSL_LIB_NAME)
+endif
 
 docs: $(d_publicsources) src/thrift/index.d
 	dil ddoc docs -hl --kandil $^
 
-all-local: $(D_LIB_NAME)
 
-clean-local:
-	$(RM) -rf docs $(D_LIB_NAME) unittest
+#
+# Hook custom library targets into the automake all/install targets.
+#
+all-local: $(all_targets)
 
 install-exec-local:
-	$(INSTALL_PROGRAM) $(D_LIB_NAME) $(DESTDIR)$(libdir)
+	$(INSTALL_PROGRAM) $(all_targets) $(DESTDIR)$(libdir)
+
+
+clean-local:
+	$(RM) -rf docs $(D_LIB_NAME) $(D_EVENT_LIB_NAME) $(D_SSL_LIB_NAME) unittest
+
 
 #
 # Unit tests (built both in debug and release mode).
 #
-d_test_flags = -unittest -w -wi -I$(top_srcdir)/lib/d/src $(DMD_LIBDL_FLAGS)
+d_test_flags = -unittest -w -wi -I$(top_srcdir)/lib/d/src
+
+# There just must be some way to reassign a variable without warnings in
+# Automake...
+d_test_modules__ = $(d_modules)
+
+if WITH_D_EVENT_TESTS
+d_test_flags += $(DMD_LIBEVENT_FLAGS)
+d_test_modules_ = $(d_test_modules__)
+else
+d_test_modules_ = $(filter-out $(d_libevent_dependent_modules), $(d_test_modules__))
+endif
+
+if WITH_D_SSL_TESTS
+d_test_flags += $(DMD_OPENSSL_FLAGS)
+d_test_modules = $(d_test_modules_)
+else
+d_test_modules = $(filter-out $(d_openssl_dependent_modules), $(d_test_modules_))
+endif
 
 unittest/emptymain.d: unittest/.directory
 	@echo 'void main(){}' >$@
@@ -114,14 +159,14 @@ unittest/.directory:
 	mkdir -p unittest || exists unittest
 	touch $@
 
-unittest/debug/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
+unittest/debug/%: src/%.d $(all_targets) unittest/emptymain.d
 	$(DMD) -gc -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) $^
 
-unittest/release/%: src/%.d $(D_LIB_NAME) unittest/emptymain.d
+unittest/release/%: src/%.d $(all_targets) unittest/emptymain.d
 	$(DMD) -O -release -of$(subst /,$(DMD_OF_DIRSEP),$@) $(d_test_flags) $^
 
-TESTS = $(addprefix unittest/debug/, $(d_publicmodules)) \
-	$(addprefix unittest/release/, $(d_publicmodules))
+TESTS = $(addprefix unittest/debug/, $(d_test_modules)) \
+	$(addprefix unittest/release/, $(d_test_modules))
 
 
 EXTRA_DIST = \

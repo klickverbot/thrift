@@ -35,17 +35,11 @@ import std.conv : emplace, to;
 import std.exception : enforce;
 import std.socket : InternetAddress, Socket;
 import std.string : toStringz;
-import thrift.internal.c.openssl.asn1;
-import thrift.internal.c.openssl.bio;
-import thrift.internal.c.openssl.crypto;
-import thrift.internal.c.openssl.err;
-import thrift.internal.c.openssl.objects;
-import thrift.internal.c.openssl.rand;
-import thrift.internal.c.openssl.safestack;
-import thrift.internal.c.openssl.ssl;
-import thrift.internal.c.openssl.x509;
-import thrift.internal.c.openssl.x509_vfy;
-import thrift.internal.c.openssl.x509v3;
+import deimos.openssl.err;
+import deimos.openssl.rand;
+import deimos.openssl.ssl;
+import deimos.openssl.x509v3;
+
 import thrift.transport.base;
 import thrift.transport.socket;
 
@@ -257,7 +251,8 @@ private:
 
     // extract subjectAlternativeName
     string hostName;
-    auto alternatives = X509_get_ext_d2i(cert, NID_subject_alt_name, null, null);
+    auto alternatives = cast(STACK_OF!(GENERAL_NAME_st)*)
+      X509_get_ext_d2i(cert, NID_subject_alt_name, null, null);
     if (alternatives != null) {
       auto count = sk_GENERAL_NAME_num(alternatives);
       for (int i = 0; decision == Decision.SKIP && i < count; i++) {
@@ -281,7 +276,9 @@ private:
             // Do nothing.
         }
       }
-      sk_GENERAL_NAME_pop_free(alternatives, GENERAL_NAME_free);
+
+      // DMD @@BUG@@: Empty template arguments parens should not be needed.
+      sk_GENERAL_NAME_pop_free!()(alternatives, &GENERAL_NAME_free);
     }
 
     if (decision != Decision.SKIP) {
@@ -561,14 +558,15 @@ private:
       m = new Mutex;
     }
 
+    import thrift.internal.traits;
     // As per the OpenSSL threads manpage, this isn't needed on Windows.
     version (Posix) {
-      CRYPTO_set_id_callback(&threadIdCallback);
+      CRYPTO_set_id_callback(assumeNothrow(&threadIdCallback));
     }
-    CRYPTO_set_locking_callback(&lockingCallback);
-    CRYPTO_set_dynlock_create_callback(&dynlockCreateCallback);
-    CRYPTO_set_dynlock_lock_callback(&dynlockLockCallback);
-    CRYPTO_set_dynlock_destroy_callback(&dynlockDestroyCallback);
+    CRYPTO_set_locking_callback(assumeNothrow(&lockingCallback));
+    CRYPTO_set_dynlock_create_callback(assumeNothrow(&dynlockCreateCallback));
+    CRYPTO_set_dynlock_lock_callback(assumeNothrow(&dynlockLockCallback));
+    CRYPTO_set_dynlock_destroy_callback(assumeNothrow(&dynlockDestroyCallback));
   }
 
   static void cleanupOpenSSL() {

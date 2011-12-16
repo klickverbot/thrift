@@ -39,13 +39,12 @@ module thrift.server.nonblocking;
 import core.atomic : atomicLoad, atomicStore;
 import core.memory : GC;
 import core.time : Duration, dur;
+import deimos.event2.event;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
 import std.socket : InternetAddress, Socket, socketPair, SocketAcceptException,
   SocketException, TcpSocket;
 import thrift.base;
-import thrift.internal.c.event.event;
-import thrift.internal.c.event.event_compat;
 import thrift.internal.endian;
 import thrift.internal.socket;
 import thrift.internal.traits;
