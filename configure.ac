@@ -93,8 +93,8 @@ AC_ARG_VAR([D_IMPORT_PREFIX], [Prefix for installing D modules.
                            [INCLUDEDIR/d2]])
 AS_IF([test "x$D_IMPORT_PREFIX" = x], [D_IMPORT_PREFIX="${includedir}/d2"])
 
-AC_ARG_VAR([DMD_LIBEVENT_FLAGS], [DMD flags for linking libevent.])
-AC_ARG_VAR([DMD_OPENSSL_FLAGS], [DMD flags for linking OpenSSL.])
+AC_ARG_VAR([DMD_LIBEVENT_FLAGS], [DMD flags for linking libevent (auto-detected if not set).])
+AC_ARG_VAR([DMD_OPENSSL_FLAGS], [DMD flags for linking OpenSSL (auto-detected if not set).])
 
 AC_PROG_CC
 AC_PROG_CPP
@@ -320,7 +320,7 @@ if test "$have_d" = "yes"; then
     if test "x$DMD_LIBEVENT_FLAGS" = "x"; then
       if test "$dmd_optlink" = "yes"; then
         AC_MSG_WARN([D libevent interface found, but cannot auto-detect \
-          linker flags for OPTLINK. Please set DMD_LIBEVENT_FLAGS manually.])
+linker flags for OPTLINK. Please set DMD_LIBEVENT_FLAGS manually.])
       else
         AX_LIB_EVENT([2.0])
         if test "$success" = "yes"; then
@@ -344,7 +344,7 @@ if test "$have_d" = "yes"; then
     if test "x$DMD_OPENSSL_FLAGS" = "x"; then
       if test "$dmd_optlink" = "yes"; then
         AC_MSG_WARN([D OpenSSL interface found, but cannot auto-detect \
-          linker flags for OPTLINK. Please set DMD_OPENSSL_FLAGS manually.])
+linker flags for OPTLINK. Please set DMD_OPENSSL_FLAGS manually.])
       else
         AX_CHECK_OPENSSL([with_d_ssl_tests="yes"])
         if test "$with_d_ssl_tests" = "yes"; then
