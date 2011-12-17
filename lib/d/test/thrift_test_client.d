@@ -37,11 +37,17 @@ import thrift.transport.http;
 import thrift.transport.socket;
 import thrift.transport.ssl;
 import thrift.util.hashset;
-import test_utils;
 
 import thrift_test_common;
 import thrift.test.ThriftTest;
 import thrift.test.ThriftTest_types;
+
+enum TransportType {
+  buffered,
+  framed,
+  http,
+  raw
+}
 
 TProtocol createProtocol(T)(T trans, ProtocolType type) {
   final switch (type) {
