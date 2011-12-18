@@ -17,12 +17,17 @@
 # under the License.
 #
 
-SUBDIRS = . test
+SUBDIRS = .
+
+if WITH_TESTS
+SUBDIRS += test
+endif
 
 pkgconfigdir = $(libdir)/pkgconfig
 
 lib_LTLIBRARIES = libthrift.la
 pkgconfig_DATA = thrift.pc
+libthrift_la_LDFLAGS = -release $(VERSION) $(BOOST_LDFLAGS)
 
 ## We only build the extra libraries if we have the dependencies,
 ## but we install all of the headers unconditionally.
@@ -37,14 +42,13 @@ endif
 
 AM_CXXFLAGS = -Wall
 AM_CPPFLAGS = $(BOOST_CPPFLAGS) -I$(srcdir)/src
+AM_LDFLAGS = $(BOOST_LDFLAGS)
 
 # Define the source files for the module
 
 libthrift_la_SOURCES = src/Thrift.cpp \
                        src/TApplicationException.cpp \
-                       src/concurrency/Mutex.cpp \
-                       src/concurrency/Monitor.cpp \
-                       src/concurrency/PosixThreadFactory.cpp \
+                       src/VirtualProfiling.cpp \
                        src/concurrency/ThreadManager.cpp \
                        src/concurrency/TimerManager.cpp \
                        src/concurrency/Util.cpp \
@@ -73,6 +77,16 @@ libthrift_la_SOURCES = src/Thrift.cpp \
                        src/async/TAsyncChannel.cpp \
                        src/processor/PeekProcessor.cpp
 
+if WITH_BOOSTTHREADS
+libthrift_la_SOURCES += src/concurrency/BoostThreadFactory.cpp \
+                        src/concurrency/BoostMonitor.cpp \
+                        src/concurrency/BoostMutex.cpp
+else
+libthrift_la_SOURCES += src/concurrency/Mutex.cpp \
+                        src/concurrency/Monitor.cpp \
+                        src/concurrency/PosixThreadFactory.cpp
+endif
+
 libthriftnb_la_SOURCES = src/server/TNonblockingServer.cpp \
                          src/async/TAsyncProtocolProcessor.cpp \
                          src/async/TEvhttpServer.cpp \
@@ -80,16 +94,18 @@ libthriftnb_la_SOURCES = src/server/TNonblockingServer.cpp \
 
 libthriftz_la_SOURCES = src/transport/TZlibTransport.cpp
 
-
 # Flags for the various libraries
 libthriftnb_la_CPPFLAGS = $(AM_CPPFLAGS) $(LIBEVENT_CPPFLAGS)
 libthriftz_la_CPPFLAGS  = $(AM_CPPFLAGS) $(ZLIB_CPPFLAGS)
 libthriftnb_la_CXXFLAGS = $(AM_CXXFLAGS)
 libthriftz_la_CXXFLAGS  = $(AM_CXXFLAGS)
+libthriftnb_la_LDFLAGS  = -release $(VERSION) $(BOOST_LDFLAGS)
+libthriftz_la_LDFLAGS   = -release $(VERSION) $(BOOST_LDFLAGS)
 
 include_thriftdir = $(includedir)/thrift
 include_thrift_HEADERS = \
                          $(top_builddir)/config.h \
+	                 src/TDispatchProcessor.h \
                          src/Thrift.h \
                          src/TReflectionLocal.h \
                          src/TProcessor.h \
@@ -98,9 +114,11 @@ include_thrift_HEADERS = \
 
 include_concurrencydir = $(include_thriftdir)/concurrency
 include_concurrency_HEADERS = \
+                         src/concurrency/BoostThreadFactory.h \
                          src/concurrency/Exception.h \
                          src/concurrency/Mutex.h \
                          src/concurrency/Monitor.h \
+                         src/concurrency/PlatformThreadFactory.h \
                          src/concurrency/PosixThreadFactory.h \
                          src/concurrency/Thread.h \
                          src/concurrency/ThreadManager.h \
@@ -161,6 +179,7 @@ include_processor_HEADERS = \
 include_asyncdir = $(include_thriftdir)/async
 include_async_HEADERS = \
                      src/async/TAsyncChannel.h \
+                     src/async/TAsyncDispatchProcessor.h \
                      src/async/TAsyncProcessor.h \
                      src/async/TAsyncBufferProcessor.h \
                      src/async/TAsyncProtocolProcessor.h \
@@ -170,15 +189,27 @@ include_async_HEADERS = \
 
 noinst_PROGRAMS = concurrency_test
 
-concurrency_test_SOURCES = src/concurrency/test/Tests.cpp \
+concurrency_test_SOURCES = \
+                           src/concurrency/test/Tests.cpp \
                            src/concurrency/test/ThreadFactoryTests.h \
                            src/concurrency/test/ThreadManagerTests.h \
                            src/concurrency/test/TimerManagerTests.h
 
 concurrency_test_LDADD = libthrift.la
 
+WINDOWS_DIST = \
+             README_WINDOWS \
+             src/windows \
+             thrift.sln \
+             libthrift.vcxproj \
+             libthrift.vcxproj.filters \
+             libthriftnb.vcxproj \
+             libthriftnb.vcxproj.filters
+
 EXTRA_DIST = \
              README \
+             README.SSL \
              thrift-nb.pc.in \
              thrift.pc.in \
-             thrift-z.pc.in
+             thrift-z.pc.in \
+             $(WINDOWS_DIST)

@@ -20,33 +20,7 @@
 #include "struct.h"
 #include "constants.h"
 #include "macros.h"
-
-#ifndef HAVE_STRLCPY
-
-static
-size_t
-strlcpy (char *dst, const char *src, size_t dst_sz)
-{
-    size_t n;
-
-    for (n = 0; n < dst_sz; n++) {
-      if ((*dst++ = *src++) == '\0')
-        break;
-    }
-
-    if (n < dst_sz)
-      return n;
-    if (n > 0)
-      *(dst - 1) = '\0';
-    return n + strlen (src);
-}
-#else
-/*
-   Ruby 1.9.x includes the OpenBSD implementation of strlcpy.
-   See missing/strlcpy.c in Ruby 1.9 source
- */
-extern size_t strlcpy(char *, const char *, size_t);
-#endif
+#include "strlcpy.h"
 
 VALUE thrift_union_class;
 
@@ -231,10 +205,10 @@ static VALUE rb_thrift_struct_write(VALUE self, VALUE protocol);
 static void write_anything(int ttype, VALUE value, VALUE protocol, VALUE field_info);
 
 VALUE get_field_value(VALUE obj, VALUE field_name) {
-  char name_buf[RSTRING_LEN(field_name) + 1];
+  char name_buf[RSTRING_LEN(field_name) + 2];
 
   name_buf[0] = '@';
-  strlcpy(&name_buf[1], RSTRING_PTR(field_name), sizeof(name_buf));
+  strlcpy(&name_buf[1], RSTRING_PTR(field_name), RSTRING_LEN(field_name) + 1);
 
   VALUE value = rb_ivar_get(obj, rb_intern(name_buf));
 
@@ -417,10 +391,10 @@ static void skip_map_contents(VALUE protocol, VALUE key_type_value, VALUE value_
 static void skip_list_or_set_contents(VALUE protocol, VALUE element_type_value, int size);
 
 static void set_field_value(VALUE obj, VALUE field_name, VALUE value) {
-  char name_buf[RSTRING_LEN(field_name) + 1];
+  char name_buf[RSTRING_LEN(field_name) + 2];
 
   name_buf[0] = '@';
-  strlcpy(&name_buf[1], RSTRING_PTR(field_name), sizeof(name_buf));
+  strlcpy(&name_buf[1], RSTRING_PTR(field_name), RSTRING_LEN(field_name)+1);
 
   rb_ivar_set(obj, rb_intern(name_buf), value);
 }
@@ -484,7 +458,7 @@ static VALUE read_anything(VALUE protocol, int ttype, VALUE field_info) {
     if (!NIL_P(key_info) && !NIL_P(value_info)) {
       int specified_key_type = FIX2INT(rb_hash_aref(key_info, type_sym));
       int specified_value_type = FIX2INT(rb_hash_aref(value_info, type_sym));
-      if (specified_key_type == key_ttype && specified_value_type == value_ttype) {
+      if (num_entries == 0 || (specified_key_type == key_ttype && specified_value_type == value_ttype)) {
         result = rb_hash_new();
 
         for (i = 0; i < num_entries; ++i) {

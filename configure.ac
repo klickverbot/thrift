@@ -19,7 +19,7 @@
 
 AC_PREREQ(2.65)
 
-AC_INIT([thrift], [0.8.0-dev])
+AC_INIT([thrift], [0.9.0-dev])
 
 AC_CONFIG_AUX_DIR([.])
 
@@ -227,13 +227,14 @@ AX_THRIFT_LIB(ruby, [Ruby], yes)
 have_ruby=no
 if test "$with_ruby" = "yes"; then
   AC_PATH_PROG([RUBY], [ruby])
-  AC_PATH_PROG([RSPEC], [spec])
-  if test "x$RUBY" != "x" ; then
+  AC_PATH_PROG([RAKE], [rake])
+  AC_PATH_PROG([BUNDLER], [bundle])
+  if test "x$RUBY" != "x" -a "x$RAKE" != "x"; then
     have_ruby="yes"
   fi
 fi
 AM_CONDITIONAL(WITH_RUBY, [test "$have_ruby" = "yes"])
-AM_CONDITIONAL(HAVE_RSPEC, [test "x$RSPEC" != "x"])
+AM_CONDITIONAL(HAVE_BUNDLER, [test "x$BUNDLER" != "x"])
 
 AX_THRIFT_LIB(haskell, [Haskell], yes)
 have_haskell=no
@@ -371,6 +372,24 @@ AM_CONDITIONAL(WITH_D_SSL_TESTS, [test "$with_d_ssl_tests" = "yes"])
 AC_SUBST(DMD_OPENSSL_FLAGS)
 
 
+have_tests=yes
+if test "$with_tests" = "no"; then
+  have_tests="no"
+fi
+AM_CONDITIONAL(WITH_TESTS, [test "$have_tests" = "yes"])
+
+AM_CONDITIONAL(MINGW, false)
+case "${host_os}" in
+*mingw*)
+  mingw32_support="yes"
+  AC_CHECK_HEADER(windows.h)
+  AM_CONDITIONAL(MINGW, true)
+  ;;
+*)
+  AC_ISC_POSIX
+  ;;
+esac
+
 AC_C_CONST
 AC_C_INLINE
 AC_C_VOLATILE
@@ -392,12 +411,16 @@ AC_CHECK_HEADERS([stddef.h])
 AC_CHECK_HEADERS([stdlib.h])
 AC_CHECK_HEADERS([sys/socket.h])
 AC_CHECK_HEADERS([sys/time.h])
+AC_CHECK_HEADERS([sys/un.h])
+AC_CHECK_HEADERS([sys/poll.h])
+AC_CHECK_HEADERS([sys/resource.h])
 AC_CHECK_HEADERS([unistd.h])
 AC_CHECK_HEADERS([libintl.h])
 AC_CHECK_HEADERS([malloc.h])
 AC_CHECK_HEADERS([openssl/ssl.h])
 AC_CHECK_HEADERS([openssl/rand.h])
 AC_CHECK_HEADERS([openssl/x509v3.h])
+AC_CHECK_HEADERS([sched.h])
 
 AC_CHECK_LIB(pthread, pthread_create)
 dnl NOTE(dreiss): I haven't been able to find any really solid docs
@@ -407,7 +430,21 @@ dnl of the POSIX Real-Time Extensions.  This seems necessary on Linux,
 dnl and we haven't yet found a system where this is a problem.
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_LIB(socket, setsockopt)
-AC_CHECK_LIB(ssl, SSL_ctrl)
+
+if test "$have_cpp" = "yes" ; then
+# mingw toolchain used to build "Thrift Compiler for Windows"
+# does not support libcrypto, so we just check if we building the cpp library
+AC_CHECK_LIB(crypto,
+    BN_init,
+    [AC_CHECK_LIB(ssl,
+        SSL_ctrl,
+        [LIBS="-lssl -lcrypto $LIBS"],
+        [AC_MSG_ERROR(["Error: libssl required"])],
+        -lcrypto
+    )],
+    [AC_MSG_ERROR(["Error: libcrypto required."])]
+)
+fi
 
 AC_TYPE_INT16_T
 AC_TYPE_INT32_T
@@ -480,47 +517,6 @@ if false ; then
   AC_FUNC_ERROR_AT_LINE
 fi
 
-AX_THRIFT_GEN(cpp, [C++], yes)
-AM_CONDITIONAL([THRIFT_GEN_cpp], [test "$ax_thrift_gen_cpp" = "yes"])
-AX_THRIFT_GEN(c_glib, [C (GLib)], yes)
-AM_CONDITIONAL([THRIFT_GEN_c_glib], [test "$ax_thrift_gen_c_glib" = "yes"])
-AX_THRIFT_GEN(java, [Java], yes)
-AM_CONDITIONAL([THRIFT_GEN_java], [test "$ax_thrift_gen_java" = "yes"])
-AX_THRIFT_GEN(as3, [AS3], yes)
-AM_CONDITIONAL([THRIFT_GEN_as3], [test "$ax_thrift_gen_as3" = "yes"])
-AX_THRIFT_GEN(csharp, [C#], yes)
-AM_CONDITIONAL([THRIFT_GEN_csharp], [test "$ax_thrift_gen_csharp" = "yes"])
-AX_THRIFT_GEN(py, [Python], yes)
-AM_CONDITIONAL([THRIFT_GEN_py], [test "$ax_thrift_gen_py" = "yes"])
-AX_THRIFT_GEN(rb, [Ruby], yes)
-AM_CONDITIONAL([THRIFT_GEN_rb], [test "$ax_thrift_gen_rb" = "yes"])
-AX_THRIFT_GEN(perl, [Perl], yes)
-AM_CONDITIONAL([THRIFT_GEN_perl], [test "$ax_thrift_gen_perl" = "yes"])
-AX_THRIFT_GEN(php, [PHP], yes)
-AM_CONDITIONAL([THRIFT_GEN_php], [test "$ax_thrift_gen_php" = "yes"])
-AX_THRIFT_GEN(erl, [Erlang], yes)
-AM_CONDITIONAL([THRIFT_GEN_erl], [test "$ax_thrift_gen_erl" = "yes"])
-AX_THRIFT_GEN(cocoa, [Cocoa], yes)
-AM_CONDITIONAL([THRIFT_GEN_cocoa], [test "$ax_thrift_gen_cocoa" = "yes"])
-AX_THRIFT_GEN(st, [Smalltalk], yes)
-AM_CONDITIONAL([THRIFT_GEN_st], [test "$ax_thrift_gen_st" = "yes"])
-AX_THRIFT_GEN(ocaml, [OCaml], yes)
-AM_CONDITIONAL([THRIFT_GEN_ocaml], [test "$ax_thrift_gen_ocaml" = "yes"])
-AX_THRIFT_GEN(hs, [Haskell], yes)
-AM_CONDITIONAL([THRIFT_GEN_hs], [test "$ax_thrift_gen_hs" = "yes"])
-AX_THRIFT_GEN(xsd, [XSD], yes)
-AM_CONDITIONAL([THRIFT_GEN_xsd], [test "$ax_thrift_gen_xsd" = "yes"])
-AX_THRIFT_GEN(html, [HTML], yes)
-AM_CONDITIONAL([THRIFT_GEN_html], [test "$ax_thrift_gen_html" = "yes"])
-AX_THRIFT_GEN(js, [JavaScript], yes)
-AM_CONDITIONAL([THRIFT_GEN_js], [test "$ax_thrift_gen_js" = "yes"])
-AX_THRIFT_GEN(javame, [JavaME], yes)
-AM_CONDITIONAL([THRIFT_GEN_javame], [test "$ax_thrift_gen_javame" = "yes"])
-AX_THRIFT_GEN(go, [GO_C], yes)
-AM_CONDITIONAL([THRIFT_GEN_go], [test "$ax_thrift_gen_go" = "yes"])
-AX_THRIFT_GEN(d, [D], yes)
-AM_CONDITIONAL([THRIFT_GEN_d], [test "$ax_thrift_gen_d" = "yes"])
-
 # --- Coverage hooks ---
 
 AC_ARG_ENABLE(coverage,
@@ -543,6 +539,24 @@ AC_SUBST(ENABLE_COVERAGE)
 AC_SUBST(GCOV_CFLAGS)
 AC_SUBST(GCOV_CXXFLAGS)
 AC_SUBST(GCOV_LDFLAGS)
+
+AC_ARG_ENABLE(boostthreads,
+              [  --enable-boostthreads      use boost threads, instead of POSIX pthread (experimental) ],
+              [case "${enableval}" in
+                yes) ENABLE_BOOSTTHREADS=1 ;;
+                no) ENABLE_BOOSTTHREADS=0 ;;
+                *) AC_MSG_ERROR(bad value ${enableval} for --enable-cov) ;;
+              esac],
+              [ENABLE_BOOSTTHREADS=2])
+
+
+if test "x[$]ENABLE_BOOSTTHREADS" = "x1"; then
+  AC_MSG_WARN(enable boostthreads)
+  AC_DEFINE([USE_BOOST_THREAD], [1], [experimental --enable-boostthreads that replaces POSIX pthread by boost::thread])
+  LIBS="-lboost_thread $LIBS"
+fi
+
+AM_CONDITIONAL([WITH_BOOSTTHREADS], [test "x[$]ENABLE_BOOSTTHREADS" = "x1"])
 
 AC_CONFIG_HEADERS(config.h:config.hin)
 
@@ -626,7 +640,6 @@ fi
 if test "$have_ruby" = "yes" ; then
   echo
   echo "Using Ruby ................... : $RUBY"
-  echo "Using rspec .................. : $RSPEC"
 fi
 if test "$have_haskell" = "yes" ; then
   echo

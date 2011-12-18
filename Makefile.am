@@ -19,7 +19,11 @@
 
 ACLOCAL_AMFLAGS = -I ./aclocal
 
-SUBDIRS = compiler/cpp lib test
+SUBDIRS = compiler/cpp lib
+
+if WITH_TESTS
+SUBDIRS += test
+endif
 
 dist-hook:
 	find $(distdir) -type f \( -iname ".deps" -or -iname ".libs" -or -iname ".gitignore" \
@@ -29,5 +33,12 @@ dist-hook:
 print-version:
 	@echo $(VERSION)
 
-EXTRA_DIST = doc tutorial contrib \
-             CONTRIBUTORS LICENSE CHANGES DISCLAIMER NOTICE
+EXTRA_DIST = \
+ 			doc \
+			tutorial \
+			contrib \
+			CONTRIBUTORS \
+			LICENSE \
+			CHANGES \
+			DISCLAIMER \
+			NOTICE

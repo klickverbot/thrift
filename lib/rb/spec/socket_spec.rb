@@ -17,8 +17,8 @@
 # under the License.
 #
 
-require File.dirname(__FILE__) + '/spec_helper'
-require File.dirname(__FILE__) + "/socket_spec_shared"
+require File.expand_path("#{File.dirname(__FILE__)}/spec_helper")
+require File.expand_path("#{File.dirname(__FILE__)}/socket_spec_shared")
 
 class ThriftSocketSpec < Spec::ExampleGroup
   include Thrift
@@ -41,14 +41,14 @@ class ThriftSocketSpec < Spec::ExampleGroup
 
     it "should open a ::Socket with default args" do
       ::Socket.should_receive(:new).and_return(mock("Handle", :connect_nonblock => true))
-      ::Socket.should_receive(:getaddrinfo).with("localhost", 9090).and_return([[]])
+      ::Socket.should_receive(:getaddrinfo).with("localhost", 9090, nil, ::Socket::SOCK_STREAM).and_return([[]])
       ::Socket.should_receive(:sockaddr_in)
       @socket.open
     end
 
     it "should accept host/port options" do
       ::Socket.should_receive(:new).and_return(mock("Handle", :connect_nonblock => true))
-      ::Socket.should_receive(:getaddrinfo).with("my.domain", 1234).and_return([[]])
+      ::Socket.should_receive(:getaddrinfo).with("my.domain", 1234, nil, ::Socket::SOCK_STREAM).and_return([[]])
       ::Socket.should_receive(:sockaddr_in)
       Socket.new('my.domain', 1234).open
     end

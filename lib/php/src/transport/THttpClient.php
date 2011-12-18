@@ -85,7 +85,7 @@ class THttpClient extends TTransport {
    * @param string $uri
    */
   public function __construct($host, $port=80, $uri='', $scheme = 'http') {
-    if ((strlen($uri) > 0) && ($uri{0} != '/')) {
+    if ((TStringFuncFactory::create()->strlen($uri) > 0) && ($uri{0} != '/')) {
       $uri = '/'.$uri;
     }
     $this->scheme_ = $scheme;
@@ -144,9 +144,9 @@ class THttpClient extends TTransport {
     if ($data === FALSE || $data === '') {
       $md = stream_get_meta_data($this->handle_);
       if ($md['timed_out']) {
-        throw new TTransportException('THttpClient: timed out reading '.$len.' bytes from '.$this->host_.':'.$this->port_.'/'.$this->uri_, TTransportException::TIMED_OUT);
+        throw new TTransportException('THttpClient: timed out reading '.$len.' bytes from '.$this->host_.':'.$this->port_.$this->uri_, TTransportException::TIMED_OUT);
       } else {
-        throw new TTransportException('THttpClient: Could not read '.$len.' bytes from '.$this->host_.':'.$this->port_.'/'.$this->uri_, TTransportException::UNKNOWN);
+        throw new TTransportException('THttpClient: Could not read '.$len.' bytes from '.$this->host_.':'.$this->port_.$this->uri_, TTransportException::UNKNOWN);
       }
     }
     return $data;
@@ -175,7 +175,7 @@ class THttpClient extends TTransport {
                      'Accept: application/x-thrift',
                      'User-Agent: PHP/THttpClient',
                      'Content-Type: application/x-thrift',
-                     'Content-Length: '.strlen($this->buf_));
+                     'Content-Length: '.TStringFuncFactory::create()->strlen($this->buf_));
 
     $options = array('method' => 'POST',
                      'header' => implode("\r\n", $headers),

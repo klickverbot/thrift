@@ -33,6 +33,8 @@ namespace py ThriftTest
 namespace py.twisted ThriftTest
 namespace go ThriftTest
 namespace php ThriftTest
+namespace delphi Thrift.Test
+namespace cocoa ThriftTest
 namespace * thrift.test
 
 /**
@@ -207,4 +209,27 @@ struct LargeDeltas {
   2500: set<string> a_set2500,
   3000: VersioningTestV2 vertwo3000,
   4000: list<i32> big_numbers
+}
+
+struct NestedListsI32x2 {
+  1: list<list<i32>> integerlist
+}
+struct NestedListsI32x3 {
+  1: list<list<list<i32>>> integerlist
+}
+struct NestedMixedx2 {
+  1: list<set<i32>> int_set_list
+  2: map<i32,set<string>> map_int_strset
+  3: list<map<i32,set<string>>> map_int_strset_list
+}
+struct ListBonks {
+  1: list<Bonk> bonk
+}
+struct NestedListsBonk {
+  1: list<list<list<Bonk>>> bonk
+}
+
+struct BoolTest {
+  1: optional bool b = true;
+  2: optional string s = "true";
 }

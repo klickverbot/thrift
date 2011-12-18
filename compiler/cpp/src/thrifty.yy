@@ -28,7 +28,11 @@
 #define __STDC_LIMIT_MACROS
 #define __STDC_FORMAT_MACROS
 #include <stdio.h>
+#ifndef _MSC_VER
 #include <inttypes.h>
+#else
+#include <stdint.h>
+#endif
 #include <limits.h>
 #include "main.h"
 #include "globals.h"
@@ -110,6 +114,7 @@ const int struct_is_union = 1;
 %token tok_smalltalk_prefix
 %token tok_cocoa_prefix
 %token tok_csharp_namespace
+%token tok_delphi_namespace
 
 /**
  * Base datatype keywords
@@ -393,6 +398,15 @@ Header:
        g_program->set_namespace("csharp", $2);
      }
    }
+/* TODO(dreiss): Get rid of this once everyone is using the new hotness. */
+| tok_delphi_namespace tok_identifier
+   {
+     pwarning(1, "'delphi_namespace' is deprecated. Use 'namespace delphi' instead");
+     pdebug("Header -> tok_delphi_namespace tok_identifier");
+     if (g_parse_mode == PROGRAM) {
+       g_program->set_namespace("delphi", $2);
+     }
+   }
 
 Include:
   tok_include tok_literal
@@ -618,7 +632,7 @@ ConstValue:
       pdebug("ConstValue => tok_int_constant");
       $$ = new t_const_value();
       $$->set_integer($1);
-      if ($1 < INT32_MIN || $1 > INT32_MAX) {
+      if (!g_allow_64bit_consts && ($1 < INT32_MIN || $1 > INT32_MAX)) {
         pwarning(1, "64-bit constant \"%"PRIi64"\" may not work in all languages.\n", $1);
       }
     }

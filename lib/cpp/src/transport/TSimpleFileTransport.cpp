@@ -17,11 +17,20 @@
  * under the License.
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 #include "TSimpleFileTransport.h"
 
 #include <sys/types.h>
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #include <fcntl.h>
+
+#ifdef _WIN32
+#include <io.h>
+#endif
 
 namespace apache { namespace thrift { namespace transport {
 
@@ -41,9 +50,14 @@ TSimpleFileTransport(const std::string& path, bool read, bool write)
   if (write) {
     flags |= O_CREAT | O_APPEND;
   }
+#ifndef _WIN32
+  mode_t mode = S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH;
+#else
+  int mode = _S_IREAD | _S_IWRITE;
+#endif
   int fd = ::open(path.c_str(),
                   flags,
-                  S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH);
+                  mode);
   if (fd < 0) {
     throw TTransportException("failed to open file for writing: " + path);
   }

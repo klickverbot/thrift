@@ -17,6 +17,10 @@
  * under the License.
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include "ThreadManager.h"
 #include "Exception.h"
 #include "Monitor.h"
@@ -467,7 +471,8 @@ void ThreadManager::Impl::removeWorker(size_t value) {
     }
 
     if (state_ != ThreadManager::STARTED) {
-      throw IllegalStateException();
+      throw IllegalStateException("ThreadManager::Impl::add ThreadManager "
+                                  "not started");
     }
 
     removeExpiredTasks();
@@ -495,14 +500,16 @@ void ThreadManager::Impl::remove(shared_ptr<Runnable> task) {
   (void) task;
   Synchronized s(monitor_);
   if (state_ != ThreadManager::STARTED) {
-    throw IllegalStateException();
+    throw IllegalStateException("ThreadManager::Impl::remove ThreadManager not "
+                                "started");
   }
 }
 
 boost::shared_ptr<Runnable> ThreadManager::Impl::removeNextPending() {
   Guard g(mutex_);
   if (state_ != ThreadManager::STARTED) {
-    throw IllegalStateException();
+    throw IllegalStateException("ThreadManager::Impl::removeNextPending "
+                                "ThreadManager not started");
   }
 
   if (tasks_.empty()) {

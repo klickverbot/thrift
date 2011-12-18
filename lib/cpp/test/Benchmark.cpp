@@ -17,13 +17,18 @@
  * under the License.
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 #include <iostream>
 #include <cmath>
 #include "transport/TBufferTransports.h"
 #include "protocol/TBinaryProtocol.h"
 #include "gen-cpp/DebugProtoTest_types.h"
 #include <time.h>
+#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
+#endif
 
 class Timer {
 public:
@@ -65,7 +70,7 @@ int main() {
   ooe.zomg_unicode     = "\xd7\n\a\t";
   ooe.base64 = "\1\2\3\255";
 
-  shared_ptr<TMemoryBuffer> buf(new TMemoryBuffer());
+  boost::shared_ptr<TMemoryBuffer> buf(new TMemoryBuffer());
 
   int num = 1000000;
 
@@ -87,7 +92,7 @@ int main() {
 
   {
     Timer timer;
-    shared_ptr<TMemoryBuffer> buf2(new TMemoryBuffer(data, datasize));
+    boost::shared_ptr<TMemoryBuffer> buf2(new TMemoryBuffer(data, datasize));
     TBinaryProtocolT<TBufferBase> prot(buf2);
 
     for (int i = 0; i < num; i ++) {

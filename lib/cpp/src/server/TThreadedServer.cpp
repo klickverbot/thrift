@@ -19,12 +19,14 @@
 
 #include "server/TThreadedServer.h"
 #include "transport/TTransportException.h"
-#include "concurrency/PosixThreadFactory.h"
+#include <concurrency/PlatformThreadFactory.h>
 
 #include <string>
 #include <iostream>
-#include <pthread.h>
+
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 
 namespace apache { namespace thrift { namespace server {
 
@@ -70,12 +72,14 @@ public:
           break;
         }
       }
-    } catch (TTransportException& ttx) {
-      string errStr = string("TThreadedServer client died: ") + ttx.what();
-      GlobalOutput(errStr.c_str());
-    } catch (TException& x) {
-      string errStr = string("TThreadedServer exception: ") + x.what();
-      GlobalOutput(errStr.c_str());
+    } catch (const TTransportException& ttx) {
+      if (ttx.getType() != TTransportException::END_OF_FILE) {
+        string errStr = string("TThreadedServer client died: ") + ttx.what();
+        GlobalOutput(errStr.c_str());
+      }
+    } catch (const std::exception &x) {
+      GlobalOutput.printf("TThreadedServer exception: %s: %s",
+                          typeid(x).name(), x.what());
     } catch (...) {
       GlobalOutput("TThreadedServer uncaught exception.");
     }
@@ -117,24 +121,12 @@ public:
   shared_ptr<TTransport> transport_;
 };
 
+void TThreadedServer::init() {
+  stop_ = false;
 
-TThreadedServer::TThreadedServer(shared_ptr<TProcessor> processor,
-                                 shared_ptr<TServerTransport> serverTransport,
-                                 shared_ptr<TTransportFactory> transportFactory,
-                                 shared_ptr<TProtocolFactory> protocolFactory):
-  TServer(processor, serverTransport, transportFactory, protocolFactory),
-  stop_(false) {
-  threadFactory_ = shared_ptr<PosixThreadFactory>(new PosixThreadFactory());
-}
-
-TThreadedServer::TThreadedServer(boost::shared_ptr<TProcessor> processor,
-                                 boost::shared_ptr<TServerTransport> serverTransport,
-                                 boost::shared_ptr<TTransportFactory> transportFactory,
-                                 boost::shared_ptr<TProtocolFactory> protocolFactory,
-                                 boost::shared_ptr<ThreadFactory> threadFactory):
-  TServer(processor, serverTransport, transportFactory, protocolFactory),
-  threadFactory_(threadFactory),
-  stop_(false) {
+  if (!threadFactory_) {
+    threadFactory_.reset(new PlatformThreadFactory);
+  }
 }
 
 TThreadedServer::~TThreadedServer() {}
@@ -178,8 +170,11 @@ void TThreadedServer::serve() {
       inputProtocol = inputProtocolFactory_->getProtocol(inputTransport);
       outputProtocol = outputProtocolFactory_->getProtocol(outputTransport);
 
+      shared_ptr<TProcessor> processor = getProcessor(inputProtocol,
+                                                      outputProtocol, client);
+
       TThreadedServer::Task* task = new TThreadedServer::Task(*this,
-                                                              processor_,
+                                                              processor,
                                                               inputProtocol,
                                                               outputProtocol,
                                                               client);

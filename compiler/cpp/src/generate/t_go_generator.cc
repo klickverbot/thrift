@@ -2,10 +2,10 @@
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
  * distributed with this work for additional information
- * regarding cogoright ownership. The ASF licenses this file
+ * regarding copyright ownership. The ASF licenses this file
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
- * with the License. You may obtain a cogo of the License at
+ * with the License. You may obtain a copy of the License at
  *
  *   http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -1954,6 +1954,8 @@ void t_go_generator::generate_service_remote(t_service* tservice) {
   // Close service file
   f_remote.close();
 
+#ifndef _MSC_VER
+
   // Make file executable, love that bitwise OR action
   chmod(f_remote_name.c_str(),
           S_IRUSR
@@ -1966,6 +1968,9 @@ void t_go_generator::generate_service_remote(t_service* tservice) {
         | S_IXOTH
 #endif
   );
+
+#endif // _MSC_VER
+
 }
 
 /**
