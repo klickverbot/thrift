@@ -334,9 +334,9 @@ class TSocket : TSocketBase {
     while (sent < buf.length) {
       auto b = writeSome(buf[sent .. $]);
       if (b == 0) {
-        // Couldn't send due to lack of system resources, wait a bit and try
-        // again.
-        Thread.sleep(dur!"usecs"(50));
+        // This should only happen if the timeout set with SO_SNDTIMEO expired.
+        throw new TTransportException(TTransportException.Type.TIMED_OUT,
+          "send() timeout expired.");
       }
       sent += b;
     }
