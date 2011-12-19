@@ -21,6 +21,7 @@ module thrift.protocol.processor;
 // Use selective import once DMD @@BUG314@@ is fixed.
 import std.variant /+ : Variant +/;
 import thrift.protocol.base;
+import thrift.transport.base;
 
 /**
  * A processor is a generic object which operates upon an input stream and
@@ -96,4 +97,49 @@ interface TProcessorEventHandler {
    * Called if the handler throws an undeclared exception.
    */
   void handlerError(Variant callContext, string methodName, Exception e);
+}
+
+struct TConnectionInfo {
+  /// The input and output protocols.
+  TProtocol input;
+  TProtocol output; /// Ditto.
+
+  /// The underlying transport used for the connection
+  /// This is the transport that was returned by TServerTransport.accept(),
+  /// and it may be different than the transport pointed to by the input and
+  /// output protocols.
+  TTransport transport;
+}
+
+interface TProcessorFactory {
+  /**
+   * Get the TProcessor to use for a particular connection.
+   *
+   * This method is always invoked in the same thread that the connection was
+   * accepted on, which is always the same thread for all current server
+   * implementations.
+   */
+  TProcessor getProcessor(ref const(TConnectionInfo) connInfo);
+}
+
+/**
+ * The default processor factory which always returns the same instance.
+ */
+class TSingletonProcessorFactory : TProcessorFactory {
+  /**
+   * Creates a new instance.
+   *
+   * Params:
+   *   processor = The processor object to return from getProcessor().
+   */
+  this(TProcessor processor) {
+    processor_ = processor;
+  }
+
+  override TProcessor getProcessor(ref const(TConnectionInfo) connInfo) {
+    return processor_;
+  }
+
+private:
+  TProcessor processor_;
 }

@@ -37,16 +37,6 @@ import thrift.util.cancellation;
  */
 class TSimpleServer : TServer {
   ///
-  this(TProcessor processor, ushort port) {
-    super(processor, port);
-  }
-
-  ///
-  this(TProcessor processor, TServerTransport serverTransport) {
-    super(processor, serverTransport);
-  }
-
-  ///
   this(
     TProcessor processor,
     TServerTransport serverTransport,
@@ -54,6 +44,16 @@ class TSimpleServer : TServer {
     TProtocolFactory protocolFactory
   ) {
     super(processor, serverTransport, transportFactory, protocolFactory);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory transportFactory,
+    TProtocolFactory protocolFactory
+  ) {
+    super(processorFactory, serverTransport, transportFactory, protocolFactory);
   }
 
   ///
@@ -69,10 +69,22 @@ class TSimpleServer : TServer {
       outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
   }
 
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory
+  ) {
+    super(processorFactory, serverTransport, inputTransportFactory,
+      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
+  }
+
   override void serve(TCancellation cancellation = null) {
     serverTransport_.listen();
 
-    if (eventHandler_) eventHandler_.preServe();
+    if (eventHandler) eventHandler.preServe();
 
     while (true) {
       TTransport client;
@@ -103,19 +115,22 @@ class TSimpleServer : TServer {
         continue;
       }
 
+      auto processor = processorFactory_.getProcessor(
+        TConnectionInfo(inputProtocol, outputProtocol, client));
+
       Variant connectionContext;
-      if (eventHandler_) {
+      if (eventHandler) {
         connectionContext =
-          eventHandler_.createContext(inputProtocol, outputProtocol);
+          eventHandler.createContext(inputProtocol, outputProtocol);
       }
 
       try {
         while (true) {
-          if (eventHandler_) {
-            eventHandler_.preProcess(connectionContext, client);
+          if (eventHandler) {
+            eventHandler.preProcess(connectionContext, client);
           }
 
-          if (!processor_.process(inputProtocol, outputProtocol,
+          if (!processor.process(inputProtocol, outputProtocol,
             connectionContext) || !inputProtocol.transport.peek()
           ) {
             // Something went fundamentlly wrong or there is nothing more to
@@ -129,8 +144,8 @@ class TSimpleServer : TServer {
         logError("Uncaught exception: %s", e);
       }
 
-      if (eventHandler_) {
-        eventHandler_.deleteContext(connectionContext, inputProtocol,
+      if (eventHandler) {
+        eventHandler.deleteContext(connectionContext, inputProtocol,
           outputProtocol);
       }
 

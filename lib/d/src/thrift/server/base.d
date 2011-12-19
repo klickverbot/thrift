@@ -48,32 +48,28 @@ class TServer {
    */
   abstract void serve(TCancellation cancellation = null);
 
+  /// The server event handler to notify. Null by default.
+  TServerEventHandler eventHandler;
+
 protected:
-  this(TProcessor processor, ushort port) {
-    import thrift.server.transport.socket;
-    this(processor, new TServerSocket(port));
-  }
-
-  this(TProcessor processor, TServerTransport serverTransport) {
-    inputTransportFactory_ = new TTransportFactory;
-    outputTransportFactory_ = new TTransportFactory;
-    inputProtocolFactory_ = new TBinaryProtocolFactory!();
-    outputProtocolFactory_ = new TBinaryProtocolFactory!();
-    serverTransport_ = serverTransport;
-  }
-
   this(
     TProcessor processor,
     TServerTransport serverTransport,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory
   ) {
-    processor_ = processor;
-    serverTransport_ = serverTransport;
-    inputTransportFactory_ = transportFactory;
-    outputTransportFactory_ = transportFactory;
-    inputProtocolFactory_ = protocolFactory;
-    outputProtocolFactory_ = protocolFactory;
+    this(processor, serverTransport, transportFactory, transportFactory,
+      protocolFactory, protocolFactory);
+  }
+
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory transportFactory,
+    TProtocolFactory protocolFactory
+  ) {
+    this(processorFactory, serverTransport, transportFactory, transportFactory,
+      protocolFactory, protocolFactory);
   }
 
   this(
@@ -84,7 +80,31 @@ protected:
     TProtocolFactory inputProtocolFactory,
     TProtocolFactory outputProtocolFactory
   ) {
-    processor_ = processor;
+    this(new TSingletonProcessorFactory(processor), serverTransport,
+      inputTransportFactory, outputTransportFactory,
+      inputProtocolFactory, outputProtocolFactory);
+  }
+
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory
+  ) {
+    import std.exception;
+    import thrift.base;
+    enforce(inputTransportFactory,
+      new TException("Input transport factory must not be null."));
+    enforce(outputTransportFactory,
+      new TException("Output transport factory must not be null."));
+    enforce(inputProtocolFactory,
+      new TException("Input protocol factory must not be null."));
+    enforce(outputProtocolFactory,
+      new TException("Output protocol factory must not be null."));
+
+    processorFactory_ = processorFactory;
     serverTransport_ = serverTransport;
     inputTransportFactory_ = inputTransportFactory;
     outputTransportFactory_ = outputTransportFactory;
@@ -92,13 +112,12 @@ protected:
     outputProtocolFactory_ = outputProtocolFactory;
   }
 
-  TProcessor processor_;
+  TProcessorFactory processorFactory_;
   TServerTransport serverTransport_;
   TTransportFactory inputTransportFactory_;
   TTransportFactory outputTransportFactory_;
   TProtocolFactory inputProtocolFactory_;
   TProtocolFactory outputProtocolFactory_;
-  TServerEventHandler eventHandler_;
 }
 
 /**

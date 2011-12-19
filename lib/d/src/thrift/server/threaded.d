@@ -32,36 +32,49 @@ import thrift.util.cancellation;
  */
 class TThreadedServer : TServer {
   ///
-  this(TProcessor processor, ushort port) {
-    super(processor, port);
-  }
-
-  ///
-  this(TProcessor processor, TServerTransport serverTransport) {
-    super(processor, serverTransport);
-  }
-
-  ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport_,
+    TServerTransport serverTransport,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory
   ) {
-    super(processor, serverTransport_, transportFactory, protocolFactory);
+    super(processor, serverTransport, transportFactory, protocolFactory);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory transportFactory,
+    TProtocolFactory protocolFactory
+  ) {
+    super(processorFactory, serverTransport, transportFactory, protocolFactory);
   }
 
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport_,
-    TTransportFactory inputTransportFactory_,
-    TTransportFactory outputTransportFactory_,
-    TProtocolFactory inputProtocolFactory_,
-    TProtocolFactory outputProtocolFactory_
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory
   ) {
-    super(processor, serverTransport_, inputTransportFactory_,
-      outputTransportFactory_, inputProtocolFactory_, outputProtocolFactory_);
+    super(processor, serverTransport, inputTransportFactory,
+      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory
+  ) {
+    super(processorFactory, serverTransport, inputTransportFactory,
+      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
   }
 
   override void serve(TCancellation cancellation = null) {
@@ -73,7 +86,7 @@ class TThreadedServer : TServer {
       return;
     }
 
-    if (eventHandler_) eventHandler_.preServe();
+    if (eventHandler) eventHandler.preServe();
 
     auto workerThreads = new ThreadGroup();
 
@@ -106,8 +119,10 @@ class TThreadedServer : TServer {
         continue;
       }
 
+      auto processor = processorFactory_.getProcessor(
+        TConnectionInfo(inputProtocol, outputProtocol, client));
       auto worker = new WorkerThread(client, inputProtocol, outputProtocol,
-        processor_, eventHandler_);
+        processor, eventHandler);
       workerThreads.add(worker);
       worker.start();
     }

@@ -64,7 +64,7 @@ TServer createServer(ServerType type, size_t taskPoolSize,
     case ServerType.taskpool:
       auto tps = new TTaskPoolServer(processor, serverTransport,
         transportFactory, protocolFactory);
-      tps.setTaskPool(new TaskPool(taskPoolSize));
+      tps.taskPool = new TaskPool(taskPoolSize);
       return tps;
     case ServerType.threaded:
       return new TThreadedServer(processor, serverTransport,

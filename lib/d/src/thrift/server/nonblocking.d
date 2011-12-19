@@ -76,30 +76,49 @@ enum TOverloadAction {
 ///
 class TNonblockingServer : TServer {
   ///
-  this(TProcessor processor, ushort port) {
-    this(processor, port, new TTransportFactory, new TBinaryProtocolFactory!());
+  this(TProcessor processor, ushort port, TTransportFactory transportFactory,
+    TProtocolFactory protocolFactory, TaskPool taskPool = null
+  ) {
+    this(new TSingletonProcessorFactory(processor), port, transportFactory,
+      transportFactory, protocolFactory, protocolFactory, taskPool);
   }
 
   ///
-  this(TProcessor processor, ushort port, TTransportFactory transportFactory,
-    TProtocolFactory protocolFactory, TaskPool taskPool = null)
-  {
-    this(processor, port, transportFactory, transportFactory, protocolFactory,
-      protocolFactory, taskPool);
+  this(TProcessorFactory processorFactory, ushort port,
+    TTransportFactory transportFactory, TProtocolFactory protocolFactory,
+    TaskPool taskPool = null
+  ) {
+    this(processorFactory, port, transportFactory, transportFactory,
+      protocolFactory, protocolFactory, taskPool);
   }
 
   ///
   this(
     TProcessor processor,
     ushort port,
-    TTransportFactory inputTransportFactory_,
-    TTransportFactory outputTransportFactory_,
-    TProtocolFactory inputProtocolFactory_,
-    TProtocolFactory outputProtocolFactory_,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory,
     TaskPool taskPool = null
   ) {
-    super(processor, null, inputTransportFactory_, outputTransportFactory_,
-      inputProtocolFactory_, outputProtocolFactory_);
+    this(new TSingletonProcessorFactory(processor), port,
+      inputTransportFactory, outputTransportFactory,
+      inputProtocolFactory, outputProtocolFactory, taskPool);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    ushort port,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory,
+    TaskPool taskPool = null
+  ) {
+    super(processorFactory, null, inputTransportFactory,
+      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
     port_ = port;
 
     eventBase_ = event_base_new();
@@ -194,7 +213,7 @@ class TNonblockingServer : TServer {
       });
     }
 
-    if (eventHandler_) eventHandler_.preServe();
+    if (eventHandler) eventHandler.preServe();
     event_base_loop(eventBase_, 0);
 
     if (event_del(listenEvent_) == -1) {
@@ -708,10 +727,13 @@ private {
       inputProtocol_ = s.inputProtocolFactory_.getProtocol(factoryInputTransport_);
       outputProtocol_ = s.outputProtocolFactory_.getProtocol(factoryOutputTransport_);
 
-      if (s.eventHandler_) {
+      if (s.eventHandler) {
         connectionContext_ =
-          s.eventHandler_.createContext(inputProtocol_, outputProtocol_);
+          s.eventHandler.createContext(inputProtocol_, outputProtocol_);
       }
+
+      processor_ = s.processorFactory_.getProcessor(
+        TConnectionInfo(inputProtocol_, outputProtocol_, socket_));
     }
 
     ~this() {
@@ -1059,8 +1081,8 @@ private {
     void close() {
       unregisterEvent();
 
-      if (server_.eventHandler_) {
-        server_.eventHandler_.deleteContext(
+      if (server_.eventHandler) {
+        server_.eventHandler.deleteContext(
           connectionContext_, inputProtocol_, outputProtocol_);
       }
 
@@ -1143,6 +1165,9 @@ private {
 
     /// Connection context optionally created by the server event handler.
     Variant connectionContext_;
+
+    /// The processor used for this connection.
+    TProcessor processor_;
   }
 }
 
@@ -1156,11 +1181,11 @@ void processRequest(Connection connection) {
   try {
     while (true) {
       with (connection) {
-        if (server_.eventHandler_) {
-          server_.eventHandler_.preProcess(connectionContext_, socket_);
+        if (server_.eventHandler) {
+          server_.eventHandler.preProcess(connectionContext_, socket_);
         }
 
-        if (!server_.processor_.process(inputProtocol_, outputProtocol_,
+        if (!processor_.process(inputProtocol_, outputProtocol_,
           connectionContext_) || !inputProtocol_.transport.peek()
         ) {
           // Something went fundamentally wrong or there is nothing more to

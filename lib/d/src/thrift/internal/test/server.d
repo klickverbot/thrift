@@ -20,12 +20,15 @@ module thrift.internal.test.server;
 
 import core.sync.condition;
 import core.sync.mutex;
-import core.thread;
+import core.thread : Thread;
 import std.datetime;
 import std.exception;
 import std.typecons;
+import thrift.protocol.binary;
 import thrift.protocol.processor;
 import thrift.server.base;
+import thrift.server.transport.socket;
+import thrift.transport.base;
 import thrift.util.cancellation;
 
 version(unittest):
@@ -33,7 +36,18 @@ version(unittest):
 void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
   is(Server : TServer)
 ) {
-  auto server = new Server(new WhiteHole!TProcessor, 0);
+  auto proc = new WhiteHole!TProcessor;
+  auto tf = new TTransportFactory;
+  auto pf = new TBinaryProtocolFactory!();
+
+  // Need a special case for TNonblockingServer which doesn't use
+  // TServerTransport.
+  static if (__traits(compiles, new Server(proc, 0, tf, pf))) {
+    auto server = new Server(proc, 0, tf, pf);
+  } else {
+    auto server = new Server(proc, new TServerSocket(0), tf, pf);
+  }
+
   if (serverSetup) serverSetup(server);
 
   auto doneMutex = new Mutex;

@@ -31,48 +31,67 @@ import thrift.transport.base;
 import thrift.util.cancellation;
 
 /**
- * A server which dispatches client request to a std.parallelism TaskPool.
+ * A server which dispatches client requests to a std.parallelism TaskPool.
  */
 class TTaskPoolServer : TServer {
   ///
-  this(TProcessor processor, ushort port) {
-    super(processor, port);
-  }
-
-  ///
-  this(TProcessor processor, TServerTransport serverTransport) {
-    super(processor, serverTransport);
-  }
-
-  ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport_,
+    TServerTransport serverTransport,
     TTransportFactory transportFactory,
-    TProtocolFactory protocolFactory
+    TProtocolFactory protocolFactory,
+    TaskPool taskPool = std.parallelism.taskPool
   ) {
-    this(processor, serverTransport_, transportFactory, transportFactory,
-      protocolFactory, protocolFactory);
+    this(processor, serverTransport, transportFactory, transportFactory,
+      protocolFactory, protocolFactory, taskPool);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory transportFactory,
+    TProtocolFactory protocolFactory,
+    TaskPool taskPool = std.parallelism.taskPool
+  ) {
+    this(processorFactory, serverTransport, transportFactory, transportFactory,
+      protocolFactory, protocolFactory, taskPool);
   }
 
   ///
   this(
     TProcessor processor,
-    TServerTransport serverTransport_,
-    TTransportFactory inputTransportFactory_,
-    TTransportFactory outputTransportFactory_,
-    TProtocolFactory inputProtocolFactory_,
-    TProtocolFactory outputProtocolFactory_
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory,
+    TaskPool taskPool = std.parallelism.taskPool
   ) {
-    super(processor, serverTransport_, inputTransportFactory_,
-      outputTransportFactory_, inputProtocolFactory_, outputProtocolFactory_);
-    taskPool_ = std.parallelism.taskPool;
+    this(new TSingletonProcessorFactory(processor), serverTransport,
+      inputTransportFactory, outputTransportFactory,
+      inputProtocolFactory, outputProtocolFactory);
+  }
+
+  ///
+  this(
+    TProcessorFactory processorFactory,
+    TServerTransport serverTransport,
+    TTransportFactory inputTransportFactory,
+    TTransportFactory outputTransportFactory,
+    TProtocolFactory inputProtocolFactory,
+    TProtocolFactory outputProtocolFactory,
+    TaskPool taskPool = std.parallelism.taskPool
+  ) {
+    super(processorFactory, serverTransport, inputTransportFactory,
+      outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
+    this.taskPool = taskPool;
   }
 
   override void serve(TCancellation cancellation = null) {
     serverTransport_.listen();
 
-    if (eventHandler_) eventHandler_.preServe();
+    if (eventHandler) eventHandler.preServe();
 
     auto queueState = QueueState();
 
@@ -114,11 +133,14 @@ class TTaskPoolServer : TServer {
         continue;
       }
 
+      auto processor = processorFactory_.getProcessor(
+        TConnectionInfo(inputProtocol, outputProtocol, client));
+
       synchronized (queueState.mutex) {
         ++queueState.activeConns;
       }
       taskPool_.put(task!worker(queueState, client, inputProtocol,
-        outputProtocol, processor_, eventHandler_));
+        outputProtocol, processor, eventHandler));
     }
 
     // First, stop accepting new connections.
@@ -147,7 +169,8 @@ class TTaskPoolServer : TServer {
    * e.g. by calling TaskPool.close() while there are still tasks in the
    * queue. If this happens, serve() will never return.
    */
-  void setTaskPool(TaskPool pool) {
+  void taskPool(TaskPool pool) @property {
+    enforce(pool !is null, "Cannot use a null task pool.");
     enforce(pool.size > 0, "Cannot use a task pool with no worker threads.");
     taskPool_ = pool;
   }
@@ -195,7 +218,7 @@ protected:
 
   void worker(ref QueueState queueState, TTransport client,
     TProtocol inputProtocol, TProtocol outputProtocol,
-    TProcessor processor, TServerEventHandler eventHandler_)
+    TProcessor processor, TServerEventHandler eventHandler)
   {
     scope (exit) {
       synchronized (queueState.mutex) {
@@ -206,15 +229,15 @@ protected:
     }
 
     Variant connectionContext;
-    if (eventHandler_) {
+    if (eventHandler) {
       connectionContext =
-        eventHandler_.createContext(inputProtocol, outputProtocol);
+        eventHandler.createContext(inputProtocol, outputProtocol);
     }
 
     try {
       while (true) {
-        if (eventHandler_) {
-          eventHandler_.preProcess(connectionContext, client);
+        if (eventHandler) {
+          eventHandler.preProcess(connectionContext, client);
         }
 
         if (!processor.process(inputProtocol, outputProtocol,
@@ -231,8 +254,8 @@ protected:
       logError("Uncaught exception: %s", e);
     }
 
-    if (eventHandler_) {
-      eventHandler_.deleteContext(connectionContext, inputProtocol,
+    if (eventHandler) {
+      eventHandler.deleteContext(connectionContext, inputProtocol,
         outputProtocol);
     }
 
