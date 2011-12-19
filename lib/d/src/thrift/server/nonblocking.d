@@ -133,6 +133,7 @@ class TNonblockingServer : TServer {
     idleReadBufferLimit = DEFAULT_IDLE_READ_BUFFER_LIMIT;
     idleWriteBufferLimit = DEFAULT_IDLE_WRITE_BUFFER_LIMIT;
     resizeBufferEveryN = DEFAULT_RESIZE_BUFFER_EVERY_N;
+    maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
   }
 
   ~this() {
@@ -378,6 +379,16 @@ class TNonblockingServer : TServer {
 
   /// Ditto
   enum size_t DEFAULT_MAX_ACTIVE_PROCESSORS = int.max;
+
+  /// Maximum frame size, in bytes.
+  ///
+  /// If a client tries to send a message larger than this limit, its
+  /// connection will be closed. This helps to avoid allocating huge buffers
+  /// on bogous input.
+  uint maxFrameSize;
+
+  /// Ditto
+  enum uint DEFAULT_MAX_FRAME_SIZE = 256 * 1024 * 1024;
 
 private:
   /**
@@ -956,9 +967,9 @@ private {
           }
 
           auto size = netToHost(frameSize);
-          if (size <= 0) {
-            logError("Negative frame size (%s), client not using " ~
-              "TFramedTransport?", size);
+          if (size > server_.maxFrameSize) {
+            logError("Frame size too large (%s > %s), client %s not using " ~
+              "TFramedTransport?", size, server_.maxFrameSize, socket_.getPeerHost());
             close();
             return;
           }
@@ -1122,9 +1133,9 @@ private {
 
     /// The size of the frame to read. If still in READ_FRAME_SIZE state, some
     /// of the bytes might not have been written, and the value might still be
-    /// in network byte order. An int (not a size_t) because the frame size on
+    /// in network byte order. An uint (not a size_t) because the frame size on
     /// the wire is specified as one.
-    int readWant_;
+    uint readWant_;
 
     /// The position in the read buffer, i.e. the number of payload bytes
     /// already received from the socket in READ_REQUEST state, resp. the
