@@ -24,6 +24,7 @@ import core.thread : Thread;
 import std.datetime;
 import std.exception;
 import std.typecons;
+import thrift.protocol.base;
 import thrift.protocol.binary;
 import thrift.protocol.processor;
 import thrift.server.base;
@@ -33,6 +34,14 @@ import thrift.util.cancellation;
 
 version(unittest):
 
+/**
+ * Tests if serving is stopped correctly if the cancellation passed to serve()
+ * is triggered.
+ *
+ * Because the tests are run many times in a loop, this is indirectly also a
+ * test whether socket, etc. handles are cleaned up correctly, because the
+ * application will likely run out of handles otherwise.
+ */
 void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
   is(Server : TServer)
 ) {
@@ -50,25 +59,42 @@ void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
 
   if (serverSetup) serverSetup(server);
 
+  auto servingMutex = new Mutex;
+  auto servingCondition = new Condition(servingMutex);
   auto doneMutex = new Mutex;
   auto doneCondition = new Condition(doneMutex);
 
-  foreach (_; 0 .. 100) {
-    auto cancel = new TCancellationOrigin;
-
-    auto serverThread = new Thread({
-      server.serve(cancel);
-      synchronized (doneMutex) {
-        doneCondition.notifyAll();
+  class CancellingHandler : TServerEventHandler {
+    void preServe() {
+      synchronized (servingMutex) {
+        servingCondition.notifyAll();
       }
-    });
-    serverThread.isDaemon = true;
-    serverThread.start();
+    }
+    Variant createContext(TProtocol input, TProtocol output) { return Variant.init; }
+    void deleteContext(Variant serverContext, TProtocol input, TProtocol output) {}
+    void preProcess(Variant serverContext, TTransport transport) {}
+  }
+  server.eventHandler = new CancellingHandler;
 
-    Thread.sleep(dur!"msecs"(5));
-    synchronized (doneMutex) {
-      cancel.trigger();
-      enforce(doneCondition.wait(dur!"msecs"(100)));
+  foreach (i; 0 .. 10000) {
+    synchronized (servingMutex) {
+      auto cancel = new TCancellationOrigin;
+      synchronized (doneMutex) {
+        auto serverThread = new Thread({
+          server.serve(cancel);
+          synchronized (doneMutex) {
+            doneCondition.notifyAll();
+          }
+        });
+        serverThread.isDaemon = true;
+        serverThread.start();
+
+        servingCondition.wait();
+
+        cancel.trigger();
+        enforce(doneCondition.wait(dur!"msecs"(100)));
+        serverThread.join();
+      }
     }
   }
 }
