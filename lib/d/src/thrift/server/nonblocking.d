@@ -18,27 +18,29 @@
  */
 
 /**
- * A non-blocking server implementation that operates a single »acceptor«
- * thread and either does processing »in-line« or off-loads it to a task pool.
+ * A non-blocking server implementation that operates a set of I/O threads (by
+ * default only one) and either does processing »in-line« or off-loads it to a
+ * task pool.
  *
  * It *requires* TFramedTransport to be used on the client side, as it expects
  * a 4 byte length indicator and writes out responses using the same framing.
  *
  * Because I/O is done asynchronous/event based, unfortunately
- * TServerTransport can't be used – the TServer.serverTransport property will
- * always be null.
+ * TServerTransport can't be used.
  *
- * This implementation is closely based on the C++ one, with the exception
- * of request timeouts and the drain task queue overload handling strategy not
- * being implemented yet.
+ * This implementation is based on the C++ one, with the exception of request
+ * timeouts and the drain task queue overload handling strategy not being
+ * implemented yet.
  */
 // This really should use a D non-blocking I/O library, once one becomes
 // available.
 module thrift.server.nonblocking;
 
-import core.atomic : atomicLoad, atomicStore;
+import core.atomic : atomicLoad, atomicStore, atomicOp;
 import core.memory : GC;
+import core.sync.mutex;
 import core.time : Duration, dur;
+import core.thread : Thread, ThreadGroup;
 import deimos.event2.event;
 import std.conv : emplace, to;
 import std.parallelism : TaskPool, task;
@@ -121,8 +123,9 @@ class TNonblockingServer : TServer {
       outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
     port_ = port;
 
-    eventBase_ = event_base_new();
     this.taskPool = taskPool;
+
+    connectionMutex_ = new Mutex;
 
     connectionStackLimit = DEFAULT_CONNECTION_STACK_LIMIT;
     maxActiveProcessors = DEFAULT_MAX_ACTIVE_PROCESSORS;
@@ -134,29 +137,11 @@ class TNonblockingServer : TServer {
     idleWriteBufferLimit = DEFAULT_IDLE_WRITE_BUFFER_LIMIT;
     resizeBufferEveryN = DEFAULT_RESIZE_BUFFER_EVERY_N;
     maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
-  }
-
-  ~this() {
-    if (listenEvent_) {
-      event_free(listenEvent_);
-      listenEvent_ = null;
-    }
-
-    if (completionEvent_) {
-      event_free(completionEvent_);
-      completionEvent_ = null;
-    }
-
-    event_base_free(eventBase_);
-    eventBase_ = null;
+    numIOThreads_ = DEFAULT_NUM_IO_THREADS;
   }
 
   override void serve(TCancellation cancellation = null) {
     if (cancellation && cancellation.triggered) return;
-
-    assert(!atomicLoad(shuttingDown_),
-      "Shutdown flag set on serve() call, something is seriously wrong. " ~
-      "Maybe serve() has been called from multiple threads?");
 
     // Initialize the listening socket.
     // TODO: SO_KEEPALIVE, TCP_LOW_MIN_RTO, etc.
@@ -164,66 +149,50 @@ class TNonblockingServer : TServer {
       BIND_RETRY_LIMIT, BIND_RETRY_DELAY);
     listenSocket_.blocking = false;
 
-    // Log the libevent version and backend and the size of the task pool used.
-    logInfo("libevent version %s, using method %s.",
-      to!string(event_get_version()), to!string(event_base_get_method(eventBase_)));
-
+    logInfo("Using %s I/O thread(s).", numIOThreads_);
     if (taskPool_) {
-      logInfo("Using task pool with size: %s.", taskPool_.size);
+      logInfo("Using task pool with size: %s.", numIOThreads_, taskPool_.size);
     }
 
-    // Register the event for the listening socket.
-    listenEvent_ = event_new(eventBase_, listenSocket_.handle,
-      EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&acceptConnectionsCallback),
-      cast(void*)this);
-    if (event_add(listenEvent_, null) == -1) {
-      throw new TException("event_add for the listening socket event failed.");
+    assert(numIOThreads_ > 0);
+    assert(ioLoops_.empty);
+    foreach (id; 0 .. numIOThreads_) {
+      // The IO loop on the first IO thread (this thread, i.e. the one serve()
+      // is called from) also accepts new connections.
+      auto listenSocket = (id == 0 ? listenSocket_ : null);
+      ioLoops_ ~= new IOLoop(this, listenSocket);
     }
 
     if (cancellation) {
       cancellation.triggering.addCallback({
-        // There is a bug in either libevent or its documentation, having no
-        // events registered doesn't actually terminate the loop, because
-        // event_base_new() registers some internal one by calling
-        // evthread_make_base_notifiable(). Due to this, we can't simply remove
-        // all events and expect the event loop to terminate.
-        // Instead, we open a connection to the server and immediately close it
-        // again. This way, we make sure to wake up the libevent thread, which
-        // will break out of the loop in disposeConnection() after the last
-        // active connection (possibly our dummy one) has been closed.
-        atomicStore(shuttingDown_, true);
+        foreach (i, loop; ioLoops_) loop.stop();
 
-        auto s = new TcpSocket();
-
-        auto port = port_;
-        if (port == 0) {
-          // If we were using port 0 for listening, we have to find out the
-          // actual port used first to be connect to the server to wake it up.
-          auto listenAddr = cast(InternetAddress)listenSocket_.localAddress();
-          assert(listenAddr);
-          port = listenAddr.port();
-        }
-
-        try {
-          s.connect(new InternetAddress("127.0.0.1", port));
-          s.close();
-        } catch (SocketException e) {
-          // Failing here is expected, since the server thread might simply
-          // drop the connection and immediately shut down.
-        }
+        // Stop accepting new connections right away.
+        listenSocket_.close();
+        listenSocket_ = null;
       });
     }
 
-    if (eventHandler) eventHandler.preServe();
-    event_base_loop(eventBase_, 0);
-
-    if (event_del(listenEvent_) == -1) {
-      logError("event_del() for listening socket on server shutdown failed.");
+    // Start the IO helper threads for all but the first loop, which we will run
+    // ourselves. Note that the threads run forever, only terminating if stop()
+    // is called.
+    auto threads = new ThreadGroup();
+    foreach (loop; ioLoops_[1 .. $]) {
+      auto t = new Thread(&loop.run);
+      threads.add(t);
+      t.start();
     }
-    listenSocket_.close();
-    listenSocket_ = null;
 
-    atomicStore(shuttingDown_, false);
+    if (eventHandler) eventHandler.preServe();
+
+    // Run the primary (listener) IO thread loop in our main thread; this will
+    // block until the server is shutting down.
+    ioLoops_[0].run();
+
+    // Ensure all threads are finished before leaving serve().
+    threads.joinAll();
+
+    ioLoops_ = null;
   }
 
   /**
@@ -269,26 +238,6 @@ class TNonblockingServer : TServer {
   /// ditto
   void taskPool(TaskPool pool) @property {
     taskPool_ = pool;
-
-    // If we are now using a task pool, but the completion notification
-    // mechanism has not already been set up, do it now. Note that we do _not_
-    // tear it down in the reverse case because there could still be some active
-    // connections which are using it.
-    if (pool && !completionEvent_) {
-      auto pair = socketPair();
-      foreach (s; pair) s.blocking = false;
-      completionSendSocket_ = pair[0];
-      completionReceiveSocket_ = pair[1];
-
-      // Register an event for the task completion notification socket.
-      completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
-        EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&taskCompletionCallback),
-        cast(void*)this);
-
-      if (event_add(completionEvent_, null) == -1) {
-        throw new TException("event_add for the notification socket failed.");
-      }
-    }
   }
 
   /**
@@ -390,23 +339,35 @@ class TNonblockingServer : TServer {
   /// Ditto
   enum uint DEFAULT_MAX_FRAME_SIZE = 256 * 1024 * 1024;
 
+
+  size_t numIOThreads() @property {
+    return numIOThreads_;
+  }
+
+  void numIOThreads(size_t value) @property {
+    enforce(value >= 1, new TException("Must use at least one I/O thread."));
+    numIOThreads_ = value;
+  }
+
+  enum DEFAULT_NUM_IO_THREADS = 1;
+
 private:
   /**
-   * Called when server socket had something happen.  We accept all waiting
-   * client connections on listen socket fd and assign Connection objects
-   * to handle those requests.
+   * C callback wrapper around acceptConnections(). Expects the custom argument
+   * to be the this pointer of the associated server instance.
+   */
+  extern(C) static void acceptConnectionsCallback(int fd, short which,
+    void* serverThis
+  ) {
+    (cast(TNonblockingServer)serverThis).acceptConnections(fd, which);
+  }
+
+  /**
+   * Called by libevent (IO loop 0/serve() thread only) when something
+   * happened on the listening socket.
    */
   void acceptConnections(int fd, short eventFlags) {
-    if (atomicLoad(shuttingDown_)) {
-      // If we are shutting down, check if there are any active connections
-      // left. If yes, just return, the thread will be woken up and terminated
-      // when the last connection is closed anyway. If no, just break out of the
-      // event loop now.
-      if (isIdle()) {
-        event_base_loopbreak(eventBase_);
-      }
-      return;
-    }
+    if (atomicLoad(ioLoops_[0].shuttingDown_)) return;
 
     assert(!!listenSocket_,
       "Server should be shutting down if listen socket is null.");
@@ -449,22 +410,60 @@ private:
       }
 
       // Create a new Connection for this client socket.
-      auto conn = createConnection(clientSocket, EV_READ | EV_PERSIST);
+      Connection conn = void;
+      IOLoop loop = void;
+      bool thisThread = void;
+      synchronized (connectionMutex_) {
+        // Assign an I/O loop to the connection (round-robin).
+        assert(nextIOLoop_ >= 0);
+        assert(nextIOLoop_ < ioLoops_.length);
+        auto selectedThreadIdx = nextIOLoop_;
+        nextIOLoop_ = (nextIOLoop_ + 1) % ioLoops_.length;
 
-      // Initialize the connection.
-      conn.transition();
+        loop = ioLoops_[selectedThreadIdx];
+        thisThread = (selectedThreadIdx == 0);
+
+        // Check the connection stack to see if we can re-use an existing one.
+        if (connectionStack_.empty) {
+          ++numConnections_;
+          conn = new Connection(clientSocket, loop);
+
+          // Make sure the connection does not get collected while it is active,
+          // i.e. hooked up with libevent.
+          GC.addRoot(cast(void*)conn);
+        } else {
+          conn = connectionStack_[$ - 1];
+          connectionStack_ = connectionStack_[0 .. $ - 1];
+          connectionStack_.assumeSafeAppend();
+          conn.init(clientSocket, loop);
+        }
+      }
+
+      loop.addConnection();
+
+      // Either notify the ioThread that is assigned this connection to
+      // start processing, or if it is us, we'll just ask this
+      // connection to do its initial state change here.
+      //
+      // (We need to avoid writing to our own notification pipe, to
+      // avoid possible deadlocks if the pipe is full.)
+      if (thisThread) {
+        conn.transition();
+      } else {
+        loop.notifyCompleted(conn);
+      }
     }
   }
 
   /// Increment the count of connections currently processing.
   void incrementActiveProcessors() {
-    ++numActiveProcessors_;
+    atomicOp!"+="(numActiveProcessors_, 1);
   }
 
   /// Decrement the count of connections currently processing.
   void decrementActiveProcessors() {
     assert(numActiveProcessors_ > 0);
-    --numActiveProcessors_;
+    atomicOp!"-="(numActiveProcessors_, 1);
   }
 
   /**
@@ -501,109 +500,25 @@ private:
   }
 
   /**
-   * C callback wrapper around acceptConnections(). Expects the custom argument
-   * to be the this pointer of the associated server instance.
-   */
-  extern(C) static void acceptConnectionsCallback(int fd, short which,
-    void* serverThis
-  ) {
-    (cast(TNonblockingServer)serverThis).acceptConnections(fd, which);
-  }
-
-  /**
-   * C callback for data on the completion receive socket.
-   *
-   * Read the address of a connection object from the socket and transitions it.
-   * Expects the custom argument to be the this pointer of the associated server
-   * instance.
-   */
-  extern(C) static void taskCompletionCallback(int fd, short what, void* serverThis) {
-    auto server = cast(TNonblockingServer) serverThis;
-    assert(fd == server.completionReceiveSocket_.handle);
-    assert(what & EV_READ);
-    assert(server.listenSocket_,
-      "Received task completion message, but the server is no longer running.");
-
-    Connection connection;
-    ptrdiff_t bytesRead;
-    while (true) {
-      bytesRead = server.completionReceiveSocket_.receive(
-        cast(ubyte[])((&connection)[0 .. 1]));
-      if (bytesRead < 0) {
-        auto errno = getSocketErrno();
-
-        if (errno != WOULD_BLOCK_ERRNO) {
-          logError("Reading from completion socket failed, some connection " ~
-            "will never be properly terminated: %s", socketErrnoString(errno));
-        }
-      }
-
-      if (bytesRead != Connection.sizeof) break;
-
-      connection.transition();
-    }
-
-    if (bytesRead > 0) {
-      logError("Unexpected partial read from completion socket " ~
-        "(%s bytes instead of %s).", bytesRead, Connection.sizeof);
-    }
-  }
-
-  /**
-   * Returns an initialized connection object, reusing one from the idle
-   * connection stack if possible.
-   *
-   * See: Connection.init().
-   */
-  Connection createConnection(Socket socket, short flags) {
-    if (connectionStack_.empty) {
-      ++numConnections_;
-      auto result = new Connection(socket, flags, this);
-
-      // Make sure the connection does not get collected while it is active,
-      // i.e. hooked up with libevent.
-      GC.addRoot(cast(void*)result);
-
-      return result;
-    } else {
-      auto result = connectionStack_[$ - 1];
-      connectionStack_ = connectionStack_[0 .. $ - 1];
-      connectionStack_.assumeSafeAppend();
-      result.init(socket, flags, this);
-      return result;
-    }
-  }
-
-  /**
    * Marks a connection as inactive and either puts it back into the
    * connection pool or leaves it for garbage collection.
    */
   void disposeConnection(Connection connection) {
-    if (!connectionStackLimit ||
-      (connectionStack_.length < connectionStackLimit))
-    {
-      connection.checkIdleBufferLimit(idleReadBufferLimit,
-        idleWriteBufferLimit);
-      connectionStack_ ~= connection;
-    } else {
-      assert(numConnections_ > 0);
-      --numConnections_;
+    synchronized (connectionMutex_) {
+      if (!connectionStackLimit ||
+        (connectionStack_.length < connectionStackLimit))
+      {
+        connection.checkIdleBufferLimit(idleReadBufferLimit,
+          idleWriteBufferLimit);
+        connectionStack_ ~= connection;
+      } else {
+        assert(numConnections_ > 0);
+        --numConnections_;
 
-      // Leave the connection object for collection now.
-      GC.removeRoot(cast(void*)connection);
+        // Leave the connection object for collection now.
+        GC.removeRoot(cast(void*)connection);
+      }
     }
-
-    if (atomicLoad(shuttingDown_) && isIdle()) {
-      event_base_loopbreak(eventBase_);
-    }
-  }
-
-  /**
-   * Whether the server is currently idle, i.e. there are no open
-   * client connections.
-   */
-  bool isIdle() {
-    return numIdleConnections == numConnections;
   }
 
   /// Socket used to listen for connections and accepting them.
@@ -612,23 +527,14 @@ private:
   /// Port to listen on.
   ushort port_;
 
-  /// The event base for libevent,
-  event_base* eventBase_;
-
-  /// The libevent event definition for the listening socket events.
-  event* listenEvent_;
-
-  /// The libevent event definition for the connection completion events.
-  event* completionEvent_;
-
   /// The total number of connections existing, both active and idle.
   size_t numConnections_;
 
   /// The number of connections which are currently waiting for the processor
   /// to return.
-  size_t numActiveProcessors_;
+  shared size_t numActiveProcessors_;
 
-  /// Hysteresis for overload state to be cleared.
+  /// Hysteresis for leaving overload state.
   double overloadHysteresis_;
 
   /// Whether the server is currently overloaded.
@@ -644,25 +550,265 @@ private:
   /// The task pool used for processing requests.
   TaskPool taskPool_;
 
-  /// Socket used to send completion notification messages. Paired with
-  /// completionReceiveSocket_.
-  Socket completionSendSocket_;
+  /// Number of IO threads this server will use (>= 1).
+  size_t numIOThreads_;
 
-  /// Socket used to send completion notification messages. Paired with
-  /// completionSendSocket_.
-  Socket completionReceiveSocket_;
+  /// The IOLoops among which socket handling work is distributed.
+  IOLoop[] ioLoops_;
+
+  /// The index of the loop in ioLoops_ which will handle the next accepted
+  /// connection.
+  size_t nextIOLoop_;
 
   /// All the connection objects which have been created but are not currently
   /// in use. When a connection is closed, it it placed here to enable object
-  /// reuse.
+  /// (resp. buffer) reuse.
   Connection[] connectionStack_;
 
-  /// Whether the server is currently shutting down (i.e. the cancellation has
-  /// been triggered, but not all client connections have been closed yet).
-  shared bool shuttingDown_;
+  /// This mutex protects the connection stack.
+  Mutex connectionMutex_;
 }
 
 private {
+  /*
+   * Encapsulates a libevent event loop.
+   *
+   * The design is a bit of a mess, since the first loop is actually run on the
+   * server thread itself and is special because it is the only instance for
+   * which listenSocket_ is not null.
+   */
+  final class IOLoop {
+    /**
+     * Creates a new instance and set up the event base.
+     *
+     * If listenSocket is not null, the thread will also accept new
+     * connections itself.
+     */
+    this(TNonblockingServer server, Socket listenSocket) {
+      server_ = server;
+      listenSocket_ = listenSocket;
+      initMutex_ = new Mutex;
+    }
+
+    /**
+     * Runs the event loop; only returns after a call to stop().
+     */
+    void run() {
+      assert(!atomicLoad(initialized_), "IOLoop already running?!");
+
+      synchronized (initMutex_) {
+        if (atomicLoad(shuttingDown_)) return;
+        atomicStore(initialized_, true);
+
+        assert(!eventBase_);
+        eventBase_ = event_base_new();
+
+        if (listenSocket_) {
+          // Log the libevent version and backend.
+          logInfo("libevent version %s, using method %s.",
+            to!string(event_get_version()), to!string(event_base_get_method(eventBase_)));
+
+          // Register the event for the listening socket.
+          listenEvent_ = event_new(eventBase_, listenSocket_.handle,
+            EV_READ | EV_PERSIST | EV_ET,
+            assumeNothrow(&TNonblockingServer.acceptConnectionsCallback),
+            cast(void*)server_);
+          if (event_add(listenEvent_, null) == -1) {
+            throw new TException("event_add for the listening socket event failed.");
+          }
+        }
+
+        auto pair = socketPair();
+        foreach (s; pair) s.blocking = false;
+        completionSendSocket_ = pair[0];
+        completionReceiveSocket_ = pair[1];
+
+        // Register an event for the task completion notification socket.
+        completionEvent_ = event_new(eventBase_, completionReceiveSocket_.handle,
+          EV_READ | EV_PERSIST | EV_ET, assumeNothrow(&completedCallback),
+          cast(void*)this);
+
+        if (event_add(completionEvent_, null) == -1) {
+          throw new TException("event_add for the notification socket failed.");
+        }
+      }
+
+      // Run libevent engine, returns only after stop().
+      event_base_dispatch(eventBase_);
+
+      if (listenEvent_) {
+        event_free(listenEvent_);
+        listenEvent_ = null;
+      }
+
+      event_free(completionEvent_);
+      completionEvent_ = null;
+
+      completionSendSocket_.close();
+      completionSendSocket_ = null;
+
+      completionReceiveSocket_.close();
+      completionReceiveSocket_ = null;
+
+      event_base_free(eventBase_);
+      eventBase_ = null;
+
+      atomicStore(shuttingDown_, false);
+
+      initialized_ = false;
+    }
+
+    /**
+     * Adds a new connection handled by this loop.
+     */
+    void addConnection() {
+      ++numActiveConnections_;
+    }
+
+    /**
+     * Disposes a connection object (typically after it has been closed).
+     */
+    void disposeConnection(Connection conn) {
+      server_.disposeConnection(conn);
+      assert(numActiveConnections_ > 0);
+      --numActiveConnections_;
+      if (numActiveConnections_ == 0) {
+        if (atomicLoad(shuttingDown_)) {
+          event_base_loopbreak(eventBase_);
+        }
+      }
+    }
+
+    /**
+     * Notifies the event loop that the current step (initialization,
+     * processing of a request) on a certain connection has been completed.
+     *
+     * This function is thread-safe, but should never be called from the
+     * thread running the loop itself.
+     */
+    void notifyCompleted(Connection conn) {
+      assert(!!completionSendSocket_);
+      auto bytesSent = completionSendSocket_.send(cast(ubyte[])((&conn)[0 .. 1]));
+
+      if (bytesSent != Connection.sizeof) {
+        logError("Sending completion notification failed, connection will " ~
+          "not be properly terminated.");
+      }
+    }
+
+    /**
+     * Exits the event loop after all currently active connections have been
+     * closed.
+     *
+     * This function is thread-safe.
+     */
+    void stop() {
+      // There is a bug in either libevent or its documentation, having no
+      // events registered doesn't actually terminate the loop, because
+      // event_base_new() registers some internal one by calling
+      // evthread_make_base_notifiable().
+      // Due to this, we can't simply remove all events and expect the event
+      // loop to terminate. Instead, we ping the event loop using a null
+      // completion message. This way, we make sure to wake up the libevent
+      // thread if it not currently processing any connections. It will break
+      // out of the loop in disposeConnection() after the last active
+      // connection has been closed.
+      synchronized (initMutex_) {
+        atomicStore(shuttingDown_, true);
+        if (atomicLoad(initialized_)) notifyCompleted(null);
+      }
+    }
+
+  private:
+    /**
+     * C callback to call completed() from libevent.
+     *
+     * Expects the custom argument to be the this pointer of the associated
+     * IOLoop instance.
+     */
+    extern(C) static void completedCallback(int fd, short what, void* loopThis) {
+      assert(what & EV_READ);
+      auto loop = cast(IOLoop)loopThis;
+      assert(fd == loop.completionReceiveSocket_.handle);
+      loop.completed();
+    }
+
+    /**
+     * Reads from the completion receive socket and appropriately transitions
+     * the connections and shuts down the loop if requested.
+     */
+    void completed() {
+      Connection connection;
+      ptrdiff_t bytesRead;
+      while (true) {
+        bytesRead = completionReceiveSocket_.receive(
+          cast(ubyte[])((&connection)[0 .. 1]));
+        if (bytesRead < 0) {
+          auto errno = getSocketErrno();
+
+          if (errno != WOULD_BLOCK_ERRNO) {
+            logError("Reading from completion socket failed, some connection " ~
+              "will never be properly terminated: %s", socketErrnoString(errno));
+          }
+        }
+
+        if (bytesRead != Connection.sizeof) break;
+
+        if (!connection) {
+          assert(atomicLoad(shuttingDown_));
+          if (numActiveConnections_ == 0) {
+            event_base_loopbreak(eventBase_);
+          }
+          continue;
+        }
+
+        connection.transition();
+      }
+
+      if (bytesRead > 0) {
+        logError("Unexpected partial read from completion socket " ~
+          "(%s bytes instead of %s).", bytesRead, Connection.sizeof);
+      }
+    }
+
+    /// associated server
+    TNonblockingServer server_;
+
+    /// The managed listening socket, if any.
+    Socket listenSocket_;
+
+    /// The libevent event base for the loop.
+    event_base* eventBase_;
+
+    /// Triggered on listen socket events.
+    event* listenEvent_;
+
+    /// Triggered on completion receive socket events.
+    event* completionEvent_;
+
+    /// Socket used to send completion notification messages. Paired with
+    /// completionReceiveSocket_.
+    Socket completionSendSocket_;
+
+    /// Socket used to send completion notification messages. Paired with
+    /// completionSendSocket_.
+    Socket completionReceiveSocket_;
+
+    /// Whether the server is currently shutting down (i.e. the cancellation has
+    /// been triggered, but not all client connections have been closed yet).
+    shared bool shuttingDown_;
+
+    /// The number of currently active client connections.
+    size_t numActiveConnections_;
+
+    /// Guards loop startup so that the loop can be reliably shut down even if
+    /// another thread has just started to execute run(). Locked during
+    /// initialization in run(). When unlocked, the completion mechanism is
+    /// expected to be fully set up.
+    Mutex initMutex_;
+    shared bool initialized_; /// Ditto
+  }
+
   /*
    * I/O states a socket can be in.
    */
@@ -684,8 +830,10 @@ private {
   }
 
   /*
-   * Represents a connection that is handled via libevent. This connection
-   * essentially encapsulates a socket that has some associated libevent state.
+   * A connection that is handled via libevent.
+   *
+   * Data received is buffered until the request is complete (returning back to
+   * libevent if not), at which point the processor is invoked.
    */
   final class Connection {
     /**
@@ -694,13 +842,13 @@ private {
      * To reuse a connection object later on, the init() function can be used
      * to the same effect on the internal state.
      */
-    this(Socket socket, short eventFlags, TNonblockingServer s) {
+    this(Socket socket, IOLoop loop) {
       // The input and output transport objects are reused between clients
       // connections, so initialize them here rather than in init().
       inputTransport_ = new TInputRangeTransport!(ubyte[])([]);
-      outputTransport_ = new TMemoryBuffer(s.writeBufferDefaultSize);
+      outputTransport_ = new TMemoryBuffer(loop.server_.writeBufferDefaultSize);
 
-      init(socket, eventFlags, s);
+      init(socket, loop);
     }
 
     /**
@@ -711,11 +859,12 @@ private {
      *   eventFlags = Any flags to pass to libevent.
      *   s = The server this connection is part of.
      */
-    void init(Socket socket, short eventFlags, TNonblockingServer s) {
-      // TODO: This allocation could be avoided
+    void init(Socket socket, IOLoop loop) {
+      // TODO: This allocation could be avoided.
       socket_ = new TSocket(socket);
 
-      server_ = s;
+      loop_ = loop;
+      server_ = loop_.server_;
       connState_ = ConnectionState.INIT;
       eventFlags_ = 0;
 
@@ -727,23 +876,24 @@ private {
       largestWriteBufferSize_ = 0;
 
       socketState_ = SocketState.RECV_FRAME_SIZE;
-      connState_ = ConnectionState.INIT;
       callsSinceResize_ = 0;
 
-      registerEvent(eventFlags);
+      factoryInputTransport_ =
+        server_.inputTransportFactory_.getTransport(inputTransport_);
+      factoryOutputTransport_ =
+        server_.outputTransportFactory_.getTransport(outputTransport_);
 
-      factoryInputTransport_ = s.inputTransportFactory_.getTransport(inputTransport_);
-      factoryOutputTransport_ = s.outputTransportFactory_.getTransport(outputTransport_);
+      inputProtocol_ =
+        server_.inputProtocolFactory_.getProtocol(factoryInputTransport_);
+      outputProtocol_ =
+        server_.outputProtocolFactory_.getProtocol(factoryOutputTransport_);
 
-      inputProtocol_ = s.inputProtocolFactory_.getProtocol(factoryInputTransport_);
-      outputProtocol_ = s.outputProtocolFactory_.getProtocol(factoryOutputTransport_);
-
-      if (s.eventHandler) {
+      if (server_.eventHandler) {
         connectionContext_ =
-          s.eventHandler.createContext(inputProtocol_, outputProtocol_);
+          server_.eventHandler.createContext(inputProtocol_, outputProtocol_);
       }
 
-      processor_ = s.processorFactory_.getProcessor(
+      processor_ = server_.processorFactory_.getProcessor(
         TConnectionInfo(inputProtocol_, outputProtocol_, socket_));
     }
 
@@ -783,6 +933,9 @@ private {
      * the data has been written back.
      */
     void transition() {
+      assert(!!loop_);
+      assert(!!server_);
+
       // Switch upon the state that we are currently in and move to a new state
       final switch (connState_) {
         case ConnectionState.READ_REQUEST:
@@ -887,7 +1040,7 @@ private {
             }
 
             auto newBuffer = cast(ubyte*)realloc(readBuffer_, newSize);
-            if (newBuffer is null) onOutOfMemoryError();
+            if (!newBuffer) onOutOfMemoryError();
 
             readBuffer_ = newBuffer;
             readBufferSize_ = newSize;
@@ -902,35 +1055,19 @@ private {
       }
     }
 
+  private:
     /**
      * C callback to call workSocket() from libevent.
      *
-     * We have set the opaque data pointer to this before.
+     * Expects the custom argument to be the this pointer of the associated
+     * connection.
      */
-    extern(C) static void workSocketCallback(int, short, void* v) {
-      (cast(Connection)v).workSocket();
+    extern(C) static void workSocketCallback(int fd, short flags, void* connThis) {
+      auto conn = cast(Connection)connThis;
+      assert(fd == conn.socket_.socketHandle);
+      conn.workSocket();
     }
 
-    /**
-     * Notifies server that processing has ended on this request.
-     *
-     * Can be called either when processing is completed or when a waiting
-     * task has been preemptively terminated (on overload).
-     */
-    void notifyServer() {
-      if (!taskPool_) return;
-
-      assert(server_.completionSendSocket_);
-      auto bytesSent =
-        server_.completionSendSocket_.send(cast(ubyte[])((&this)[0 .. 1]));
-
-      if (bytesSent != Connection.sizeof) {
-        logError("Sending completion notification failed, connection will " ~
-          "not be properly terminated.");
-      }
-    }
-
-  private:
     /**
      * Invoked by libevent when something happens on the socket.
      */
@@ -1042,8 +1179,8 @@ private {
     }
 
     /**
-     * Registers the libevent event with the passed flags, unregistering the
-     * previous one (if any).
+     * Registers a libevent event for workSocket() with the passed flags,
+     * unregistering the previous one (if any).
      */
     void registerEvent(short eventFlags) {
       if (eventFlags_ == eventFlags) {
@@ -1060,10 +1197,10 @@ private {
 
       if (!event_) {
         // If the event was not already allocated, do it now.
-        event_ = event_new(server_.eventBase_, socket_.socketHandle,
+        event_ = event_new(loop_.eventBase_, socket_.socketHandle,
           eventFlags_, assumeNothrow(&workSocketCallback), cast(void*)this);
       } else {
-        event_assign(event_, server_.eventBase_, socket_.socketHandle,
+        event_assign(event_, loop_.eventBase_, socket_.socketHandle,
           eventFlags_, assumeNothrow(&workSocketCallback), cast(void*)this);
       }
 
@@ -1105,7 +1242,7 @@ private {
       factoryOutputTransport_.close();
 
       // This connection object can now be reused.
-      server_.disposeConnection(this);
+      loop_.disposeConnection(this);
     }
 
     /// The server this connection belongs to.
@@ -1115,6 +1252,9 @@ private {
     /// directly using server_.taskPool to avoid confusion if it is changed in
     /// another thread while the request is processed.
     TaskPool taskPool_;
+
+    /// The I/O thread handling this connection.
+    IOLoop loop_;
 
     /// The socket managed by this connection.
     TSocket socket_;
@@ -1211,7 +1351,7 @@ void processRequest(Connection connection) {
     logError("Uncaught exception: %s", e);
   }
 
-  connection.notifyServer();
+  if (connection.taskPool_) connection.loop_.notifyCompleted(connection);
 }
 
 unittest {
@@ -1223,11 +1363,20 @@ unittest {
   g_infoLogSink = null;
   scope (exit) g_infoLogSink = oldInfoLogSink;
 
+  // Test in-line processing shutdown with one as well as several I/O threads.
   testServeCancel!(TNonblockingServer)();
+  testServeCancel!(TNonblockingServer)((TNonblockingServer s) {
+    s.numIOThreads = 4;
+  });
 
+  // Test task pool processing shutdown with one as well as several I/O threads.
   auto tp = new TaskPool(4);
   tp.isDaemon = true;
   testServeCancel!(TNonblockingServer)((TNonblockingServer s) {
     s.taskPool = tp;
+  });
+  testServeCancel!(TNonblockingServer)((TNonblockingServer s) {
+    s.taskPool = tp;
+    s.numIOThreads = 4;
   });
 }
