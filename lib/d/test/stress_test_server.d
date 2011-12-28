@@ -56,9 +56,11 @@ void main(string[] args) {
   size_t taskPoolSize = totalCPUs;
   auto serverType = ServerType.threaded;
   TransportType transportType;
+  size_t numIOThreads = 1;
 
   getopt(args, "port", &port, "server-type", &serverType,
-    "transport-type", &transportType, "task-pool-size", &taskPoolSize);
+    "transport-type", &transportType, "task-pool-size", &taskPoolSize,
+    "num-io-threads", &numIOThreads);
 
   alias TypeTuple!(TBufferedTransport, TMemoryBuffer) AvailableTransports;
 
@@ -68,8 +70,8 @@ void main(string[] args) {
   auto transportFactory = createTransportFactory(transportType);
   auto protocolFactory = new TBinaryProtocolFactory!AvailableTransports;
 
-  auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
-    transportFactory, protocolFactory);
+  auto server = createServer(serverType, taskPoolSize, numIOThreads,
+    processor, serverSocket, transportFactory, protocolFactory);
 
   writefln("Starting %s %s StressTest server on port %s...", transportType,
     serverType, port);

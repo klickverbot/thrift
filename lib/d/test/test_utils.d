@@ -46,7 +46,7 @@ enum ServerType {
   threaded
 }
 
-TServer createServer(ServerType type, size_t taskPoolSize,
+TServer createServer(ServerType type, size_t taskPoolSize, size_t numIOThreads,
   TProcessor processor, TServerSocket serverTransport,
   TTransportFactory transportFactory, TProtocolFactory protocolFactory)
 {
@@ -55,12 +55,15 @@ TServer createServer(ServerType type, size_t taskPoolSize,
       return new TSimpleServer(processor, serverTransport,
         transportFactory, protocolFactory);
     case ServerType.nonblocking:
-      return new TNonblockingServer(processor, serverTransport.port,
+      auto nb = new TNonblockingServer(processor, serverTransport.port,
         transportFactory, protocolFactory);
+      nb.numIOThreads = numIOThreads;
+      return nb;
     case ServerType.pooledNonblocking:
-      auto tp = new TaskPool(taskPoolSize);
-      return new TNonblockingServer(processor, serverTransport.port,
-        transportFactory, protocolFactory, tp);
+      auto nb = new TNonblockingServer(processor, serverTransport.port,
+        transportFactory, protocolFactory, new TaskPool(taskPoolSize));
+      nb.numIOThreads = numIOThreads;
+      return nb;
     case ServerType.taskpool:
       auto tps = new TTaskPoolServer(processor, serverTransport,
         transportFactory, protocolFactory);

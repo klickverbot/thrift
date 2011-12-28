@@ -186,14 +186,16 @@ void main(string[] args) {
   ushort port = 9090;
   ServerType serverType;
   ProtocolType protocolType;
+  size_t numIOThreads = 1;
   size_t taskPoolSize = totalCPUs;
   TransportType transportType;
   bool ssl;
   bool trace;
 
   getopt(args, "port", &port, "protocol", &protocolType, "server-type",
-    &serverType, "ssl", &ssl, "task-pool-size", &taskPoolSize,
-    "trace", &trace, "transport", &transportType);
+    &serverType, "ssl", &ssl, "num-io-threads", &numIOThreads,
+    "task-pool-size", &taskPoolSize, "trace", &trace,
+    "transport", &transportType);
 
   if (serverType == ServerType.nonblocking ||
     serverType == ServerType.pooledNonblocking
@@ -252,8 +254,8 @@ void main(string[] args) {
 
   auto transportFactory = createTransportFactory(transportType);
 
-  auto server = createServer(serverType, taskPoolSize, processor, serverSocket,
-    transportFactory, protocolFactory);
+  auto server = createServer(serverType, numIOThreads, taskPoolSize,
+    processor, serverSocket, transportFactory, protocolFactory);
 
   writefln("Starting %s/%s %s ThriftTest server %son port %s...", protocolType,
     transportType, serverType, ssl ? "": "(using SSL) ", port);
