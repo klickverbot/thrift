@@ -249,8 +249,7 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
       STE.Type.RESOURCE_FAILED);
   }
 
-  // Set TCP_NODELAY. Do not fail hard as root privileges might be required
-  // on Linux to set the option.
+  // Set TCP_NODELAY.
   try {
     socket.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
   } catch (SocketException e) {
