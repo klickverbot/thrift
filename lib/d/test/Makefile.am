@@ -30,7 +30,7 @@ THRIFT = $(top_builddir)/compiler/cpp/thrift
 debug_proto_gen = $(addprefix gen-d/, DebugProtoTest_types.d)
 
 $(debug_proto_gen): $(top_srcdir)/test/DebugProtoTest.thrift
-	$(THRIFT) --gen d $<
+	$(THRIFT) --gen d -nowarn $<
 
 stress_test_gen = $(addprefix gen-d/thrift/test/stress/, Service.d \
 	StressTest_types.d)
