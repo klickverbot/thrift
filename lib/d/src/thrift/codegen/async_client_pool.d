@@ -657,11 +657,6 @@ class TAsyncAggregator(Interface) if (isBaseService!Interface) {
 
   mixin AggregatorOpDispatch!();
 
-protected:
-  Client[] clients() @property {
-    return clients_;
-  }
-
 private:
   Client[] clients_;
 }
@@ -675,15 +670,10 @@ class TAsyncAggregator(Interface) if (isDerivedService!Interface) :
 
   ///
   this(Client[] clients) {
-    super(clients);
+    super(cast(TAsyncClientBase!(BaseService!Interface)[])clients);
   }
 
   mixin AggregatorOpDispatch!();
-
-protected:
-  override Client[] clients() @property {
-    return cast(Client[])super.clients;
-  }
 }
 
 /**
@@ -731,7 +721,7 @@ private {
       TFuture!ResultType[] futures;
       futures.reserve(clients_.length);
 
-      foreach (c; clients) {
+      foreach (c; cast(Client[])clients_) {
         if (reopenTransports) {
           if (!c.transport.isOpen) {
             try {
