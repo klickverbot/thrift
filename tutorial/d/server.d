@@ -45,7 +45,7 @@ class CalculatorHandler : Calculator {
     return n1 + n2;
   }
 
-  int calculate(int logid, Work work) {
+  int calculate(int logid, ref const(Work) work) {
     writefln("calculate(%s, {%s, %s, %s})", logid, work.op, work.num1, work.num2);
     int val;
 
