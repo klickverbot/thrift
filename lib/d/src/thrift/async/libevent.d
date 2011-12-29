@@ -152,8 +152,8 @@ class TLibeventAsyncManager : TAsyncSocketManager {
         sendControlMsg(ControlMsg(MsgType.SHUTDOWN));
         workerThread_.join();
         workQueues_ = null;
-        // We have going nuked all currently enqueued items, so set the count
-        // to zero. This is safe to do without locking, since the worker thread
+        // We have nuked all currently enqueued items, so set the count to
+        // zero. This is safe to do without locking, since the worker thread
         // is down.
         queuedCount_ = 0;
         atomicStore(*(cast(shared)&workerThread_), cast(shared(Thread))null);
