@@ -168,9 +168,9 @@ template TClient(Interface, InputProtocol = TProtocol, OutputProtocol = void) if
             paramName = "param" ~ to!string(i + 1);
           }
 
-          paramList ~=
-            ((ParameterStorageClassTuple!(mixin("Interface." ~ methodName))[i] &
-              ParameterStorageClass.ref_ ) ? "ref " : "") ~
+          immutable storage = ParameterStorageClassTuple!(
+            mixin("Interface." ~ methodName))[i];
+          paramList ~= ((storage & ParameterStorageClass.ref_) ? "ref " : "") ~
             "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
           paramAssignCode ~= "args." ~ paramName ~ " = &" ~ paramName ~ ";\n";

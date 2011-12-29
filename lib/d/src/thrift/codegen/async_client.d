@@ -19,7 +19,8 @@
 module thrift.codegen.async_client;
 
 import std.conv : text;
-import std.traits : ParameterTypeTuple;
+import std.traits : ParameterStorageClass, ParameterStorageClassTuple,
+  ParameterTypeTuple;
 import thrift.base;
 import thrift.async.base;
 import thrift.codegen.base;
@@ -180,7 +181,11 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
         string[] paramNames;
         foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
           immutable paramName = "param" ~ to!string(i + 1);
-          paramList ~= "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+          immutable storage = ParameterStorageClassTuple!(
+            mixin("Interface." ~ methodName))[i];
+
+          paramList ~= ((storage & ParameterStorageClass.ref_) ? "ref " : "") ~
+            "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
             to!string(i) ~ "] " ~ paramName;
           paramNames ~= paramName;
         }
