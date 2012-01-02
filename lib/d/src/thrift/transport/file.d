@@ -34,7 +34,7 @@ module thrift.transport.file;
 
 import core.thread : Thread;
 import std.array : empty;
-import std.algorithm : min;
+import std.algorithm : min, max;
 import std.concurrency;
 import std.conv : to;
 import std.datetime : AutoStart, dur, Duration, StopWatch;
@@ -843,7 +843,7 @@ private {
 
       bool forceFlush;
       Tid flushRequestTid;
-      receiveTimeout(maxFlushInterval - flushTimer.peek(),
+      receiveTimeout(max(dur!"hnsecs"(0), maxFlushInterval - flushTimer.peek()),
         (immutable(ubyte)[] data) {
           while (hasIOError) {
             logError("Writer thread going to sleep for %s µs due to IO errors",
