@@ -821,7 +821,7 @@ private {
     Duration maxFlushInterval,
     Duration ioErrorSleepDuration
   ) {
-    bool hasIOError;
+    bool errorOpening;
     File file;
     ulong offset;
     try {
@@ -830,7 +830,7 @@ private {
       offset = file.tell();
     } catch (Exception e) {
       logError("Error on opening output file in writer thread: %s", e);
-      hasIOError = true;
+      errorOpening = true;
     }
 
     auto flushTimer = StopWatch(AutoStart.yes);
@@ -845,7 +845,7 @@ private {
       Tid flushRequestTid;
       receiveTimeout(max(dur!"hnsecs"(0), maxFlushInterval - flushTimer.peek()),
         (immutable(ubyte)[] data) {
-          while (hasIOError) {
+          while (errorOpening) {
             logError("Writer thread going to sleep for %s µs due to IO errors",
               ioErrorSleepDuration.fracSec.usecs);
 
@@ -863,7 +863,7 @@ private {
             try {
               file = File(path, "ab");
               unflushedByteCount = 0;
-              hasIOError = false;
+              errorOpening = false;
               logError("Output file %s reopened during writer thread error " ~
                 "recovery", path);
             } catch (Exception e) {
@@ -915,7 +915,7 @@ private {
         }
       );
 
-      if (hasIOError) continue;
+      if (errorOpening) continue;
 
       bool flush;
       if (forceFlush || shutdownRequested || unflushedByteCount > maxFlushBytes) {
