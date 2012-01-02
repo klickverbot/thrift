@@ -938,6 +938,8 @@ private {
       }
     }
 
+    file.close();
+
     if (shutdownRequestTid != Tid.init) {
       send(shutdownRequestTid, ShutdownMessage(), thisTid);
     }
