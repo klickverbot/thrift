@@ -65,6 +65,6 @@ exception Blah {
 exception Gak {}
 
 service yowza {
-  void blingity(1: thing foo = {'hello' : 325, 'goodbye' : 325352 }),
+  void blingity(),
   i32 blangity() throws (1: Blah hoot )
 }

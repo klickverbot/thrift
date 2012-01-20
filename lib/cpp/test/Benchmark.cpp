@@ -91,14 +91,17 @@ int main() {
   buf->getBuffer(&data, &datasize);
 
   {
+
     Timer timer;
-    boost::shared_ptr<TMemoryBuffer> buf2(new TMemoryBuffer(data, datasize));
-    TBinaryProtocolT<TBufferBase> prot(buf2);
 
     for (int i = 0; i < num; i ++) {
       OneOfEach ooe2;
-      buf2->resetBuffer(data, datasize);
+      boost::shared_ptr<TMemoryBuffer> buf2(new TMemoryBuffer(data, datasize));
+      //buf2->resetBuffer(data, datasize);
+      TBinaryProtocolT<TBufferBase> prot(buf2);
       ooe2.read(&prot);
+
+      //cout << apache::thrift::ThriftDebugString(ooe2) << endl << endl;
     }
     cout << " Read: " << num / (1000 * timer.frame()) << " kHz" << endl;
   }
