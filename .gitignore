@@ -118,6 +118,7 @@
 /lib/erl/src/thrift.app.src
 /lib/erl/test/*.erl
 /lib/erl/test/*.hrl
+/lib/erl/test/*.beam
 /lib/hs/dist
 /lib/hs/Makefile
 /lib/hs/Makefile.in
@@ -181,6 +182,7 @@
 /lib/php/src/ext/thrift_protocol/php_thrift_protocol.lo
 /lib/php/src/ext/thrift_protocol/run-tests.php
 /lib/php/src/ext/thrift_protocol/thrift_protocol.la
+/lib/erl/logs/
 /lib/erl/Makefile
 /lib/erl/Makefile.in
 /lib/erl/src/Makefile
@@ -206,6 +208,15 @@
 /test/hs/gen-*
 /test/hs/Makefile
 /test/hs/Makefile.in
+/test/log/
+/test/test.log
+/test/nodejs/gen-nodejs/
+/test/nodejs/Makefile
+/test/nodejs/Makefile.in
+/test/perl/gen-*
+/test/perl/Makefile
+/test/perl/Makefile.in
+/test/php/gen-*
 /test/py/Makefile
 /test/py/Makefile.in
 /test/py/gen-py
@@ -220,3 +231,9 @@
 /test/rb/Makefile.in
 /thrift.exe
 /ylwrap
+/compiler/cpp/Debug
+*.suo
+*.cache
+*.user
+*.ipch
+*.sdf

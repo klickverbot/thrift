@@ -1,4 +1,3 @@
-#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements. See the NOTICE file
 # distributed with this work for additional information
@@ -15,24 +14,20 @@
 # KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
-
-from protocol import TBinaryProtocol
-from transport import TTransport
 
 
-def serialize(thrift_object,
-              protocol_factory=TBinaryProtocol.TBinaryProtocolFactory()):
-    transport = TTransport.TMemoryBuffer()
-    protocol = protocol_factory.getProtocol(transport)
-    thrift_object.write(protocol)
-    return transport.getvalue()
+THRIFT = $(top_srcdir)/compiler/cpp/thrift
 
+stubs: ../ThriftTest.thrift
+	$(THRIFT) --gen js:node ../ThriftTest.thrift
 
-def deserialize(base,
-                buf,
-                protocol_factory=TBinaryProtocol.TBinaryProtocolFactory()):
-    transport = TTransport.TMemoryBuffer(buf)
-    protocol = protocol_factory.getProtocol(transport)
-    base.read(protocol)
-    return base
+check: stubs
+
+clean-local:
+	$(RM) -r gen-nodejs
+
+server: stubs
+	NODE_PATH=../../lib/nodejs/lib:../../lib/nodejs/lib/thrift node server.js
+
+client: stubs
+	NODE_PATH=../../lib/nodejs/lib:../../lib/nodejs/lib/thrift node client.js
