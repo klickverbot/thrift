@@ -19,7 +19,7 @@
 module thrift.async.socket;
 
 import core.thread : Fiber;
-import core.time : Duration;
+import core.time : dur, Duration;
 import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;

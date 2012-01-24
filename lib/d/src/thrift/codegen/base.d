@@ -359,7 +359,6 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   is(typeof(fieldMetaData) : TFieldMeta[])
 ) {
   import std.algorithm : canFind;
-  import std.array : empty;
   import thrift.codegen.base;
   import thrift.internal.codegen : isNullable, MemberType, mergeFieldMeta,
     FieldNames;
@@ -431,6 +430,7 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   }
 
   private string thriftToStringImpl() const {
+    import std.conv : to;
     string result = This.stringof ~ "(";
     mixin({
       string code = "";
@@ -462,25 +462,16 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   static if (canFind!`!a.defaultValue.empty`(mergeFieldMeta!(This, fieldMetaData))) {
     static if (is(This _ == class)) {
       this() {
-        mixin(thriftFieldInitCode("this"));
+        mixin(thriftFieldInitCode!(mergeFieldMeta!(This, fieldMetaData))("this"));
       }
     } else {
       // DMD @@BUG@@: Have to use auto here to avoid »no size yet for forward
       // reference« errors.
       static auto opCall() {
         auto result = This.init;
-        mixin(thriftFieldInitCode("result"));
+        mixin(thriftFieldInitCode!(mergeFieldMeta!(This, fieldMetaData))("result"));
         return result;
       }
-    }
-
-    private static string thriftFieldInitCode(string thisName) {
-      string code;
-      foreach (field; mergeFieldMeta!(This, fieldMetaData)) {
-        if (field.defaultValue.empty) continue;
-        code ~= thisName ~ "." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
-      }
-      return code;
     }
   }
 
@@ -496,6 +487,17 @@ mixin template TStructHelpers(alias fieldMetaData = cast(TFieldMeta[])null) if (
   void write(Protocol)(Protocol proto) const if (isTProtocol!Protocol) {
     writeStruct!(This, Protocol, fieldMetaData, false)(this, proto);
   }
+}
+
+// DMD @@BUG@@: Having this inside TStructHelpers leads to weird lookup errors
+// (e.g. for std.arry.empty).
+string thriftFieldInitCode(alias fieldMeta)(string thisName) {
+  string code = "";
+  foreach (field; fieldMeta) {
+    if (field.defaultValue.empty) continue;
+    code ~= thisName ~ "." ~ field.name ~ " = " ~ field.defaultValue ~ ";\n";
+  }
+  return code;
 }
 
 version (unittest) {

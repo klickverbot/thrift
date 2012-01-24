@@ -18,7 +18,8 @@
  */
 module thrift.codegen.client_pool;
 
-import core.time : Duration, TickDuration;
+import core.time : dur, Duration, TickDuration;
+import std.traits : ParameterTypeTuple, ReturnType;
 import thrift.base;
 import thrift.codegen.base;
 import thrift.codegen.client;

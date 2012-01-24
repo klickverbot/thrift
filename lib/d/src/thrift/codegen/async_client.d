@@ -18,13 +18,14 @@
  */
 module thrift.codegen.async_client;
 
-import std.conv : text;
+import std.conv : text, to;
 import std.traits : ParameterStorageClass, ParameterStorageClassTuple,
-  ParameterTypeTuple;
+  ParameterTypeTuple, ReturnType;
 import thrift.base;
 import thrift.async.base;
 import thrift.codegen.base;
 import thrift.codegen.client;
+import thrift.internal.codegen;
 import thrift.internal.ctfe;
 import thrift.protocol.base;
 import thrift.transport.base;
@@ -149,6 +150,7 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
         this(TAsyncTransport trans, TTransportFactory itf,
           TTransportFactory otf, TProtocolFactory ipf, TProtocolFactory opf
         ) {
+          import std.exception;
           transport_ = trans;
 
           auto iprot = ipf.getProtocol(itf.getTransport(trans));
@@ -175,63 +177,64 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
       };
     }
 
-    foreach (methodName; __traits(derivedMembers, Interface)) {
-      static if (isSomeFunction!(mixin("Interface." ~ methodName))) {
-        string[] paramList;
-        string[] paramNames;
-        foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
-          immutable paramName = "param" ~ to!string(i + 1);
-          immutable storage = ParameterStorageClassTuple!(
-            mixin("Interface." ~ methodName))[i];
+    foreach (methodName;
+      FilterMethodNames!(Interface, __traits(derivedMembers, Interface))
+    ) {
+      string[] paramList;
+      string[] paramNames;
+      foreach (i, _; ParameterTypeTuple!(mixin("Interface." ~ methodName))) {
+        immutable paramName = "param" ~ to!string(i + 1);
+        immutable storage = ParameterStorageClassTuple!(
+          mixin("Interface." ~ methodName))[i];
 
-          paramList ~= ((storage & ParameterStorageClass.ref_) ? "ref " : "") ~
-            "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
-            to!string(i) ~ "] " ~ paramName;
-          paramNames ~= paramName;
-        }
-        paramList ~= "TCancellation cancellation = null";
-
-        immutable returnTypeCode = "ReturnType!(Interface." ~ methodName ~ ")";
-        code ~= "TFuture!(" ~ returnTypeCode ~ ") " ~ methodName ~ "(" ~
-          ctfeJoin(paramList) ~ ") {\n";
-
-        // Create the future instance that will repesent the result.
-        code ~= "auto promise = new TPromise!(" ~ returnTypeCode ~ ");\n";
-
-        // Prepare delegate which executes the TClient method call.
-        code ~= "auto work = {\n";
-        code ~= "try {\n";
-        code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
-          ") == void)) {\n";
-        code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
-        code ~= "promise.succeed();\n";
-        code ~= "} else {\n";
-        code ~= "auto result = client_." ~ methodName ~ "(" ~
-          ctfeJoin(paramNames) ~ ");\n";
-        code ~= "promise.succeed(result);\n";
-        code ~= "}\n";
-        code ~= "} catch (Exception e) {\n";
-        code ~= "promise.fail(e);\n";
-        code ~= "}\n";
-        code ~= "};\n";
-
-        // If the request is cancelled, set the result promise to cancelled
-        // as well. This could be moved into an additional TAsyncWorkItem
-        // delegate parameter.
-        code ~= q{
-          if (cancellation) {
-            cancellation.triggering.addCallback({
-              promise.cancel();
-            });
-          }
-        };
-
-        // Enqueue the work item and immediately return the promise (resp. its
-        // future interface).
-        code ~= "transport_.asyncManager.execute(transport_, work, cancellation);\n";
-        code ~= "return promise;\n";
-        code ~= "}\n";
+        paramList ~= ((storage & ParameterStorageClass.ref_) ? "ref " : "") ~
+          "ParameterTypeTuple!(Interface." ~ methodName ~ ")[" ~
+          to!string(i) ~ "] " ~ paramName;
+        paramNames ~= paramName;
       }
+      paramList ~= "TCancellation cancellation = null";
+
+      immutable returnTypeCode = "ReturnType!(Interface." ~ methodName ~ ")";
+      code ~= "TFuture!(" ~ returnTypeCode ~ ") " ~ methodName ~ "(" ~
+        ctfeJoin(paramList) ~ ") {\n";
+
+      // Create the future instance that will repesent the result.
+      code ~= "auto promise = new TPromise!(" ~ returnTypeCode ~ ");\n";
+
+      // Prepare delegate which executes the TClient method call.
+      code ~= "auto work = {\n";
+      code ~= "try {\n";
+      code ~= "static if (is(ReturnType!(Interface." ~ methodName ~
+        ") == void)) {\n";
+      code ~= "client_." ~ methodName ~ "(" ~ ctfeJoin(paramNames) ~ ");\n";
+      code ~= "promise.succeed();\n";
+      code ~= "} else {\n";
+      code ~= "auto result = client_." ~ methodName ~ "(" ~
+        ctfeJoin(paramNames) ~ ");\n";
+      code ~= "promise.succeed(result);\n";
+      code ~= "}\n";
+      code ~= "} catch (Exception e) {\n";
+      code ~= "promise.fail(e);\n";
+      code ~= "}\n";
+      code ~= "};\n";
+
+      // If the request is cancelled, set the result promise to cancelled
+      // as well. This could be moved into an additional TAsyncWorkItem
+      // delegate parameter.
+      code ~= q{
+        if (cancellation) {
+          cancellation.triggering.addCallback({
+            promise.cancel();
+          });
+        }
+      };
+
+      // Enqueue the work item and immediately return the promise (resp. its
+      // future interface).
+      code ~= "transport_.asyncManager.execute(transport_, work, cancellation);\n";
+      code ~= "return promise;\n";
+      code ~= "}\n";
+
     }
 
     code ~= "}\n";

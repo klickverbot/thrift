@@ -18,6 +18,7 @@
  */
 module thrift.server.simple;
 
+import std.variant : Variant;
 import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;

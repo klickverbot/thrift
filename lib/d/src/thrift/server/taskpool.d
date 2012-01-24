@@ -22,6 +22,7 @@ import core.sync.condition;
 import core.sync.mutex;
 import std.exception : enforce;
 import std.parallelism;
+import std.variant : Variant;
 import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;

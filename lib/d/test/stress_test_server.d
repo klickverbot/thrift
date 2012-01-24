@@ -33,7 +33,7 @@ import test_utils;
 
 import thrift.test.stress.Service;
 
-class ServiceHandler : public Service {
+class ServiceHandler : Service {
   void echoVoid() { return; }
   byte echoByte(byte arg) { return arg; }
   int echoI32(int arg) { return arg; }
@@ -53,10 +53,12 @@ class ServiceHandler : public Service {
 
 void main(string[] args) {
   ushort port = 9091;
-  size_t taskPoolSize = totalCPUs;
   auto serverType = ServerType.threaded;
   TransportType transportType;
   size_t numIOThreads = 1;
+
+  import std.parallelism : totalCPUs;
+  size_t taskPoolSize = totalCPUs;
 
   getopt(args, "port", &port, "server-type", &serverType,
     "transport-type", &transportType, "task-pool-size", &taskPoolSize,

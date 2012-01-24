@@ -19,6 +19,7 @@
 module thrift.server.threaded;
 
 import core.thread;
+import std.variant : Variant;
 import thrift.base;
 import thrift.protocol.base;
 import thrift.protocol.processor;

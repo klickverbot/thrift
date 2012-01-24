@@ -22,7 +22,7 @@ import std.algorithm : find;
 import std.array : empty, front;
 import std.conv : to;
 import std.traits : isSomeFunction, ParameterStorageClass,
-  ParameterStorageClassTuple, ParameterTypeTuple;
+  ParameterStorageClassTuple, ParameterTypeTuple, ReturnType;
 import thrift.codegen.base;
 import thrift.internal.codegen;
 import thrift.internal.ctfe;

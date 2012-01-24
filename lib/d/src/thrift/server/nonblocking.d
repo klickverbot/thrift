@@ -37,15 +37,20 @@
 module thrift.server.nonblocking;
 
 import core.atomic : atomicLoad, atomicStore, atomicOp;
+import core.exception : onOutOfMemoryError;
 import core.memory : GC;
 import core.sync.mutex;
+import core.stdc.stdlib : free, realloc;
 import core.time : Duration, dur;
 import core.thread : Thread, ThreadGroup;
 import deimos.event2.event;
+import std.array : empty;
 import std.conv : emplace, to;
+import std.exception : enforce;
 import std.parallelism : TaskPool, task;
 import std.socket : InternetAddress, Socket, socketPair, SocketAcceptException,
   SocketException, TcpSocket;
+import std.variant : Variant;
 import thrift.base;
 import thrift.internal.endian;
 import thrift.internal.socket;

@@ -21,6 +21,7 @@ module thrift.util.awaitable;
 import core.sync.condition;
 import core.sync.mutex;
 import core.time : Duration;
+import std.exception : enforce;
 import std.socket/+ : Socket, socketPair+/; // DMD @@BUG314@@
 import thrift.base;
 

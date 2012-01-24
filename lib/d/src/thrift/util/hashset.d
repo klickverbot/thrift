@@ -18,7 +18,8 @@
  */
 module thrift.util.hashset;
 
-import std.algorithm : join, map;
+import std.algorithm : joiner, map;
+import std.conv : to;
 import std.traits : isImplicitlyConvertible, ParameterTypeTuple;
 import std.range : ElementType, isInputRange;
 
@@ -97,9 +98,8 @@ final class HashSet(E) {
   override string toString() const {
     // Only provide toString() if to!string() is available for E (exceptions are
     // e.g. delegates).
-    import std.conv;
     static if (is(typeof(to!string(E.init)) : string)) {
-      return "{" ~ join(map!`to!string(a)`(aa_.keys), ", ") ~ "}";
+      return "{" ~ to!string(joiner(map!`to!string(a)`(aa_.keys), ", ")) ~ "}";
     } else {
       // Cast to work around Object not being const-correct.
       return (cast()super).toString();

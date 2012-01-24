@@ -187,10 +187,12 @@ void main(string[] args) {
   ServerType serverType;
   ProtocolType protocolType;
   size_t numIOThreads = 1;
-  size_t taskPoolSize = totalCPUs;
   TransportType transportType;
   bool ssl;
   bool trace;
+
+  import std.parallelism : totalCPUs;
+  size_t taskPoolSize = totalCPUs;
 
   getopt(args, "port", &port, "protocol", &protocolType, "server-type",
     &serverType, "ssl", &ssl, "num-io-threads", &numIOThreads,

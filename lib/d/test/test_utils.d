@@ -22,7 +22,7 @@
  */
 module test_utils;
 
-import std.parallelism : TaskPool, totalCPUs;
+import std.parallelism : TaskPool;
 import thrift.protocol.base;
 import thrift.protocol.processor;
 import thrift.server.base;

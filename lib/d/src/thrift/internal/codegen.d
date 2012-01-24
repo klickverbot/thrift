@@ -19,7 +19,7 @@
 
 module thrift.internal.codegen;
 
-import std.traits : InterfacesTuple, isSomeString;
+import std.traits : InterfacesTuple, isSomeFunction, isSomeString;
 import std.typetuple : staticIndexOf, staticMap, NoDuplicates, TypeTuple;
 import thrift.codegen.base;
 
@@ -116,6 +116,11 @@ template memberReq(T, string name, alias fieldMetaData = cast(TFieldMeta[])null)
 }
 
 private {
+  import std.algorithm : find;
+  // DMD @@BUG@@: Missing import leads to failing build without error
+  // message in unittest/debug/thrift/codegen/async_client.
+  import std.array : empty, front;
+
   template memberReqImpl(T, string name, alias fieldMetaData) {
     enum meta = find!`a.name == b`(mergeFieldMeta!(T, fieldMetaData), name);
     static if (meta.empty || meta.front.req == TReq.AUTO) {

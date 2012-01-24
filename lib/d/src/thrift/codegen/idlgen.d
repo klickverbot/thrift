@@ -24,8 +24,11 @@
  */
 module thrift.codegen.idlgen;
 
+import std.algorithm : find;
 import std.array : empty, front;
-import std.traits : EnumMembers, OriginalType;
+import std.conv : to;
+import std.traits : EnumMembers, isSomeFunction, OriginalType,
+  ParameterTypeTuple, ReturnType;
 import std.typetuple : allSatisfy, staticIndexOf, staticMap, NoDuplicates,
   TypeTuple;
 import thrift.base;
@@ -503,6 +506,7 @@ private {
       result ~= "}";
       return result;
     } else static if (is(FullyUnqual!T == enum)) {
+      import std.conv;
       import std.traits;
       return to!string(cast(OriginalType!T)value);
     } else static if (is(FullyUnqual!T == struct) ||

@@ -452,6 +452,7 @@ private {
       bAZ
     }
 
+    import std.exception;
     enforce(capMemberName(Foo.bar) == "Bar");
     enforce(capMemberName(Foo.bAZ) == "BAZ");
   }

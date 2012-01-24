@@ -75,7 +75,7 @@ void main(string[] args) {
     "ssl", &ssl,
     "transport", &transportType,
     "trace", &trace,
-    "host", (string, string value) {
+    "host", (string _, string value) {
       auto parts = split(value, ":");
       enforce(parts.length == 1 || parts.length == 2,
         "Host argument must be of form 'host' or 'host:port'.");

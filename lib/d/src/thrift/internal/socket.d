@@ -34,6 +34,10 @@ version (FreeBSD) {
   enum connresetOnPeerShutdown = false;
 }
 
+static if (connresetOnPeerShutdown) {
+  public import core.stdc.errno : ECONNRESET;
+}
+
 version (Win32) {
   import std.c.windows.winsock : WSAGetLastError, WSAEINTR, WSAEWOULDBLOCK;
   import std.windows.syserror : sysErrorString;

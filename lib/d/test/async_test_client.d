@@ -18,6 +18,7 @@
  */
 module async_test_client;
 
+import std.conv : to;
 import std.datetime;
 import std.exception : collectException, enforce;
 import std.getopt;
@@ -41,7 +42,7 @@ void main(string[] args) {
   getopt(args,
     "n|iterations", &numIterations,
     "trace", &trace,
-    "host", (string, string value) {
+    "host", (string _, string value) {
       auto parts = split(value, ":");
       enforce(parts.length == 1 || parts.length == 2,
         "Host argument must be of form 'host' or 'host:port'.");

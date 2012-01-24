@@ -1050,6 +1050,7 @@ unittest {
    * with the worker thread waking up.
    */
   {
+    import std.conv : text;
     enum NUM_ITERATIONS = 1000;
 
     uint numOver = 0;
