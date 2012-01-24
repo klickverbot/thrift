@@ -356,7 +356,7 @@ class TApplicationException : TException {
         case Type.BAD_SEQUENCE_ID: return "TApplicationException: Bad sequence identifier";
         case Type.MISSING_RESULT: return "TApplicationException: Missing result";
         default: return "TApplicationException: (Invalid exception type)";
-      };
+      }
     }
     this(msgForType(type), type, file, line, next);
   }
