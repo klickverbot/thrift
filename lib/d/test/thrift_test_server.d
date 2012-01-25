@@ -241,15 +241,14 @@ void main(string[] args) {
   auto processor = new TServiceProcessor!(ThriftTest, AvailableProtocols)(
     new TestHandler(trace));
 
-  TSSLSocketFactory sslFactory;
   TServerSocket serverSocket;
   if (ssl) {
-    sslFactory = new TSSLSocketFactory();
-    sslFactory.serverSide = true;
-    sslFactory.loadCertificate("./server-certificate.pem");
-    sslFactory.loadPrivateKey("./server-private-key.pem");
-    sslFactory.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
-    serverSocket = new TSSLServerSocket(port, sslFactory);
+    auto sslContext = new TSSLContext();
+    sslContext.serverSide = true;
+    sslContext.loadCertificate("./server-certificate.pem");
+    sslContext.loadPrivateKey("./server-private-key.pem");
+    sslContext.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+    serverSocket = new TSSLServerSocket(port, sslContext);
   } else {
     serverSocket = new TServerSocket(port);
   }

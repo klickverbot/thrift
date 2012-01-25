@@ -47,6 +47,38 @@ import thrift.transport.socket;
  * SSL encrypted socket implementation using OpenSSL.
  */
 final class TSSLSocket : TSocket {
+  /**
+   * Creates an instance that wraps an already created, connected (!) socket.
+   *
+   * Params:
+   *   context = The SSL socket context to use. A reference to it is stored so
+   *     that it doesn't get cleaned up while the socket is used.
+   *   socket = Already created, connected socket object.
+   */
+  this(TSSLContext context, Socket socket) {
+    super(socket);
+    context_ = context;
+    serverSide_ = context.serverSide;
+    accessManager_ = context.accessManager;
+  }
+
+  /**
+   * Creates a new unconnected socket that will connect to the given host
+   * on the given port.
+   *
+   * Params:
+   *   context = The SSL socket context to use. A reference to it is stored so
+    *     that it doesn't get cleaned up while the socket is used.
+   *   host = Remote host.
+   *   port = Remote port.
+   */
+  this(TSSLContext context, string host, ushort port) {
+    super(host, port);
+    context_ = context;
+    serverSide_ = context.serverSide;
+    accessManager_ = context.accessManager;
+  }
+
   override bool isOpen() @property {
     if (ssl_ is null || !super.isOpen()) return false;
 
@@ -157,40 +189,12 @@ final class TSSLSocket : TSocket {
   }
 
 private:
-  /**
-   * Constructor that takes an already created, connected (!) socket.
-   *
-   * Params:
-   *   factory = The SSL socket factory to use. Storing a reference to it also
-   *     has the effect that it doesn't get cleaned up while the socket is used.
-   *   socket = Already created, connected socket object.
-   */
-  this(TSSLSocketFactory factory, Socket socket) {
-    super(socket);
-    factory_ = factory;
-  }
-
-  /**
-   * Creates a new unconnected socket that will connect to the given host
-   * on the given port.
-   *
-   * Params:
-   *   factory = The SSL socket factory to use. Storing a reference to it also
-   *     has the effect that it doesn't get cleaned up while the socket is used.
-   *   host = Remote host
-   *   port = Remote port
-   */
-  this(TSSLSocketFactory factory, string host, ushort port) {
-    super(host, port);
-    factory_ = factory;
-  }
-
   void checkHandshake() {
     enforce(super.isOpen(), new TTransportException(
       TTransportException.Type.NOT_OPEN));
 
     if (ssl_ !is null) return;
-    ssl_ = SSL_new(factory_.context_.ctx);
+    ssl_ = SSL_new(context_.ctx_);
     enforce(ssl_ !is null, new TSSLException("SSL_new: " ~
       getSSLErrorMessage()));
 
@@ -319,14 +323,18 @@ private:
 
   bool serverSide_;
   SSL* ssl_;
-  TSSLSocketFactory factory_;
+  TSSLContext context_;
   TAccessManager accessManager_;
 }
 
 /**
- * Creates SSL sockets and handles OpenSSL initialization/teardown.
+ * Represents an OpenSSL context with certification settings, etc. and handles
+ * initialization/teardown.
+ *
+ * OpenSSL is initialized when the first instance of this class is created
+ * and shut down when the last one is destroyed (thread-safe).
  */
-class TSSLSocketFactory {
+class TSSLContext {
   this() {
     initMutex_.lock();
     scope(exit) initMutex_.unlock();
@@ -335,43 +343,26 @@ class TSSLSocketFactory {
       initializeOpenSSL();
       randomize();
     }
-
     count_++;
-    context_ = SSLContext(SSL_CTX_new(TLSv1_method()));
+
+    ctx_ = SSL_CTX_new(TLSv1_method());
+    enforce(ctx_, new TSSLException("SSL_CTX_new: " ~ getSSLErrorMessage()));
+    SSL_CTX_set_mode(ctx_, SSL_MODE_AUTO_RETRY);
   }
 
   ~this() {
     initMutex_.lock();
     scope(exit) initMutex_.unlock();
+
+    if (ctx_ !is null) {
+      SSL_CTX_free(ctx_);
+      ctx_ = null;
+    }
+
     count_--;
     if (count_ == 0) {
       cleanupOpenSSL();
     }
-  }
-
-  /**
-   * Create an SSL socket wrapping an existing std.socket.Socket.
-   *
-   * Params:
-   *   socket = An existing socket.
-   */
-  TSSLSocket createSocket(Socket socket) {
-    auto result = new TSSLSocket(this, socket);
-    setup(result);
-    return result;
-  }
-
-   /**
-   * Create an instance of TSSLSocket.
-   *
-   * Params:
-   *   host = Remote host to connect to.
-   *   port = Remote port to connect to.
-   */
-  TSSLSocket createSocket(string host, ushort port) {
-    auto result = new TSSLSocket(this, host, port);
-    setup(result);
-    return result;
   }
 
   /**
@@ -381,7 +372,7 @@ class TSSLSocketFactory {
    * ciphers(1), for example: "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH".
    */
   void ciphers(string enable) @property {
-    auto rc = SSL_CTX_set_cipher_list(context_.ctx, toStringz(enable));
+    auto rc = SSL_CTX_set_cipher_list(ctx_, toStringz(enable));
 
     enforce(ERR_peek_error() == 0,
       new TSSLException("SSL_CTX_set_cipher_list: " ~ getSSLErrorMessage()));
@@ -399,7 +390,7 @@ class TSSLSocketFactory {
     } else {
       mode = SSL_VERIFY_NONE;
     }
-    SSL_CTX_set_verify(context_.ctx, mode, null);
+    SSL_CTX_set_verify(ctx_, mode, null);
   }
 
   /**
@@ -416,7 +407,7 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-      if (SSL_CTX_use_certificate_chain_file(context_.ctx, toStringz(path)) == 0) {
+      if (SSL_CTX_use_certificate_chain_file(ctx_, toStringz(path)) == 0) {
         throw new TSSLException(`Could not load SSL server certificate ` ~
           `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
       }
@@ -439,7 +430,7 @@ class TSSLSocketFactory {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-       if (SSL_CTX_use_PrivateKey_file(context_.ctx, toStringz(path),
+       if (SSL_CTX_use_PrivateKey_file(ctx_, toStringz(path),
           SSL_FILETYPE_PEM) == 0)
         {
         throw new TSSLException(`Could not load SSL private key from file "` ~
@@ -461,7 +452,7 @@ class TSSLSocketFactory {
       "loadTrustedCertificates: <path> is NULL",
       TTransportException.Type.BAD_ARGS));
 
-    if (SSL_CTX_load_verify_locations(context_.ctx, toStringz(path), null) == 0) {
+    if (SSL_CTX_load_verify_locations(ctx_, toStringz(path), null) == 0) {
       throw new TSSLException(`Could not load SSL trusted certificate list ` ~
         `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
     }
@@ -493,6 +484,9 @@ class TSSLSocketFactory {
    * The access manager to use.
    */
   TAccessManager accessManager() @property {
+    if (!serverSide_ && !accessManager_) {
+      accessManager_ = new TDefaultClientAccessManager;
+    }
     return accessManager_;
   }
 
@@ -520,23 +514,13 @@ protected:
    * callback with getPassword().
    */
   void overrideDefaultPasswordCallback() {
-    SSL_CTX_set_default_passwd_cb(context_.ctx, &passwordCallback);
-    SSL_CTX_set_default_passwd_cb_userdata(context_.ctx, cast(void*)this);
+    SSL_CTX_set_default_passwd_cb(ctx_, &passwordCallback);
+    SSL_CTX_set_default_passwd_cb_userdata(ctx_, cast(void*)this);
   }
 
-  SSLContext context_;
+  SSL_CTX* ctx_;
 
 private:
-  void setup(TSSLSocket ssl) {
-    ssl.serverSide = serverSide;
-    if (accessManager_ is null && !serverSide) {
-      accessManager_ = new TDefaultClientAccessManager;
-    }
-    if (accessManager_ !is null) {
-      ssl.accessManager = accessManager_;
-    }
-  }
-
   bool serverSide_;
   TAccessManager accessManager_;
 
@@ -627,8 +611,8 @@ private:
     }
 
     int passwordCallback(char* password, int size, int, void* data) nothrow {
-      auto factory = cast(TSSLSocketFactory) data;
-      auto userPassword = factory.getPassword(size);
+      auto context = cast(TSSLContext) data;
+      auto userPassword = context.getPassword(size);
       auto len = userPassword.length;
       if (len > size) {
         len = size;
@@ -645,10 +629,10 @@ private:
 }
 
 /**
- * Callback interface for access control. It's meant to verify the remote host.
- * It's constructed when application starts and set to TSSLSocketFactory
- * instance. It's passed onto all TSSLSocket instances created by this factory
- * object.
+ * Decides whether a remote host is legitimate or not.
+ *
+ * It is usually set at a TSSLContext, which then passes it to all the created
+ * TSSLSockets.
  */
 class TAccessManager {
   ///
@@ -659,35 +643,49 @@ class TAccessManager {
   }
 
   /**
-   * Determine whether the peer should be granted access or not. It's called
-   * once after the SSL handshake completes successfully, before peer certificate
-   * is examined.
+   * Determines whether a peer should be granted access or not based on its
+   * IP address.
    *
-   * If a valid decision (ALLOW or DENY) is returned, the peer certificate is
-   * not to be verified.
+   * Called once after SSL handshake is completes successfully and before peer
+   * certificate is examined.
+   *
+   * If a valid decision (ALLOW or DENY) is returned, the peer certificate
+   * will not be verified.
    */
   Decision verify(InternetAddress sa) {
     return Decision.DENY;
   }
 
   /**
-   * Determine whether the peer should be granted access or not. It's called
-   * every time a DNS subjectAltName/common name is extracted from peer's
-   * certificate.
+   * Determines whether a peer should be granted access or not based on a
+   * name from its certificate.
+   *
+   * Called every time a DNS subjectAltName/common name is extracted from the
+   * peer's certificate.
+   *
+   * Params:
+   *   host = The actual host name string from the socket connection.
+   *   certHost = A host name string from the certificate.
    */
   Decision verify(string host, const(char)[] certHost) {
     return Decision.DENY;
   }
 
   /**
-   * Determine whether the peer should be granted access or not. It's called
-   * every time an IP subjectAltName is extracted from peer's certificate.
+   * Determines whether a peer should be granted access or not based on an IP
+   * address from its certificate.
+   *
+   * Called every time an IP subjectAltName is extracted from the peer's
+   * certificate.
+   *
+   * Params:
+   *   address = The actual address from the socket connection.
+   *   certHost = A host name string from the certificate.
    */
-  Decision verify(InternetAddress sa, ubyte[] certAddress) {
+  Decision verify(InternetAddress address, ubyte[] certAddress) {
     return Decision.DENY;
   }
 }
-
 
 /**
  * Default access manager implementation, which just checks the host name
@@ -716,7 +714,7 @@ class TDefaultClientAccessManager : TAccessManager {
 
 private {
   /**
-   * Match a name with a pattern. The pattern may include wildcard. A single
+   * Matches a name with a pattern. The pattern may include wildcard. A single
    * wildcard "*" can match up to one component in the domain name.
    *
    * Params:
@@ -794,35 +792,5 @@ private {
     result ~= ".";
 
     return result;
-  }
-
-  /**
-   * Wrap an OpenSSL SSL_CTX.
-   */
-  struct SSLContext {
-    this(SSL_CTX* ctx) {
-      ctx_ = ctx;
-      enforce(ctx_ !is null, new TSSLException("SSL_CTX_new: " ~
-        getSSLErrorMessage()));
-      SSL_CTX_set_mode(ctx_, SSL_MODE_AUTO_RETRY);
-    }
-
-    ~this() {
-      if (ctx_ !is null) {
-        SSL_CTX_free(ctx_);
-        ctx_ = null;
-      }
-    }
-
-    SSL_CTX* ctx() @property {
-      return ctx_;
-    }
-
-  private:
-    @disable this(this) {
-      assert(0);
-    }
-
-    SSL_CTX* ctx_;
   }
 }

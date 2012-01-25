@@ -85,13 +85,12 @@ void main(string[] args) {
   );
 
   TSocket socket;
-  TSSLSocketFactory sslFactory;
   if (ssl) {
-    sslFactory = new TSSLSocketFactory();
-    sslFactory.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
-    sslFactory.authenticate = true;
-    sslFactory.loadTrustedCertificates("./trusted-ca-certificate.pem");
-    socket = sslFactory.createSocket(host, port);
+    auto sslContext = new TSSLContext();
+    sslContext.ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+    sslContext.authenticate = true;
+    sslContext.loadTrustedCertificates("./trusted-ca-certificate.pem");
+    socket = new TSSLSocket(sslContext, host, port);
   } else {
     socket = new TSocket(host, port);
   }

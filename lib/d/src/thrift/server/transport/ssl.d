@@ -37,12 +37,12 @@ class TSSLServerSocket : TServerSocket {
    *
    * Params:
    *   port = The port on which to listen.
-   *   sslFactory = The TSSLSocketFactory to use for creating client
+   *   sslContext = The TSSLContext to use for creating client
    *     sockets. Must be in server-side mode.
    */
-  this(ushort port, TSSLSocketFactory sslFactory) {
+  this(ushort port, TSSLContext sslContext) {
     super(port);
-    setSSLFactory(sslFactory);
+    setSSLContext(sslContext);
   }
 
   /**
@@ -52,27 +52,27 @@ class TSSLServerSocket : TServerSocket {
    *   port = The port on which to listen.
    *   sendTimeout = The send timeout to set on the client sockets.
    *   recvTimeout = The receive timeout to set on the client sockets.
-   *   sslFactory = The TSSLSocketFactory to use for creating client
+   *   sslContext = The TSSLContext to use for creating client
    *     sockets. Must be in server-side mode.
    */
   this(ushort port, Duration sendTimeout, Duration recvTimeout,
-    TSSLSocketFactory sslFactory)
+    TSSLContext sslContext)
   {
     super(port, sendTimeout, recvTimeout);
-    setSSLFactory(sslFactory);
+    setSSLContext(sslContext);
   }
 
 protected:
   override TSocket createTSocket(Socket socket) {
-    return sslFactory_.createSocket(socket);
+    return new TSSLSocket(sslContext_, socket);
   }
 
 private:
-  void setSSLFactory(TSSLSocketFactory sslFactory) {
-    enforce(sslFactory.serverSide, new TTransportException(
+  void setSSLContext(TSSLContext sslContext) {
+    enforce(sslContext.serverSide, new TTransportException(
       "Need server-side SSL socket factory for TSSLServerSocket"));
-    sslFactory_ = sslFactory;
+    sslContext_ = sslContext;
   }
 
-  TSSLSocketFactory sslFactory_;
+  TSSLContext sslContext_;
 }
