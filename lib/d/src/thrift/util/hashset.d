@@ -90,11 +90,6 @@ final class HashSet(E) {
   }
 
   ///
-  int opApply(scope int delegate(ref E elem) dg) const {
-    return aa_.byKey()(cast(ParameterTypeTuple!(typeof(aa_.byKey()))[0]) dg);
-  }
-
-  ///
   override string toString() const {
     // Only provide toString() if to!string() is available for E (exceptions are
     // e.g. delegates).
