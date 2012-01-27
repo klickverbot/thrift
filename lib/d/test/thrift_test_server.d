@@ -259,7 +259,7 @@ void main(string[] args) {
     processor, serverSocket, transportFactory, protocolFactory);
 
   writefln("Starting %s/%s %s ThriftTest server %son port %s...", protocolType,
-    transportType, serverType, ssl ? "": "(using SSL) ", port);
+    transportType, serverType, ssl ? "(using SSL) ": "", port);
   server.serve();
   writeln("done.");
 }
