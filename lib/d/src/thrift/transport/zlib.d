@@ -192,7 +192,7 @@ final class TZlibTransport : TBaseTransport {
 
   override void consume(size_t len) {
     enforce(readAvail >= len, new TTransportException(
-      TTransportException.Type.BAD_ARGS, "consume did not follow a borrow."));
+      "consume() did not follow a borrow().", TTransportException.Type.BAD_ARGS));
     urpos_ += len;
   }
 

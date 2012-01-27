@@ -91,9 +91,9 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     if (isOpen) return;
 
     enforce(!host_.empty, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open null host."));
+      "Cannot open null host.", TTransportException.Type.NOT_OPEN));
     enforce(port_ != 0, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
+      "Cannot open with null port.", TTransportException.Type.NOT_OPEN));
 
     socket_ = new TcpSocket(AddressFamily.INET);
     socket_.blocking = false;

@@ -242,9 +242,9 @@ class TSocket : TSocketBase {
     if (isOpen) return;
 
     enforce(!host_.empty, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open null host."));
+      "Cannot open null host.", TTransportException.Type.NOT_OPEN));
     enforce(port_ != 0, new TTransportException(
-      TTransportException.Type.NOT_OPEN, "Cannot open with null port."));
+      "Cannot open null host.", TTransportException.Type.NOT_OPEN));
 
     socket_ = new TcpSocket(AddressFamily.INET);
     setSocketOpts();
@@ -335,8 +335,8 @@ class TSocket : TSocketBase {
       auto b = writeSome(buf[sent .. $]);
       if (b == 0) {
         // This should only happen if the timeout set with SO_SNDTIMEO expired.
-        throw new TTransportException(TTransportException.Type.TIMED_OUT,
-          "send() timeout expired.");
+        throw new TTransportException("send() timeout expired.",
+          TTransportException.Type.TIMED_OUT);
       }
       sent += b;
     }
