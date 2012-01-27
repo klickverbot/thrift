@@ -242,18 +242,47 @@ class TSocket : TSocketBase {
     if (isOpen) return;
 
     enforce(!host_.empty, new TTransportException(
-      "Cannot open null host.", TTransportException.Type.NOT_OPEN));
+      "Cannot open socket to null host.", TTransportException.Type.NOT_OPEN));
     enforce(port_ != 0, new TTransportException(
-      "Cannot open null host.", TTransportException.Type.NOT_OPEN));
+      "Cannot open socket to port zero.", TTransportException.Type.NOT_OPEN));
+
+    Address[] addrs;
+    try {
+      addrs = getAddress(host_, port_);
+    } catch (SocketException e) {
+      throw new TTransportException("Could not resolve given host string.",
+        TTransportException.Type.NOT_OPEN, __FILE__, __LINE__, e);
+    }
 
     socket_ = new TcpSocket(AddressFamily.INET);
     setSocketOpts();
-    try {
-      socket_.connect(new InternetAddress(host_, port_));
-    } catch (SocketException e) {
+
+    Exception[] errors;
+    foreach (addr; addrs) {
+      try {
+        socket_.connect(addr);
+        break;
+      } catch (SocketException e) {
+        errors ~= e;
+      }
+    }
+    if (errors.length == addrs.length) {
       socket_ = null;
-      throw new TTransportException(text("Failed to connect to ", host_, ":",
-        port_, ": ", e), TTransportException.Type.NOT_OPEN);
+      // Need to throw a TTransportException to abide the TTransport API.
+      import std.algorithm, std.range;
+      throw new TTransportException(
+        text("Failed to connect to ", host_, ":", port_, "."),
+        TTransportException.Type.NOT_OPEN,
+        __FILE__, __LINE__,
+        new TCompoundOperationException(
+          text(
+            "All addresses tried failed (",
+            joiner(map!q{text(a._0, `: "`, a._1.msg, `"`)}(zip(addrs, errors)), ", "),
+            ")."
+          ),
+          errors
+        )
+      );
     }
   }
 
@@ -433,7 +462,8 @@ protected:
           "Could not set send timeout: " ~ socketErrnoString(e.errorCode),
           TTransportException.Type.UNKNOWN,
           __FILE__,
-          __LINE__
+          __LINE__,
+          e
         );
       }
     }
