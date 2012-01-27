@@ -48,7 +48,7 @@ import std.array : empty;
 import std.conv : emplace, to;
 import std.exception : enforce;
 import std.parallelism : TaskPool, task;
-import std.socket : InternetAddress, Socket, socketPair, SocketAcceptException,
+import std.socket : Socket, socketPair, SocketAcceptException,
   SocketException, TcpSocket;
 import std.variant : Variant;
 import thrift.base;
@@ -1111,7 +1111,8 @@ private {
           auto size = netToHost(frameSize);
           if (size > server_.maxFrameSize) {
             logError("Frame size too large (%s > %s), client %s not using " ~
-              "TFramedTransport?", size, server_.maxFrameSize, socket_.getPeerHost());
+              "TFramedTransport?", size, server_.maxFrameSize,
+              socket_.getPeerAddress().toHostNameString());
             close();
             return;
           }

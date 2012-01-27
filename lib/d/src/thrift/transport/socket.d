@@ -85,35 +85,23 @@ abstract class TSocketBase : TBaseTransport {
   }
 
   /**
-   * Returns the host name of the peer.
+   * Returns the actual address of the peer the socket is connected to.
+   *
+   * In contrast, the host and port properties contain the address used to
+   * establish the connection, and are not updated after the connection.
    *
    * The socket must be open when calling this.
    */
-  string getPeerHost() {
+  Address getPeerAddress() {
     enforce(isOpen, new TTransportException("Cannot get peer host for " ~
       "closed socket.", TTransportException.Type.NOT_OPEN));
 
-    if (!peerHost_) {
-      peerHost_ = peerAddress.toHostNameString();
+    if (!peerAddress_) {
+      peerAddress_ = socket_.remoteAddress();
+      assert(peerAddress_);
     }
 
-    return peerHost_;
-  }
-
-  /**
-   * Returns the port of the peer.
-   *
-   * The socket must be open when calling this.
-   */
-  ushort getPeerPort() {
-    enforce(isOpen, new TTransportException("Cannot get peer port for " ~
-      "closed socket.", TTransportException.Type.NOT_OPEN));
-
-    if (!peerPort_) {
-      peerPort_ = peerAddress.port();
-    }
-
-    return peerPort_;
+    return peerAddress_;
   }
 
   /**
@@ -164,14 +152,6 @@ abstract class TSocketBase : TBaseTransport {
   }
 
 protected:
-  InternetAddress peerAddress() @property {
-    if (!peerAddress_) {
-      peerAddress_ = cast(InternetAddress) socket_.remoteAddress();
-      assert(peerAddress_);
-    }
-    return peerAddress_;
-  }
-
   /**
    * Sets the needed socket options.
    */
@@ -206,7 +186,7 @@ protected:
   Duration recvTimeout_;
 
   /// Cached peer address.
-  InternetAddress peerAddress_;
+  Address peerAddress_;
 
   /// Cached peer host name.
   string peerHost_;
@@ -254,12 +234,11 @@ class TSocket : TSocketBase {
         TTransportException.Type.NOT_OPEN, __FILE__, __LINE__, e);
     }
 
-    socket_ = new TcpSocket(AddressFamily.INET);
-    setSocketOpts();
-
     Exception[] errors;
     foreach (addr; addrs) {
       try {
+        socket_ = new TcpSocket(addr.addressFamily);
+        setSocketOpts();
         socket_.connect(addr);
         break;
       } catch (SocketException e) {

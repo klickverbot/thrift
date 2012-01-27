@@ -33,7 +33,7 @@ import std.ascii : toUpper;
 import std.array : empty, front, popFront;
 import std.conv : emplace, to;
 import std.exception : enforce;
-import std.socket : InternetAddress, Socket;
+import std.socket : Address, InternetAddress, Internet6Address, Socket;
 import std.string : toStringz;
 import deimos.openssl.err;
 import deimos.openssl.rand;
@@ -243,7 +243,7 @@ private:
     }
 
     // both certificate and access manager are present
-    auto decision = accessManager_.verify(peerAddress);
+    auto decision = accessManager_.verify(getPeerAddress());
 
     if (decision != Decision.SKIP) {
       X509_free(cert);
@@ -253,9 +253,9 @@ private:
       return;
     }
 
-    // extract subjectAlternativeName
+    // extract subjectAltName
     string hostName;
-    auto alternatives = cast(STACK_OF!(GENERAL_NAME_st)*)
+    auto alternatives = cast(STACK_OF!(GENERAL_NAME)*)
       X509_get_ext_d2i(cert, NID_subject_alt_name, null, null);
     if (alternatives != null) {
       auto count = sk_GENERAL_NAME_num(alternatives);
@@ -269,12 +269,12 @@ private:
         switch (name.type) {
           case GENERAL_NAME.GEN_DNS:
             if (hostName.empty) {
-              hostName = (serverSide_ ? getPeerHost() : host);
+              hostName = (serverSide_ ? getPeerAddress().toHostNameString() : host);
             }
             decision = accessManager_.verify(host, cast(string)data[0 .. length]);
             break;
           case GENERAL_NAME.GEN_IPADD:
-            decision = accessManager_.verify(peerAddress, cast(ubyte[])data[0 .. length]);
+            decision = accessManager_.verify(getPeerAddress(), cast(ubyte[])data[0 .. length]);
             break;
           default:
             // Do nothing.
@@ -309,7 +309,7 @@ private:
         auto common = X509_NAME_ENTRY_get_data(entry);
         int size = ASN1_STRING_to_UTF8(&utf8, common);
         if (hostName.empty) {
-          hostName = (serverSide_ ? getPeerHost() : host);
+          hostName = (serverSide_ ? getPeerAddress().toHostNameString() : host);
         }
         decision = accessManager_.verify(host, utf8[0 .. size].idup);
         CRYPTO_free(utf8);
@@ -317,7 +317,7 @@ private:
     }
     X509_free(cert);
     if (decision != Decision.ALLOW) {
-      throw new TSSLException("Authorize: Cannot authorize peer.");
+      throw new TSSLException("Authorize: Could not authorize peer.");
     }
   }
 
@@ -652,7 +652,7 @@ class TAccessManager {
    * If a valid decision (ALLOW or DENY) is returned, the peer certificate
    * will not be verified.
    */
-  Decision verify(InternetAddress sa) {
+  Decision verify(Address address) {
     return Decision.DENY;
   }
 
@@ -682,17 +682,17 @@ class TAccessManager {
    *   address = The actual address from the socket connection.
    *   certHost = A host name string from the certificate.
    */
-  Decision verify(InternetAddress address, ubyte[] certAddress) {
+  Decision verify(Address address, ubyte[] certAddress) {
     return Decision.DENY;
   }
 }
 
 /**
  * Default access manager implementation, which just checks the host name
- * of the connection against the certificate.
+ * resp. IP address of the connection against the certificate.
  */
 class TDefaultClientAccessManager : TAccessManager {
-  override Decision verify(InternetAddress sa) {
+  override Decision verify(Address address) {
     return Decision.SKIP;
   }
 
@@ -703,10 +703,16 @@ class TDefaultClientAccessManager : TAccessManager {
     return (matchName(host, certHost) ? Decision.ALLOW : Decision.SKIP);
   }
 
-  override Decision verify(InternetAddress sa, ubyte[] certAddress) {
+  override Decision verify(Address address, ubyte[] certAddress) {
     bool match;
-    if (certAddress.length == sa.sizeof) {
-      match = (cast(ubyte*)sa)[0 .. sa.sizeof] == certAddress[0 .. sa.sizeof];
+    if (certAddress.length == 4) {
+      if (auto ia = cast(InternetAddress)address) {
+        match = ((cast(ubyte*)ia.addr())[0 .. 4] == certAddress[]);
+      }
+    } else if (certAddress.length == 16) {
+      if (auto ia = cast(Internet6Address)address) {
+        match = (ia.addr() == certAddress[]);
+      }
     }
     return (match ? Decision.ALLOW : Decision.SKIP);
   }

@@ -31,11 +31,10 @@ import thrift.internal.endian;
 import thrift.internal.socket;
 
 version (Windows) {
-  import std.c.windows.winsock : connect, sockaddr, sockaddr_in;
+  import std.c.windows.winsock : connect;
 } else version (Posix) {
-  import core.sys.posix.netinet.in_ : sockaddr_in;
-  import core.sys.posix.sys.socket : connect, sockaddr;
-} else static assert(0, "Don't know connect/sockaddr_in on this platform.");
+  import core.sys.posix.sys.socket : connect;
+} else static assert(0, "Don't know connect on this platform.");
 
 /**
  * Non-blocking socket implementation of the TTransport interface.
@@ -95,29 +94,24 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     enforce(port_ != 0, new TTransportException(
       "Cannot open with null port.", TTransportException.Type.NOT_OPEN));
 
-    socket_ = new TcpSocket(AddressFamily.INET);
+
+    // Cannot use std.socket.Socket.connect here because it hides away
+    // EINPROGRESS/WSAWOULDBLOCK.
+    Address addr;
+    try {
+      // Currently, we just go with the first address returned, could be made
+      // more intelligent though – IPv6?
+      addr = getAddress(host_, port_)[0];
+    } catch (Exception e) {
+      throw new TTransportException(`Unable to resolve host "` ~ host_ ~ `".`,
+        TTransportException.Type.NOT_OPEN, __FILE__, __LINE__, e);
+    }
+
+    socket_ = new TcpSocket(addr.addressFamily);
     socket_.blocking = false;
     setSocketOpts();
 
-    // Cannot use std.socket.Socket.connect here because it hides away
-    // EINPROGRESS/WSAWOULDBLOCK, and cannot use InternetAddress here because
-    // it does not provide access to the sockaddr_in struct outside std.socket.
-    auto addr = InternetAddress.parse(host_);
-    if (addr == InternetAddress.ADDR_NONE) {
-      auto host = new InternetHost;
-      if (!host.getHostByName(host_)) {
-        throw new TTransportException(`Unable to resolve host "` ~ host_ ~ `".`,
-          TTransportException.Type.NOT_OPEN);
-      }
-      addr = host.addrList[0];
-    }
-
-    sockaddr_in sin;
-    sin.sin_family = AddressFamily.INET;
-    sin.sin_addr.s_addr = hostToNet(addr);
-    sin.sin_port = hostToNet(port);
-
-    auto errorCode = connect(socket_.handle, cast(sockaddr*)&sin, sin.sizeof);
+    auto errorCode = connect(socket_.handle, addr.name(), addr.nameLen());
     if (errorCode == 0) {
       // If the connection could be established immediately, just return. I
       // don't know if this ever happens.
