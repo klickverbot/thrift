@@ -39,7 +39,7 @@ import deimos.openssl.err;
 import deimos.openssl.rand;
 import deimos.openssl.ssl;
 import deimos.openssl.x509v3;
-
+import thrift.base;
 import thrift.transport.base;
 import thrift.transport.socket;
 
@@ -112,11 +112,18 @@ final class TSSLSocket : TSocket {
     if (!isOpen) return;
 
     if (ssl_ !is null) {
+      // Two-step SSL shutdown.
       auto rc = SSL_shutdown(ssl_);
       if (rc == 0) {
         rc = SSL_shutdown(ssl_);
       }
-      if (rc < 0) throw new TSSLException(getSSLErrorMessage(getErrno()));
+      if (rc < 0) {
+        // Do not throw an exception here as leaving the transport "open" will
+        // probably produce only more errors, and the chance we can do
+        // something about the error e.g. by retrying is very low.
+        logError("Error shutting down SSL: %s", getSSLErrorMessage(getErrno()));
+      }
+
       SSL_free(ssl_);
       ssl_ = null;
       ERR_remove_state(0);
@@ -771,7 +778,7 @@ private {
   string getSSLErrorMessage(int errnoCopy = 0) {
     string result;
 
-    c_ulong code;
+    c_ulong code = void;
     while ((code = ERR_get_error()) != 0) {
       if (!result.empty) {
         result ~= ", ";
