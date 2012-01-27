@@ -44,10 +44,14 @@ void main(string[] args) {
     "trace", &trace,
     "host", (string _, string value) {
       auto parts = split(value, ":");
-      enforce(parts.length == 1 || parts.length == 2,
-        "Host argument must be of form 'host' or 'host:port'.");
-      host = parts[0];
-      if (parts.length == 2) port = to!ushort(parts[1]);
+      if (parts.length > 1) {
+        // IPv6 addresses can contain colons, so take the last part for the
+        // port.
+        host = join(parts[0 .. $ - 1], ":");
+        port = to!ushort(parts[$ - 1]);
+      } else {
+        host = value;
+      }
     }
   );
 
