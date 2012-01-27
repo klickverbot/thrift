@@ -212,7 +212,7 @@ class TProtocolException : TException {
 
   ///
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
-    string msgForType(Type type) {
+    static string msgForType(Type type) {
       switch (type) {
         case Type.UNKNOWN: return "Unknown protocol exception";
         case Type.INVALID_DATA: return "Invalid data";
@@ -347,7 +347,7 @@ class TApplicationException : TException {
 
   ///
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
-    string msgForType(Type type) {
+    static string msgForType(Type type) {
       switch (type) {
         case Type.UNKNOWN: return "Unknown application exception";
         case Type.UNKNOWN_METHOD: return "Unknown method";
