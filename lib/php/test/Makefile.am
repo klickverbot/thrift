@@ -17,56 +17,17 @@
 # under the License.
 #
 
-SUBDIRS = nodejs
+THRIFT = $(top_builddir)/compiler/cpp/thrift
 
-if WITH_CPP
-SUBDIRS += cpp
+stubs: ../../../test/ThriftTest.thrift
+	mkdir -p ../src/packages
+	$(THRIFT) --gen php -r --out ../src/packages ../../../test/ThriftTest.thrift
+
+if HAVE_PHPUNIT
+check: stubs
+	$(PHPUNIT) --log-junit=phpunit.xml protocol/TestTJSONProtocol.php
 endif
 
-if WITH_PERL
-SUBDIRS += perl
-endif
+clean-local:
+	$(RM) -r gen-php
 
-if WITH_PHP
-SUBDIRS += php
-endif
-
-if WITH_PYTHON
-SUBDIRS += py
-SUBDIRS += py.twisted
-endif
-
-if WITH_RUBY
-SUBDIRS += rb
-endif
-
-if WITH_HASKELL
-SUBDIRS += hs
-endif
-
-EXTRA_DIST = \
-	cpp \
-	csharp \
-	erl \
-	hs \
-	nodejs \
-	ocaml \
-	perl \
-	php \
-	py \
-	py.twisted \
-	rb \
-	threads \
-	AnnotationTest.thrift \
-	BrokenConstants.thrift \
-	ConstantsDemo.thrift \
-	DebugProtoTest.thrift \
-	DenseLinkingTest.thrift \
-	DocTest.thrift \
-	JavaBeansTest.thrift \
-	ManyTypedefs.thrift \
-	OptionalRequiredTest.thrift \
-	SmallTest.thrift \
-	StressTest.thrift \
-	ThriftTest.thrift \
-	FastbinaryTest.py

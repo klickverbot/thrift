@@ -223,6 +223,9 @@ if test "$with_php_extension" = "yes"; then
 fi
 AM_CONDITIONAL(WITH_PHP_EXTENSION, [test "$have_php_extension" = "yes"])
 
+AC_PATH_PROG([PHPUNIT], [phpunit])
+AM_CONDITIONAL(HAVE_PHPUNIT, [test "x$PHPUNIT" != "x"])
+
 AX_THRIFT_LIB(ruby, [Ruby], yes)
 have_ruby=no
 if test "$with_ruby" = "yes"; then
@@ -584,12 +587,14 @@ AC_CONFIG_FILES([
   lib/perl/Makefile
   lib/perl/test/Makefile
   lib/php/Makefile
+  lib/php/test/Makefile
   lib/py/Makefile
   lib/rb/Makefile
   test/Makefile
   test/cpp/Makefile
   test/hs/Makefile
   test/nodejs/Makefile
+  test/php/Makefile
   test/perl/Makefile
   test/py/Makefile
   test/py.twisted/Makefile
