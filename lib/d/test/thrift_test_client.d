@@ -122,16 +122,7 @@ void main(string[] args) {
   foreach(test; 0 .. numTests) {
     sw.start();
 
-    try {
-      protocol.transport.open();
-    } catch (TTransportException ttx) {
-      writef("Connect failed: %s", ttx.msg);
-      if (ttx.next !is null) {
-        writef(". Reason: %s.", ttx.next);
-      }
-      writeln();
-      continue;
-    }
+    protocol.transport.open();
 
     if (trace) writefln("Test #%s, connect %s:%s", test + 1, host, port);
 
