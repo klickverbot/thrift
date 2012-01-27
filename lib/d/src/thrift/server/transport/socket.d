@@ -22,7 +22,7 @@ import core.thread : dur, Duration, Thread;
 import core.stdc.errno : errno, EINTR;
 import core.stdc.string : strerror;
 import std.array : empty;
-import std.conv : to;
+import std.conv : text, to;
 import std.exception : enforce;
 import std.socket;
 import thrift.base;
@@ -200,9 +200,26 @@ private:
 Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   Duration retryDelay, uint tcpSendBuffer = 0, uint tcpRecvBuffer = 0
 ) {
+  Address localAddr;
+  try {
+    // null represents the wildcard address.
+    auto addrs = getAddress(null, port);
+    foreach (i, addr; addrs) {
+      // Prefer to bind to IPv6 addresses, because then IPv4 is listened to as
+      // well, but not the other way round.
+      if (addr.addressFamily == AddressFamily.INET6 || i == (addrs.length - 1)) {
+        localAddr = addr;
+        break;
+      }
+    }
+  } catch (Exception e) {
+    throw new STE("Could not determine local address to listen on.",
+      STE.Type.RESOURCE_FAILED, __FILE__, __LINE__, e);
+  }
+
   Socket socket;
   try {
-    socket = new Socket(AddressFamily.INET, SocketType.STREAM,
+    socket = new Socket(localAddr.addressFamily, SocketType.STREAM,
       ProtocolType.TCP);
   } catch (SocketException e) {
     throw new STE("Could not create accepting socket: " ~ to!string(e),
@@ -257,9 +274,6 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
       STE.Type.RESOURCE_FAILED);
   }
 
-  // TODO: Find IPv6 address once std.socket is no longer IPv4-only.
-  auto localAddr = new InternetAddress("0.0.0.0", port);
-
   ushort retries;
   while (true) {
     try {
@@ -272,7 +286,8 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
     if (retries < retryLimit) {
       Thread.sleep(retryDelay);
     } else {
-      throw new STE("Could not bind.", STE.Type.RESOURCE_FAILED);
+      throw new STE(text("Could not bind to address: ", localAddr),
+        STE.Type.RESOURCE_FAILED);
     }
   }
 
