@@ -214,13 +214,13 @@ class TProtocolException : TException {
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
     string msgForType(Type type) {
       switch (type) {
-        case Type.UNKNOWN: return "TProtocolException: Unknown protocol exception";
-        case Type.INVALID_DATA: return "TProtocolException: Invalid data";
-        case Type.NEGATIVE_SIZE: return "TProtocolException: Negative size";
-        case Type.SIZE_LIMIT: return "TProtocolException: Exceeded size limit";
-        case Type.BAD_VERSION: return "TProtocolException: Invalid version";
-        case Type.NOT_IMPLEMENTED: return "TProtocolException: Not implemented";
-        default: return "TProtocolException: (Invalid exception type)";
+        case Type.UNKNOWN: return "Unknown protocol exception";
+        case Type.INVALID_DATA: return "Invalid data";
+        case Type.NEGATIVE_SIZE: return "Negative size";
+        case Type.SIZE_LIMIT: return "Exceeded size limit";
+        case Type.BAD_VERSION: return "Invalid version";
+        case Type.NOT_IMPLEMENTED: return "Not implemented";
+        default: return "(Invalid exception type)";
       }
     }
     this(msgForType(type), type, file, line, next);
@@ -349,13 +349,13 @@ class TApplicationException : TException {
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
     string msgForType(Type type) {
       switch (type) {
-        case Type.UNKNOWN: return "TApplicationException: Unknown application exception";
-        case Type.UNKNOWN_METHOD: return "TApplicationException: Unknown method";
-        case Type.INVALID_MESSAGE_TYPE: return "TApplicationException: Invalid message type";
-        case Type.WRONG_METHOD_NAME: return "TApplicationException: Wrong method name";
-        case Type.BAD_SEQUENCE_ID: return "TApplicationException: Bad sequence identifier";
-        case Type.MISSING_RESULT: return "TApplicationException: Missing result";
-        default: return "TApplicationException: (Invalid exception type)";
+        case Type.UNKNOWN: return "Unknown application exception";
+        case Type.UNKNOWN_METHOD: return "Unknown method";
+        case Type.INVALID_MESSAGE_TYPE: return "Invalid message type";
+        case Type.WRONG_METHOD_NAME: return "Wrong method name";
+        case Type.BAD_SEQUENCE_ID: return "Bad sequence identifier";
+        case Type.MISSING_RESULT: return "Missing result";
+        default: return "(Invalid exception type)";
       }
     }
     this(msgForType(type), type, file, line, next);

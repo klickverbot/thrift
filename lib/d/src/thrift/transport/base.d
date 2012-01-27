@@ -320,21 +320,21 @@ class TTransportException : TException {
 
   ///
   this(Type type, string file = __FILE__, size_t line = __LINE__, Throwable next = null) {
-    string msg = "TTransportException: ";
-    switch (type) {
-      case Type.UNKNOWN: msg ~= "Unknown transport exception"; break;
-      case Type.NOT_OPEN: msg ~= "Transport not open"; break;
-      case Type.TIMED_OUT: msg ~= "Timed out"; break;
-      case Type.END_OF_FILE: msg ~= "End of file"; break;
-      case Type.INTERRUPTED: msg ~= "Interrupted"; break;
-      case Type.BAD_ARGS: msg ~= "Invalid arguments"; break;
-      case Type.CORRUPTED_DATA: msg ~= "Corrupted Data"; break;
-      case Type.INTERNAL_ERROR: msg ~= "Internal error"; break;
-      case Type.NOT_IMPLEMENTED: msg ~= "Not implemented"; break;
-      default: msg ~= "(Invalid exception type)"; break;
+    static string msgForType(Type type) {
+      switch (type) {
+        case Type.UNKNOWN: return "Unknown transport exception";
+        case Type.NOT_OPEN: return "Transport not open";
+        case Type.TIMED_OUT: return "Timed out";
+        case Type.END_OF_FILE: return "End of file";
+        case Type.INTERRUPTED: return "Interrupted";
+        case Type.BAD_ARGS: return "Invalid arguments";
+        case Type.CORRUPTED_DATA: return "Corrupted Data";
+        case Type.INTERNAL_ERROR: return "Internal error";
+        case Type.NOT_IMPLEMENTED: return "Not implemented";
+        default: return "(Invalid exception type)";
+      }
     }
-
-    this(msg, type, file, line, next);
+    this(msgForType(type), type, file, line, next);
   }
 
   ///
