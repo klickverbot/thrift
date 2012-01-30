@@ -202,12 +202,13 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   Address localAddr;
   try {
     // null represents the wildcard address.
-    auto addrs = getAddress(null, port);
-    foreach (i, addr; addrs) {
+    auto addrInfos = getAddressInfo(null, to!string(port),
+      AddressInfoFlags.PASSIVE, SocketType.STREAM, ProtocolType.TCP);
+    foreach (i, ai; addrInfos) {
       // Prefer to bind to IPv6 addresses, because then IPv4 is listened to as
       // well, but not the other way round.
-      if (addr.addressFamily == AddressFamily.INET6 || i == (addrs.length - 1)) {
-        localAddr = addr;
+      if (ai.family == AddressFamily.INET6 || i == (addrInfos.length - 1)) {
+        localAddr = ai.address;
         break;
       }
     }
