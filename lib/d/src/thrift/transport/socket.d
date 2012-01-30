@@ -201,8 +201,8 @@ protected:
 /**
  * Socket implementation of the TTransport interface.
  *
- * Due to the limitations of std.socket, only TCP/IPv4 sockets (i.e. no Unix
- * sockets or IPv6) are currently supported.
+ * Due to the limitations of std.socket, currently only TCP/IP sockets are
+ * supported (i.e. Unix domain sockets are not).
  */
 class TSocket : TSocketBase {
   ///

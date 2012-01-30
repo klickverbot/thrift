@@ -42,8 +42,9 @@ version (Windows) {
  * Whenever a socket operation would block, TAsyncSocket registers a callback
  * with the specified TAsyncSocketManager and yields.
  *
- * As for thrift.transport.socket, due to the limitations of std.socket, only
- * TCP/IPv4 sockets (i.e. no Unix sockets or IPv6) are currently supported.
+ * As for thrift.transport.socket, due to the limitations of std.socket,
+ * currently only TCP/IP sockets are supported (i.e. Unix domain sockets are
+ * not).
  */
 class TAsyncSocket : TSocketBase, TAsyncTransport {
   /**

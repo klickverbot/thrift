@@ -39,8 +39,7 @@ private alias TServerTransportException STE;
  * Server socket implementation of TServerTransport.
  *
  * Maps to std.socket listen()/accept(); only provides TCP/IP sockets (i.e. no
- * Unix sockets) for now, because they are not supported in std.socket; IPv4
- * only for the same reason.
+ * Unix sockets) for now, because they are not supported in std.socket.
  */
 class TServerSocket : TServerTransport {
   /**
