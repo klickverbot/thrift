@@ -151,7 +151,7 @@ class TNonblockingServer : TServer {
     // Initialize the listening socket.
     // TODO: SO_KEEPALIVE, TCP_LOW_MIN_RTO, etc.
     listenSocket_ = makeSocketAndListen(port_, TServerSocket.ACCEPT_BACKLOG,
-      BIND_RETRY_LIMIT, BIND_RETRY_DELAY);
+      BIND_RETRY_LIMIT, BIND_RETRY_DELAY, 0, 0, ipv6Only_);
     listenSocket_.blocking = false;
 
     logInfo("Using %s I/O thread(s).", numIOThreads_);
@@ -229,6 +229,12 @@ class TNonblockingServer : TServer {
 
   /// Duration between bind() retries.
   enum BIND_RETRY_DELAY = dur!"hnsecs"(0);
+
+  /// Whether to listen on IPv6 only, if IPv6 support is detected
+  // (default: false).
+  void ipv6Only(bool value) @property {
+    ipv6Only_ = value;
+  }
 
   /**
    * The task pool to use for processing requests. If null, no additional
@@ -531,6 +537,9 @@ private:
 
   /// Port to listen on.
   ushort port_;
+
+  /// Whether to listen on IPv6 only.
+  bool ipv6Only_;
 
   /// The total number of connections existing, both active and idle.
   size_t numConnections_;

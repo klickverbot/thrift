@@ -97,11 +97,16 @@ class TServerSocket : TServerTransport {
     tcpRecvBuffer_ = tcpRecvBuffer;
   }
 
+  /// Whether to listen on IPv6 only, if IPv6 support is detected.
+  void ipv6Only(bool value) @property {
+    ipv6Only_ = value;
+  }
+
   override void listen() {
     enforce(!isListening, new STE(STE.Type.ALREADY_LISTENING));
 
     serverSocket_ = makeSocketAndListen(port_, ACCEPT_BACKLOG, retryLimit_,
-      retryDelay_, tcpSendBuffer_, tcpRecvBuffer_);
+      retryDelay_, tcpSendBuffer_, tcpRecvBuffer_, ipv6Only_);
   }
 
   override void close() {
@@ -188,6 +193,7 @@ private:
   Duration retryDelay_;
   uint tcpSendBuffer_;
   uint tcpRecvBuffer_;
+  bool ipv6Only_;
 
   Socket serverSocket_;
   TSocketNotifier cancellationNotifier_;
@@ -197,7 +203,8 @@ private:
 }
 
 Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
-  Duration retryDelay, uint tcpSendBuffer = 0, uint tcpRecvBuffer = 0
+  Duration retryDelay, uint tcpSendBuffer = 0, uint tcpRecvBuffer = 0,
+  bool ipv6Only = false
 ) {
   Address localAddr;
   try {
@@ -223,6 +230,13 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
       ProtocolType.TCP);
   } catch (SocketException e) {
     throw new STE("Could not create accepting socket: " ~ to!string(e),
+      STE.Type.RESOURCE_FAILED);
+  }
+
+  try {
+    socket.setOption(SocketOptionLevel.IPV6, SocketOption.IPV6_V6ONLY, ipv6Only);
+  } catch (SocketException e) {
+    throw new STE("Could not set IPV6ONLY socket option: " ~ to!string(e),
       STE.Type.RESOURCE_FAILED);
   }
 
