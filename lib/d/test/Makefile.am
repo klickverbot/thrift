@@ -93,7 +93,19 @@ thrift_test_server: %: %.d thrift_test_common.d test_utils.d $(thrift_test_gen)
 transport_test: %: %.d
 	$(DMD) $(d_test_flags) -of$@ $^
 
-check-local: $(targets)
+
+# Certificate generation targets (for the SSL tests).
+# Currently, we just assume that the "openssl" tool is on the path, could be
+# replaced by a more elaborate mechanism.
+
+server-certificate.pem: openssl.test.cnf
+	openssl req -new -x509 -nodes -config openssl.test.cnf \
+		-out server-certificate.pem
+
+trusted-ca-certificate.pem: server-certificate.pem
+	cat server-certificate.pem > $@
+
+check-local: trusted-ca-certificate.pem server-certificate.pem
 
 clean-local:
 	$(RM) -rf gen-d $(targets) $(addsuffix .o, $(targets))
