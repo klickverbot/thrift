@@ -97,7 +97,8 @@ class TServerSocket : TServerTransport {
     tcpRecvBuffer_ = tcpRecvBuffer;
   }
 
-  /// Whether to listen on IPv6 only, if IPv6 support is detected.
+  /// Whether to listen on IPv6 only, if IPv6 support is detected
+  /// (default: false).
   void ipv6Only(bool value) @property {
     ipv6Only_ = value;
   }
