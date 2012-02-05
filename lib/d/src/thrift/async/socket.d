@@ -24,6 +24,7 @@ import std.array : empty;
 import std.conv : to;
 import std.exception : enforce;
 import std.socket;
+import thrift.base;
 import thrift.async.base;
 import thrift.transport.base;
 import thrift.transport.socket : TSocketBase;
@@ -145,11 +146,14 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
         return;
       }
 
-      int errorFlag;
+      int errorCode = void;
       socket_.getOption(SocketOptionLevel.SOCKET, cast(SocketOption)SO_ERROR,
-        errorFlag);
+        errorCode);
 
-      if (errorFlag) {
+      if (errorCode) {
+        logInfo("Could not connect TAsyncSocket: %s",
+          socketErrnoString(errorCode));
+
         // Close the connection, so that subsequent work items fail immediately.
         close();
       }
