@@ -29,7 +29,7 @@ import thrift.transport.base;
 import thrift.internal.socket;
 
 /**
- * Common parts of a socket TTransportImplementation, regardless of how the
+ * Common parts of a socket TTransport implementation, regardless of how the
  * actual I/O is performed (sync/async).
  */
 abstract class TSocketBase : TBaseTransport {
@@ -108,7 +108,7 @@ abstract class TSocketBase : TBaseTransport {
    * The host the socket is connected to or will connect to. Null if an
    * already connected socket was used to construct the object.
    */
-  string host() @property {
+  string host() const @property {
     return host_;
   }
 
@@ -116,7 +116,7 @@ abstract class TSocketBase : TBaseTransport {
    * The port the socket is connected to or will connect to. Zero if an
    * already connected socket was used to construct the object.
    */
-  ushort port() @property {
+  ushort port() const @property {
     return port_;
   }
 
@@ -414,13 +414,13 @@ class TSocket : TSocketBase {
   /// Ditto
   enum DEFAULT_MAX_RECV_RETRIES = 5;
 
+protected:
   override void setSocketOpts() {
     super.setSocketOpts();
     setTimeout(SocketOption.SNDTIMEO, sendTimeout_);
     setTimeout(SocketOption.RCVTIMEO, recvTimeout_);
   }
 
-protected:
   void setTimeout(SocketOption type, Duration value) {
     assert(type == SocketOption.SNDTIMEO || type == SocketOption.RCVTIMEO);
     version (Win32) {
