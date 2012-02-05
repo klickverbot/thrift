@@ -66,7 +66,7 @@ endif
 
 if WITH_D_SSL_TESTS
 d_test_flags += $(DMD_OPENSSL_FLAGS) ../$(D_SSL_LIB_NAME)
-targets = $(targets_)
+targets = $(targets_) trusted-ca-certificate.pem server-certificate.pem
 else
 targets = $(filter-out $(openssl_dependent_targets), $(targets_))
 endif
@@ -105,7 +105,7 @@ server-certificate.pem: openssl.test.cnf
 trusted-ca-certificate.pem: server-certificate.pem
 	cat server-certificate.pem > $@
 
-check-local: trusted-ca-certificate.pem server-certificate.pem
+check-local: $(targets)
 
 clean-local:
 	$(RM) -rf gen-d $(targets) $(addsuffix .o, $(targets))
