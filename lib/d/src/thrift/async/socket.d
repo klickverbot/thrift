@@ -278,6 +278,7 @@ private:
       }
 
       auto fiber = Fiber.getThis();
+      assert(fiber, "Current fiber null – not running in TAsyncManager?");
       TAsyncEventReason eventReason = void;
       asyncManager_.addOneshotListener(socket_, eventType, timeout,
         scopedDelegate((TAsyncEventReason reason) {
@@ -301,7 +302,7 @@ private:
         close();
 
         throw new TTransportException(
-          "Timed out while waiting for socket to get ready for " ~
+          "Timed out while waiting for socket to get ready to " ~
           to!string(eventType) ~ ".", TTransportException.Type.TIMED_OUT);
       }
     }
