@@ -131,46 +131,64 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
     // is being established in the background. Queue up a work item with the
     // async manager which just defers any other operations on this
     // TAsyncSocket instance until the socket is ready.
-    asyncManager_.execute(this, {
-      auto fiber = Fiber.getThis();
-      TAsyncEventReason reason;
-      asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
-        connectTimeout,
-        scopedDelegate((TAsyncEventReason r){ reason = r; fiber.call(); })
-      );
-      Fiber.yield();
+    asyncManager_.execute(this,
+      {
+        auto fiber = Fiber.getThis();
+        TAsyncEventReason reason = void;
+        asyncManager_.addOneshotListener(socket_, TAsyncEventType.WRITE,
+          connectTimeout,
+          scopedDelegate((TAsyncEventReason r){ reason = r; fiber.call(); })
+        );
+        Fiber.yield();
 
-      if (reason == TAsyncEventReason.TIMED_OUT) {
-        // Close the connection, so that subsequent work items fail immediately.
-        close();
-        return;
+        if (reason == TAsyncEventReason.TIMED_OUT) {
+          // Close the connection, so that subsequent work items fail immediately.
+          closeImmediately();
+          return;
+        }
+
+        int errorCode = void;
+        socket_.getOption(SocketOptionLevel.SOCKET, cast(SocketOption)SO_ERROR,
+          errorCode);
+
+        if (errorCode) {
+          logInfo("Could not connect TAsyncSocket: %s",
+            socketErrnoString(errorCode));
+
+          // Close the connection, so that subsequent work items fail immediately.
+          closeImmediately();
+          return;
+        }
+
       }
-
-      int errorCode = void;
-      socket_.getOption(SocketOptionLevel.SOCKET, cast(SocketOption)SO_ERROR,
-        errorCode);
-
-      if (errorCode) {
-        logInfo("Could not connect TAsyncSocket: %s",
-          socketErrnoString(errorCode));
-
-        // Close the connection, so that subsequent work items fail immediately.
-        close();
-      }
-    });
+    );
   }
 
   /**
    * Closes the socket.
    *
-   * Note: Currently, calling this while there are still pending asynchronous
-   *   operations for this connection yields undefined behavior.
+   * Will block until all currently active operations are finished before the
+   * socket is closed.
    */
   override void close() {
     if (!isOpen) return;
 
-    socket_.close();
-    socket_ = null;
+    import core.sync.condition;
+    import core.sync.mutex;
+
+    auto doneMutex = new Mutex;
+    auto doneCond = new Condition(doneMutex);
+    synchronized (doneMutex) {
+      asyncManager_.execute(this,
+        scopedDelegate(
+          {
+            closeImmediately();
+            synchronized (doneMutex) doneCond.notifyAll();
+          }
+        )
+      );
+      doneCond.wait();
+    }
   }
 
   override bool peek() {
@@ -182,7 +200,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       auto lastErrno = getSocketErrno();
       static if (connresetOnPeerShutdown) {
         if (lastErrno == ECONNRESET) {
-          close();
+          closeImmediately();
           return false;
         }
       }
@@ -242,7 +260,7 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
       auto type = TTransportException.Type.UNKNOWN;
       if (isSocketCloseErrno(lastErrno)) {
         type = TTransportException.Type.NOT_OPEN;
-        close();
+        closeImmediately();
       }
 
       throw new TTransportException("Sending to socket failed: " ~
@@ -259,6 +277,11 @@ class TAsyncSocket : TSocketBase, TAsyncTransport {
   Duration connectTimeout = dur!"seconds"(5);
 
 private:
+  void closeImmediately() {
+    socket_.close();
+    socket_ = null;
+  }
+
   T yieldOnBlock(T)(lazy T call, TAsyncEventType eventType) {
     while (true) {
       auto result = call();
@@ -299,11 +322,11 @@ private:
         // possibly queued up work items fail immediately. Besides, the server
         // is not very likely to immediately recover after a socket-level
         // timeout has expired anyway.
-        close();
+        closeImmediately();
 
-        throw new TTransportException(
-          "Timed out while waiting for socket to get ready to " ~
-          to!string(eventType) ~ ".", TTransportException.Type.TIMED_OUT);
+        throw new TTransportException("Timed out while waiting for socket " ~
+          "to get ready to " ~ to!string(eventType) ~ ".",
+          TTransportException.Type.TIMED_OUT);
       }
     }
   }
