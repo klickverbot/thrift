@@ -102,3 +102,12 @@ check-local: $(targets)
 
 clean-local:
 	$(RM) -rf gen-d $(targets) $(addsuffix .o, $(targets))
+
+
+# Tests ran as part of make check.
+
+async_test_runner.sh: async_test
+thrift_test_runner.sh: thrift_test_client thrift_test_server
+
+TESTS = async_test_runner.sh \
+	thrift_test_runner.sh
