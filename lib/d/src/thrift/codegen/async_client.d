@@ -61,6 +61,10 @@ import thrift.util.future;
  * transport and protocol are to be used for both input and output, which is
  * the most common case.
  *
+ * If the same transport factory is passed for both input and output transports,
+ * only a single wrapper transport will be created and used for both directions.
+ * This allows easy implementation of protocols like SSL.
+ *
  * Just as TClient does, TAsyncClient also takes two optional template
  * arguments which can be used for specifying the actual TProtocol
  * implementation used for optimization purposes, as virtual calls can
@@ -153,12 +157,20 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
           import std.exception;
           transport_ = trans;
 
-          auto iprot = ipf.getProtocol(itf.getTransport(trans));
+          auto ip = itf.getTransport(trans);
+          TTransport op = void;
+          if (itf == otf) {
+            op = ip;
+          } else {
+            op = otf.getTransport(op);
+          }
+
+          auto iprot = ipf.getProtocol(ip);
           iprot_ = cast(IProt)iprot;
           enforce(iprot_, new TException(text("Input protocol not of the " ~
             "specified concrete type (", IProt.stringof, ").")));
 
-          auto oprot = opf.getProtocol(otf.getTransport(trans));
+          auto oprot = opf.getProtocol(op);
           oprot_ = cast(OProt)oprot;
           enforce(oprot_, new TException(text("Output protocol not of the " ~
             "specified concrete type (", OProt.stringof, ").")));
