@@ -30,7 +30,7 @@ d_thriftmodules = $(addprefix thrift/, base)
 d_thriftdir = $(D_IMPORT_PREFIX)/thrift
 d_thrift_DATA = $(addprefix src/, $(addsuffix .d, $(d_thriftmodules)))
 
-d_asyncmodules = $(addprefix thrift/async/, base libevent socket)
+d_asyncmodules = $(addprefix thrift/async/, base libevent socket ssl)
 d_asyncdir = $(d_thriftdir)/async
 d_async_DATA = $(addprefix src/, $(addsuffix .d, $(d_asyncmodules)))
 
@@ -65,7 +65,7 @@ d_utildir = $(d_thriftdir)/util
 d_util_DATA = $(addprefix src/, $(addsuffix .d, $(d_utilmodules)))
 
 d_internalmodules = $(addprefix thrift/internal/, algorithm codegen ctfe \
-	endian resource_pool socket traits)
+	endian resource_pool socket ssl ssl_bio traits)
 d_internaldir = $(d_thriftdir)/internal
 d_internal_DATA = $(addprefix src/, $(addsuffix .d, $(d_internalmodules)))
 
@@ -82,7 +82,8 @@ d_modules = $(d_publicmodules) $(d_internalmodules) $(d_testmodules)
 
 # List modules with external dependencies and remove them from the main list
 d_libevent_dependent_modules = thrift/async/libevent thrift/server/nonblocking
-d_openssl_dependent_modules = thrift/transport/ssl thrift/server/transport/ssl
+d_openssl_dependent_modules = thrift/async/ssl thrift/internal/ssl \
+	thrift/internal/ssl_bio thrift/transport/ssl thrift/server/transport/ssl
 d_main_modules = $(filter-out $(d_libevent_dependent_modules) \
 	$(d_openssl_dependent_modules),$(d_modules))
 

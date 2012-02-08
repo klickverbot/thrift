@@ -24,7 +24,6 @@ module thrift.transport.ssl;
 
 import core.exception : onOutOfMemoryError;
 import core.stdc.errno : getErrno, EINTR;
-import core.stdc.string : strerror;
 import core.sync.mutex : Mutex;
 import core.memory : GC;
 import core.stdc.config;
@@ -40,6 +39,7 @@ import deimos.openssl.rand;
 import deimos.openssl.ssl;
 import deimos.openssl.x509v3;
 import thrift.base;
+import thrift.internal.ssl;
 import thrift.transport.base;
 import thrift.transport.socket;
 
@@ -94,7 +94,7 @@ final class TSSLSocket : TSocket {
 
     byte bt;
     auto rc = SSL_peek(ssl_, &bt, bt.sizeof);
-    if (rc < 0) throw new TSSLException(getSSLErrorMessage(getErrno()));
+    enforce(rc >= 0, getSSLException("SSL_peek"));
 
     if (rc == 0) {
       ERR_clear_error();
@@ -121,7 +121,7 @@ final class TSSLSocket : TSocket {
         // Do not throw an exception here as leaving the transport "open" will
         // probably produce only more errors, and the chance we can do
         // something about the error e.g. by retrying is very low.
-        logError("Error shutting down SSL: %s", getSSLErrorMessage(getErrno()));
+        logError("Error shutting down SSL: %s", getSSLException());
       }
 
       SSL_free(ssl_);
@@ -146,7 +146,7 @@ final class TSSLSocket : TSocket {
           continue;
         }
       }
-      throw new TSSLException(getSSLErrorMessage(errnoCopy));
+      throw getSSLException("SSL_read");
     }
     return bytes;
   }
@@ -160,7 +160,7 @@ final class TSSLSocket : TSocket {
       auto bytes = SSL_write(ssl_, buf.ptr + written,
         cast(int)(buf.length - written));
       if (bytes <= 0) {
-        throw new TSSLException(getSSLErrorMessage(getErrno()));
+        throw getSSLException("SSL_write");
       }
       written += bytes;
     }
@@ -173,7 +173,7 @@ final class TSSLSocket : TSocket {
     enforce(bio !is null, new TSSLException("SSL_get_wbio returned null"));
 
     auto rc = BIO_flush(bio);
-    enforce(rc == 1, new TSSLException(getSSLErrorMessage(getErrno())));
+    enforce(rc == 1, getSSLException("BIO_flush"));
   }
 
   /**
@@ -201,9 +201,7 @@ private:
       TTransportException.Type.NOT_OPEN));
 
     if (ssl_ !is null) return;
-    ssl_ = SSL_new(context_.ctx_);
-    enforce(ssl_ !is null, new TSSLException("SSL_new: " ~
-      getSSLErrorMessage()));
+    ssl_ = context_.createSSL();
 
     SSL_set_fd(ssl_, socketHandle);
     int rc;
@@ -212,120 +210,9 @@ private:
     } else {
       rc = SSL_connect(ssl_);
     }
-    enforce(rc > 0, new TSSLException(getSSLErrorMessage(getErrno())));
-    authorize();
-  }
-
-  void authorize() {
-    alias TAccessManager.Decision Decision;
-
-    auto rc = SSL_get_verify_result(ssl_);
-    if (rc != X509_V_OK) {
-      throw new TSSLException("SSL_get_verify_result(): " ~
-        to!string(X509_verify_cert_error_string(rc)));
-    }
-
-    auto cert = SSL_get_peer_certificate(ssl_);
-    if (cert is null) {
-      // Certificate is not present.
-      if (SSL_get_verify_mode(ssl_) & SSL_VERIFY_FAIL_IF_NO_PEER_CERT) {
-        throw new TSSLException(
-          "Authorize: Required certificate not present.");
-      }
-
-      // If we don't have an access manager set, we don't intend to authorize
-      // the client, so everything's fine.
-      if (serverSide_ && accessManager_ !is null) {
-        throw new TSSLException(
-          "Authorize: Certificate required for authorization.");
-      }
-      return;
-    }
-
-    if (accessManager_ is null) {
-      // No access manager set, can return immediately as the cert is valid
-      // and all peers are authorized.
-      X509_free(cert);
-      return;
-    }
-
-    // both certificate and access manager are present
-    auto decision = accessManager_.verify(getPeerAddress());
-
-    if (decision != Decision.SKIP) {
-      X509_free(cert);
-      if (decision != Decision.ALLOW) {
-        throw new TSSLException("Authorize: Access denied based on remote IP.");
-      }
-      return;
-    }
-
-    // extract subjectAltName
-    string hostName;
-    auto alternatives = cast(STACK_OF!(GENERAL_NAME)*)
-      X509_get_ext_d2i(cert, NID_subject_alt_name, null, null);
-    if (alternatives != null) {
-      auto count = sk_GENERAL_NAME_num(alternatives);
-      for (int i = 0; decision == Decision.SKIP && i < count; i++) {
-        auto name = sk_GENERAL_NAME_value(alternatives, i);
-        if (name is null) {
-          continue;
-        }
-        auto data = ASN1_STRING_data(name.d.ia5);
-        auto length = ASN1_STRING_length(name.d.ia5);
-        switch (name.type) {
-          case GENERAL_NAME.GEN_DNS:
-            if (hostName.empty) {
-              hostName = (serverSide_ ? getPeerAddress().toHostNameString() : host);
-            }
-            decision = accessManager_.verify(host, cast(string)data[0 .. length]);
-            break;
-          case GENERAL_NAME.GEN_IPADD:
-            decision = accessManager_.verify(getPeerAddress(), cast(ubyte[])data[0 .. length]);
-            break;
-          default:
-            // Do nothing.
-        }
-      }
-
-      // DMD @@BUG@@: Empty template arguments parens should not be needed.
-      sk_GENERAL_NAME_pop_free!()(alternatives, &GENERAL_NAME_free);
-    }
-
-    if (decision != Decision.SKIP) {
-      X509_free(cert);
-      if (decision != Decision.ALLOW) {
-        throw new TSSLException("Authorize: Access denied.");
-      }
-      return;
-    }
-
-    // extract commonName
-    auto name = X509_get_subject_name(cert);
-    if (name !is null) {
-      X509_NAME_ENTRY* entry;
-      char* utf8;
-      int last = -1;
-      while (decision == Decision.SKIP) {
-        last = X509_NAME_get_index_by_NID(name, NID_commonName, last);
-        if (last == -1)
-          break;
-        entry = X509_NAME_get_entry(name, last);
-        if (entry is null)
-          continue;
-        auto common = X509_NAME_ENTRY_get_data(entry);
-        int size = ASN1_STRING_to_UTF8(&utf8, common);
-        if (hostName.empty) {
-          hostName = (serverSide_ ? getPeerAddress().toHostNameString() : host);
-        }
-        decision = accessManager_.verify(host, utf8[0 .. size].idup);
-        CRYPTO_free(utf8);
-      }
-    }
-    X509_free(cert);
-    if (decision != Decision.ALLOW) {
-      throw new TSSLException("Authorize: Could not authorize peer.");
-    }
+    enforce(rc > 0, getSSLException());
+    authorize(ssl_, accessManager_, getPeerAddress(),
+      (serverSide_ ? getPeerAddress().toHostNameString() : host));
   }
 
   bool serverSide_;
@@ -353,7 +240,7 @@ class TSSLContext {
     count_++;
 
     ctx_ = SSL_CTX_new(TLSv1_method());
-    enforce(ctx_, new TSSLException("SSL_CTX_new: " ~ getSSLErrorMessage()));
+    enforce(ctx_, getSSLException("SSL_CTX_new"));
     SSL_CTX_set_mode(ctx_, SSL_MODE_AUTO_RETRY);
   }
 
@@ -381,8 +268,7 @@ class TSSLContext {
   void ciphers(string enable) @property {
     auto rc = SSL_CTX_set_cipher_list(ctx_, toStringz(enable));
 
-    enforce(ERR_peek_error() == 0,
-      new TSSLException("SSL_CTX_set_cipher_list: " ~ getSSLErrorMessage()));
+    enforce(ERR_peek_error() == 0, getSSLException("SSL_CTX_set_cipher_list"));
     enforce(rc > 0, new TSSLException("None of specified ciphers are supported"));
   }
 
@@ -414,10 +300,11 @@ class TSSLContext {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-      if (SSL_CTX_use_certificate_chain_file(ctx_, toStringz(path)) == 0) {
-        throw new TSSLException(`Could not load SSL server certificate ` ~
-          `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
-      }
+      enforce(SSL_CTX_use_certificate_chain_file(ctx_, toStringz(path)),
+        getSSLException(
+          `Could not load SSL server certificate from file "` ~ path ~ `"`
+        )
+      );
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
     }
@@ -437,12 +324,11 @@ class TSSLContext {
       TTransportException.Type.BAD_ARGS));
 
     if (format == "PEM") {
-       if (SSL_CTX_use_PrivateKey_file(ctx_, toStringz(path),
-          SSL_FILETYPE_PEM) == 0)
-        {
-        throw new TSSLException(`Could not load SSL private key from file "` ~
-          path ~ `": ` ~ getSSLErrorMessage(getErrno()));
-      }
+      enforce(SSL_CTX_use_PrivateKey_file(ctx_, toStringz(path), SSL_FILETYPE_PEM),
+        getSSLException(
+          `Could not load SSL private key from file "` ~ path ~ `"`
+        )
+      );
     } else {
       throw new TSSLException("Unsupported certificate format: " ~ format);
     }
@@ -459,10 +345,11 @@ class TSSLContext {
       "loadTrustedCertificates: <path> is NULL",
       TTransportException.Type.BAD_ARGS));
 
-    if (SSL_CTX_load_verify_locations(ctx_, toStringz(path), null) == 0) {
-      throw new TSSLException(`Could not load SSL trusted certificate list ` ~
-        `from file "` ~ path ~ `": ` ~ getSSLErrorMessage(getErrno()));
-    }
+    enforce(SSL_CTX_load_verify_locations(ctx_, toStringz(path), null),
+      getSSLException(
+        `Could not load SSL trusted certificate list from file "` ~ path ~ `"`
+      )
+    );
   }
 
   /**
@@ -500,6 +387,14 @@ class TSSLContext {
   /// Ditto
   void accessManager(TAccessManager value) @property {
     accessManager_ = value;
+  }
+
+  SSL* createSSL() out (result) {
+    assert(result);
+  } body {
+    auto result = SSL_new(ctx_);
+    enforce(result, getSSLException("SSL_new"));
+    return result;
   }
 
 protected:
@@ -771,39 +666,5 @@ class TSSLException : TTransportException {
     Throwable next = null)
   {
     super(msg, TTransportException.Type.INTERNAL_ERROR, file, line, next);
-  }
-}
-
-private {
-  string getSSLErrorMessage(int errnoCopy = 0) {
-    string result;
-
-    c_ulong code = void;
-    while ((code = ERR_get_error()) != 0) {
-      if (!result.empty) {
-        result ~= ", ";
-      }
-
-      auto reason = ERR_reason_error_string(code);
-      if (reason) {
-        result ~= to!string(reason);
-      } else {
-        result ~= "SSL error #" ~ to!string(code);
-      }
-    }
-
-    if (result.empty) {
-      if (errnoCopy != 0) {
-        result ~= to!string(strerror(errnoCopy));
-      }
-    }
-
-    if (result.empty) {
-      result ~= "Unknown error";
-    }
-
-    result ~= ".";
-
-    return result;
   }
 }
