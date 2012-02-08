@@ -162,7 +162,7 @@ template TAsyncClient(Interface, InputProtocol = TProtocol, OutputProtocol = voi
           if (itf == otf) {
             op = ip;
           } else {
-            op = otf.getTransport(op);
+            op = otf.getTransport(trans);
           }
 
           auto iprot = ipf.getProtocol(ip);
