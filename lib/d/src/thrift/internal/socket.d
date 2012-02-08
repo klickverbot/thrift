@@ -17,7 +17,7 @@
  * under the License.
  */
 
-/*
+/**
  * Abstractions over OS-dependent socket functionality.
  */
 module thrift.internal.socket;

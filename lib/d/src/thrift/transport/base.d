@@ -272,7 +272,7 @@ protected:
 }
 
 /**
- * Makes a TTransport wrapping a given source transport in some way.
+ * Makes a TTransport which wraps a given source transport in some way.
  *
  * A common use case is inside server implementations, where the raw client
  * connections accepted from e.g. TServerSocket need to be wrapped into
