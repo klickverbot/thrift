@@ -35,7 +35,7 @@ d_asyncdir = $(d_thriftdir)/async
 d_async_DATA = $(addprefix src/, $(addsuffix .d, $(d_asyncmodules)))
 
 d_codegenmodules = $(addprefix thrift/codegen/, async_client \
- 	async_client_pool base client client_pool idlgen processor)
+	async_client_pool base client client_pool idlgen processor)
 d_codegendir = $(d_thriftdir)/codegen
 d_codegen_DATA = $(addprefix src/, $(addsuffix .d, $(d_codegenmodules)))
 
@@ -87,13 +87,9 @@ d_openssl_dependent_modules = thrift/async/ssl thrift/internal/ssl \
 d_main_modules = $(filter-out $(d_libevent_dependent_modules) \
 	$(d_openssl_dependent_modules),$(d_modules))
 
-#
-# Main library target.
-#
+
 d_lib_flags = -w -wi -Isrc -lib
-$(D_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_main_modules)))
-	$(DMD) -of$(D_LIB_NAME) $(d_lib_flags) $^
-all_targets = $(D_LIB_NAME)
+all_targets =
 
 #
 # libevent-dependent modules.
@@ -113,6 +109,17 @@ $(D_SSL_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_openssl_dependent_modul
 all_targets += $(D_SSL_LIB_NAME)
 endif
 
+#
+# Main library target.
+#
+$(D_LIB_NAME): $(addprefix src/, $(addsuffix .d, $(d_main_modules)))
+	$(DMD) -of$(D_LIB_NAME) $(d_lib_flags) $^
+all_targets += $(D_LIB_NAME)
+
+
+#
+# Documentation target (requires Dil).
+#
 docs: $(d_publicsources) src/thrift/index.d
 	dil ddoc docs -hl --kandil $^
 

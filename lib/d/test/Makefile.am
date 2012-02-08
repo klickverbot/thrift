@@ -17,11 +17,6 @@
 # under the License.
 #
 
-# General build flags
-
-d_test_flags = -w -wi -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
-	$(top_builddir)/lib/d/$(D_LIB_NAME)
-
 
 # Thrift compiler rules
 
@@ -56,6 +51,8 @@ libevent_dependent_targets = async_test_client client_pool_test \
 
 openssl_dependent_targets = async_test thrift_test_client thrift_test_server
 
+d_test_flags =
+
 if WITH_D_EVENT_TESTS
 d_test_flags += $(DMD_LIBEVENT_FLAGS) ../$(D_EVENT_LIB_NAME)
 targets_ = $(targets__)
@@ -69,6 +66,9 @@ targets = $(targets_) trusted-ca-certificate.pem server-certificate.pem
 else
 targets = $(filter-out $(openssl_dependent_targets), $(targets_))
 endif
+
+d_test_flags += -w -wi -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
+	$(top_builddir)/lib/d/$(D_LIB_NAME)
 
 
 async_test client_pool_test transport_test: %: %.d
