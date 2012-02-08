@@ -48,14 +48,13 @@ $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 # The actual test targets.
 # There just must be some way to reassign a variable without warnings in
 # Automake...
-targets__ = async_test_client async_test_server client_pool_test \
-	serialization_benchmark stress_test_server thrift_test_client \
-	thrift_test_server transport_test
+targets__ = async_test serialization_benchmark \
+	stress_test_server thrift_test_client thrift_test_server transport_test
 
 libevent_dependent_targets = async_test_client client_pool_test \
 	stress_test_server thrift_test_server
 
-openssl_dependent_targets = thrift_test_client thrift_test_server
+openssl_dependent_targets = async_test thrift_test_client thrift_test_server
 
 if WITH_D_EVENT_TESTS
 d_test_flags += $(DMD_LIBEVENT_FLAGS) ../$(D_EVENT_LIB_NAME)
@@ -72,10 +71,7 @@ targets = $(filter-out $(openssl_dependent_targets), $(targets_))
 endif
 
 
-async_test_client async_test_server: %: %.d async_test_common.d
-	$(DMD) $(d_test_flags) -of$@ $^
-
-client_pool_test: %: %.d
+async_test client_pool_test transport_test: %: %.d
 	$(DMD) $(d_test_flags) -of$@ $^
 
 serialization_benchmark: %: %.d $(debug_proto_gen)
@@ -88,9 +84,6 @@ thrift_test_client: %: %.d thrift_test_common.d $(thrift_test_gen)
 	$(DMD) $(d_test_flags) -of$@ $^
 
 thrift_test_server: %: %.d thrift_test_common.d test_utils.d $(thrift_test_gen)
-	$(DMD) $(d_test_flags) -of$@ $^
-
-transport_test: %: %.d
 	$(DMD) $(d_test_flags) -of$@ $^
 
 
