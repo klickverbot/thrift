@@ -29,6 +29,16 @@ import thrift.transport.ssl;
 /**
  * A server transport implementation using SSL-encrypted sockets.
  *
+ * Note:
+ * On Posix systems which do not have the BSD-specific SO_NOSIGPIPE flag, you
+ * might want to ignore the SIGPIPE signal, as OpenSSL might try to write to
+ * a closed socket if the peer disconnects abruptly:
+ * ---
+ * import core.stdc.signal;
+ * import core.sys.posix.signal;
+ * signal(SIGPIPE, SIG_IGN);
+ * ---
+ *
  * See: thrift.transport.ssl.
  */
 class TSSLServerSocket : TServerSocket {
