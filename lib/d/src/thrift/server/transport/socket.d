@@ -19,7 +19,6 @@
 module thrift.server.transport.socket;
 
 import core.thread : dur, Duration, Thread;
-import core.stdc.errno : errno, EINTR;
 import core.stdc.string : strerror;
 import std.array : empty;
 import std.conv : text, to;
@@ -149,7 +148,7 @@ class TServerSocket : TServerTransport {
       if (ret < 0) {
         // Select itself failed, check if it was just due to an interrupted
         // syscall.
-        if (errno == EINTR && (numEintrs++ < MAX_EINTRS)) {
+        if (getSocketErrno() == INTERRUPTED_ERRNO && (numEintrs++ < MAX_EINTRS)) {
           continue;
         }
         throw new STE("Unknown error on Socket.select(): " ~
