@@ -45,6 +45,17 @@ import thrift.transport.buffered;
 import thrift.transport.ssl;
 import thrift.util.cancellation;
 
+version (Posix) {
+  import core.stdc.signal;
+  import core.sys.posix.signal;
+
+  // Disable SIGPIPE because SSL server will write to broken socket after
+  // client disconnected (see TSSLSocket docs).
+  shared static this() {
+    signal(SIGPIPE, SIG_IGN);
+  }
+}
+
 interface AsyncTest {
   string echo(string value);
   string delayedEcho(string value, long milliseconds);
