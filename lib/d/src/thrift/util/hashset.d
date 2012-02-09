@@ -85,7 +85,9 @@ final class HashSet(E) {
   }
 
   ///
-  E[] opSlice() const {
+  auto opSlice() const {
+    // TODO: Implement using AA key range once availabe in release DMD/druntime
+    // to avoid allocation.
     return cast(E[])(aa_.keys);
   }
 

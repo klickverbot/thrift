@@ -842,7 +842,7 @@ void writeStruct(T, Protocol, alias fieldMetaData = cast(TFieldMeta[])null,
       } else static if (is(F _ : HashSet!E, E)) {
         return "p.writeSetBegin(TSet(" ~ dToTTypeString!E ~ ", " ~ v ~
           ".length));\n" ~
-          "foreach (" ~ elem ~ "; " ~ v ~ ") {\n" ~
+          "foreach (" ~ elem ~ "; " ~ v ~ "[]) {\n" ~
             writeValueCode!E(elem, level + 1) ~ "\n" ~
           "}\n" ~
           "p.writeSetEnd();";

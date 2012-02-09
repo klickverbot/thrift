@@ -19,6 +19,7 @@
 module stress_test_server;
 
 import std.getopt;
+import std.parallelism : totalCPUs;
 import std.stdio;
 import std.typetuple;
 import thrift.codegen.processor;
@@ -56,8 +57,6 @@ void main(string[] args) {
   auto serverType = ServerType.threaded;
   TransportType transportType;
   size_t numIOThreads = 1;
-
-  import std.parallelism : totalCPUs;
   size_t taskPoolSize = totalCPUs;
 
   getopt(args, "port", &port, "server-type", &serverType,

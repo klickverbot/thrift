@@ -22,6 +22,7 @@ import core.thread : dur, Thread;
 import std.algorithm;
 import std.exception : enforce;
 import std.getopt;
+import std.parallelism : totalCPUs;
 import std.string;
 import std.stdio;
 import std.typetuple : TypeTuple, staticMap;
@@ -190,8 +191,6 @@ void main(string[] args) {
   TransportType transportType;
   bool ssl;
   bool trace;
-
-  import std.parallelism : totalCPUs;
   size_t taskPoolSize = totalCPUs;
 
   getopt(args, "port", &port, "protocol", &protocolType, "server-type",
