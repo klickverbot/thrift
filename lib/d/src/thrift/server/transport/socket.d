@@ -133,7 +133,7 @@ class TServerSocket : TServerTransport {
 
     // Too many EINTRs is a fault condition and would need to be handled
     // manually by our caller, but we can tolerate a certain number.
-    enum MAX_EINTRS = 5;
+    enum MAX_EINTRS = 10;
     uint numEintrs;
 
     while (true) {
