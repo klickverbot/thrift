@@ -58,6 +58,15 @@ void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
     auto server = new Server(proc, new TServerSocket(0), tf, pf);
   }
 
+  // On Windows, we use TCP sockets to replace socketpair(). Since they stay
+  // in TIME_WAIT for some time even if they are properly closed, we have to use
+  // a lower number of iterations to avoid running out of ports/buffer space.
+  version (Windows) {
+    enum ITERATIONS = 100;
+  } else {
+    enum ITERATIONS = 10000;
+  }
+
   if (serverSetup) serverSetup(server);
 
   auto servingMutex = new Mutex;
@@ -77,7 +86,7 @@ void testServeCancel(Server)(void delegate(Server) serverSetup = null) if (
   }
   server.eventHandler = new CancellingHandler;
 
-  foreach (i; 0 .. 10000) {
+  foreach (i; 0 .. ITERATIONS) {
     synchronized (servingMutex) {
       auto cancel = new TCancellationOrigin;
       synchronized (doneMutex) {
