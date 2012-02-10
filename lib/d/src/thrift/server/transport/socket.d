@@ -148,8 +148,15 @@ class TServerSocket : TServerTransport {
       if (ret < 0) {
         // Select itself failed, check if it was just due to an interrupted
         // syscall.
-        if (getSocketErrno() == INTERRUPTED_ERRNO && (numEintrs++ < MAX_EINTRS)) {
-          continue;
+        if (getSocketErrno() == INTERRUPTED_ERRNO) {
+          if (numEintrs++ < MAX_EINTRS) {
+            continue;
+          } else {
+            throw new STE("Socket.select() was interrupted by a signal (EINTR) " ~
+              "more than " ~ to!string(MAX_EINTRS) ~ " times.",
+              STE.Type.RESOURCE_FAILED
+            );
+          }
         }
         throw new STE("Unknown error on Socket.select(): " ~
           socketErrnoString(getSocketErrno()), STE.Type.RESOURCE_FAILED);
