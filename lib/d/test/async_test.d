@@ -19,6 +19,8 @@
 module async_test;
 
 import core.atomic;
+import core.sync.condition;
+import core.sync.mutex;
 import core.thread : dur, Thread, ThreadGroup;
 import std.conv : text;
 import std.datetime;
@@ -27,6 +29,7 @@ import std.exception : collectException, enforce;
 import std.parallelism : TaskPool;
 import std.stdio;
 import std.string;
+import std.variant;
 import thrift.base;
 import thrift.async.base;
 import thrift.async.libevent;
@@ -36,7 +39,9 @@ import thrift.codegen.async_client;
 import thrift.codegen.async_client_pool;
 import thrift.codegen.base;
 import thrift.codegen.processor;
+import thrift.protocol.base;
 import thrift.protocol.binary;
+import thrift.server.base;
 import thrift.server.simple;
 import thrift.server.transport.socket;
 import thrift.server.transport.ssl;
@@ -124,8 +129,9 @@ void main(string[] args) {
     writeln("done.");
   }
 
-
   auto managers = new TLibeventAsyncManager[managerCount];
+  scope (exit) foreach (ref m; managers) clear(m);
+
   auto clientsThreads = new ThreadGroup;
   foreach (managerIndex, ref manager; managers) {
     manager = new TLibeventAsyncManager;
@@ -133,8 +139,15 @@ void main(string[] args) {
       auto currentPort = cast(ushort)
         (port + managerIndex * serversPerManager + serverIndex);
 
-      (new ServerThread!TSimpleServer(currentPort, serverSSLContext, trace,
-        serverCancel)).start();
+      // Start the server and wait until it is up and running.
+      auto servingMutex = new Mutex;
+      auto servingCondition = new Condition(servingMutex);
+      auto handler = new PreServeNotifyHandler(servingMutex, servingCondition);
+      synchronized (servingMutex) {
+        (new ServerThread!TSimpleServer(currentPort, serverSSLContext, trace,
+          serverCancel, handler)).start();
+        servingCondition.wait();
+      }
 
       // We only run the timing tests for the first server on each async
       // manager, so that we don't get spurious timing errors becaue of
@@ -148,8 +161,6 @@ void main(string[] args) {
     }
   }
   clientsThreads.joinAll();
-
-  foreach (ref manager; managers) clear(manager);
 }
 
 class AsyncTestHandler : AsyncTest {
@@ -192,14 +203,35 @@ private:
   AsyncTestException ate_;
 }
 
+class PreServeNotifyHandler : TServerEventHandler {
+  this(Mutex servingMutex, Condition servingCondition) {
+    servingMutex_ = servingMutex;
+    servingCondition_ = servingCondition;
+  }
+
+  void preServe() {
+    synchronized (servingMutex_) {
+      servingCondition_.notifyAll();
+    }
+  }
+  Variant createContext(TProtocol input, TProtocol output) { return Variant.init; }
+  void deleteContext(Variant serverContext, TProtocol input, TProtocol output) {}
+  void preProcess(Variant serverContext, TTransport transport) {}
+
+private:
+  Mutex servingMutex_;
+  Condition servingCondition_;
+}
+
 class ServerThread(ServerType) : Thread {
   this(ushort port, TSSLContext sslContext, bool trace,
-    TCancellation cancellation
+    TCancellation cancellation, TServerEventHandler eventHandler
   ) {
     port_ = port;
     sslContext_ = sslContext;
     trace_ = trace;
     cancellation_ = cancellation;
+    eventHandler_ = eventHandler;
 
     super(&run);
   }
@@ -217,6 +249,7 @@ class ServerThread(ServerType) : Thread {
 
     auto server = new ServerType(processor, serverSocket, transportFactory,
       protocolFactory);
+    server.eventHandler = eventHandler_;
 
     writefln("Starting server on port %s...", port_);
     server.serve(cancellation_);
@@ -228,6 +261,7 @@ private:
   bool trace_;
   TCancellation cancellation_;
   TSSLContext sslContext_;
+  TServerEventHandler eventHandler_;
 }
 
 class ClientsThread : Thread {
