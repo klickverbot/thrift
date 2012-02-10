@@ -19,7 +19,7 @@
 module thrift.transport.socket;
 
 import core.thread : Thread;
-import core.time : Duration;
+import core.time : dur, Duration;
 import std.array : empty;
 import std.conv : text, to;
 import std.exception : enforce;
