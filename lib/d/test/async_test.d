@@ -19,8 +19,8 @@
 module async_test;
 
 import core.atomic;
-import core.sync.condition;
-import core.sync.mutex;
+import core.sync.condition : Condition;
+import core.sync.mutex : Mutex;
 import core.thread : dur, Thread, ThreadGroup;
 import std.conv : text;
 import std.datetime;
@@ -29,7 +29,7 @@ import std.exception : collectException, enforce;
 import std.parallelism : TaskPool;
 import std.stdio;
 import std.string;
-import std.variant;
+import std.variant : Variant;
 import thrift.base;
 import thrift.async.base;
 import thrift.async.libevent;
