@@ -106,8 +106,9 @@ clean-local:
 
 # Tests ran as part of make check.
 
-async_test_runner.sh: async_test
-thrift_test_runner.sh: thrift_test_client thrift_test_server
+async_test_runner.sh: async_test trusted-ca-certificate.pem server-certificate.pem
+thrift_test_runner.sh: thrift_test_client thrift_test_server \
+	trusted-ca-certificate.pem server-certificate.pem
 
 TESTS = async_test_runner.sh \
 	thrift_test_runner.sh
