@@ -339,22 +339,28 @@ class ClientsThread : Thread {
         {
           if (trace_) writefln(`Calling delayedEcho("%s", 100 ms)...`, id);
           auto a = client.delayedEcho(id, 100);
-          enforce(!a.completion.wait(dur!"msecs"(10)), text("wait() succeded early (", a.get(), ", ", id, ").")); // Just "a" crashes DMD.
-          enforce(!a.completion.wait(dur!"msecs"(10)), text("wait() succeded early (", a.get(), ", ", id, ")."));
-          enforce(a.completion.wait(dur!"msecs"(200)), text("wait() didn't succeed as expected (", id, ")."));
+          enforce(!a.completion.wait(dur!"usecs"(1)),
+            text("wait() succeded early (", a.get(), ", ", id, ")."));
+          enforce(!a.completion.wait(dur!"usecs"(1)),
+            text("wait() succeded early (", a.get(), ", ", id, ")."));
+          enforce(a.completion.wait(dur!"msecs"(200)),
+            text("wait() didn't succeed as expected (", id, ")."));
           enforce(a.get() == id);
           if (trace_) writefln(`... delayedEcho("%s") done.`, id);
         }
 
         {
-          if (trace_) write(`Calling delayedFail("bar", 100 ms)... `);
-          auto a = client.delayedFail("bar", 100);
-          enforce(!a.completion.wait(dur!"msecs"(10)), text("wait() succeded early (", id, ")."));
-          enforce(!a.completion.wait(dur!"msecs"(10)), text("wait() succeded early (", id, ")."));
-          enforce(a.completion.wait(dur!"msecs"(200)), text("wait() didn't succeed as expected (", id, ")."));
+          if (trace_) writefln(`Calling delayedFail("%s", 100 ms)... `, id);
+          auto a = client.delayedFail(id, 100);
+          enforce(!a.completion.wait(dur!"usecs"(1)),
+            text("wait() succeded early (", id, ", ", collectException(a.get()), ")."));
+          enforce(!a.completion.wait(dur!"usecs"(1)),
+            text("wait() succeded early (", id, ", ", collectException(a.get()), ")."));
+          enforce(a.completion.wait(dur!"msecs"(200)),
+            text("wait() didn't succeed as expected (", id, ")."));
           auto e = cast(AsyncTestException)collectException(a.get());
-          enforce(e && e.reason == "bar");
-          if (trace_) writeln(`... delayedFail("bar") done.`);
+          enforce(e && e.reason == id);
+          if (trace_) writefln(`... delayedFail("%s") done.`, id);
         }
 
         {
