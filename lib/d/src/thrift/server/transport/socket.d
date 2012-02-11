@@ -243,8 +243,14 @@ Socket makeSocketAndListen(ushort port, int backlog, ushort retryLimit,
   try {
     socket.setOption(SocketOptionLevel.IPV6, SocketOption.IPV6_V6ONLY, ipv6Only);
   } catch (SocketException e) {
-    throw new STE("Could not set IPV6ONLY socket option: " ~ to!string(e),
-      STE.Type.RESOURCE_FAILED);
+    // This is somewhat expected on older systems (e.g. pre-Vista Windows),
+    // which do not support the IPV6_V6ONLY flag yet. Racy flag just to avoid
+    // log spew in unit tests.
+    shared static warned = false;
+    if (!warned) {
+      logError("Could not set IPV6_V6ONLY socket option: %s", e);
+      warned = true;
+    }
   }
 
   alias SocketOptionLevel.SOCKET lvlSock;
