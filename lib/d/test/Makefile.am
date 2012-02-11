@@ -110,5 +110,7 @@ async_test_runner.sh: async_test trusted-ca-certificate.pem server-certificate.p
 thrift_test_runner.sh: thrift_test_client thrift_test_server \
 	trusted-ca-certificate.pem server-certificate.pem
 
-TESTS = async_test_runner.sh \
+TESTS = client_pool_test \
+	transport_test \
+	async_test_runner.sh \
 	thrift_test_runner.sh
