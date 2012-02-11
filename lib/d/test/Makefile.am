@@ -45,26 +45,36 @@ $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 # Automake...
 targets__ = async_test serialization_benchmark \
 	stress_test_server thrift_test_client thrift_test_server transport_test
+ran_tests__ = client_pool_test \
+	transport_test \
+	async_test_runner.sh \
+	thrift_test_runner.sh
 
 libevent_dependent_targets = async_test_client client_pool_test \
 	stress_test_server thrift_test_server
+libevent_dependent_ran_tests = async_test_runner.sh thrift_test_runner.sh
 
 openssl_dependent_targets = async_test thrift_test_client thrift_test_server
+openssl_dependent_ran_tests = async_test_runner.sh thrift_test_runner.sh
 
 d_test_flags =
 
 if WITH_D_EVENT_TESTS
 d_test_flags += $(DMD_LIBEVENT_FLAGS) ../$(D_EVENT_LIB_NAME)
 targets_ = $(targets__)
+ran_tests_ = $(ran_tests__)
 else
 targets_ = $(filter-out $(libevent_dependent_targets), $(targets__))
+ran_tests_ = $(filter-out $(libevent_dependent_ran_tests), $(ran_tests__))
 endif
 
 if WITH_D_SSL_TESTS
 d_test_flags += $(DMD_OPENSSL_FLAGS) ../$(D_SSL_LIB_NAME)
-targets = $(targets_) trusted-ca-certificate.pem server-certificate.pem
+targets = trusted-ca-certificate.pem server-certificate.pem $(targets_)
+ran_tests = $(ran_tests_)
 else
 targets = $(filter-out $(openssl_dependent_targets), $(targets_))
+ran_tests = $(filter-out $(openssl_dependent_ran_tests), $(ran_tests_))
 endif
 
 d_test_flags += -w -wi -O -release -inline -I$(top_srcdir)/lib/d/src -Igen-d \
@@ -110,7 +120,4 @@ async_test_runner.sh: async_test trusted-ca-certificate.pem server-certificate.p
 thrift_test_runner.sh: thrift_test_client thrift_test_server \
 	trusted-ca-certificate.pem server-certificate.pem
 
-TESTS = client_pool_test \
-	transport_test \
-	async_test_runner.sh \
-	thrift_test_runner.sh
+TESTS = $(ran_tests)
