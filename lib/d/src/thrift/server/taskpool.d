@@ -41,7 +41,7 @@ class TTaskPoolServer : TServer {
     TServerTransport serverTransport,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory,
-    TaskPool taskPool = std.parallelism.taskPool
+    TaskPool taskPool = null
   ) {
     this(processor, serverTransport, transportFactory, transportFactory,
       protocolFactory, protocolFactory, taskPool);
@@ -53,7 +53,7 @@ class TTaskPoolServer : TServer {
     TServerTransport serverTransport,
     TTransportFactory transportFactory,
     TProtocolFactory protocolFactory,
-    TaskPool taskPool = std.parallelism.taskPool
+    TaskPool taskPool = null
   ) {
     this(processorFactory, serverTransport, transportFactory, transportFactory,
       protocolFactory, protocolFactory, taskPool);
@@ -67,7 +67,7 @@ class TTaskPoolServer : TServer {
     TTransportFactory outputTransportFactory,
     TProtocolFactory inputProtocolFactory,
     TProtocolFactory outputProtocolFactory,
-    TaskPool taskPool = std.parallelism.taskPool
+    TaskPool taskPool = null
   ) {
     this(new TSingletonProcessorFactory(processor), serverTransport,
       inputTransportFactory, outputTransportFactory,
@@ -82,11 +82,27 @@ class TTaskPoolServer : TServer {
     TTransportFactory outputTransportFactory,
     TProtocolFactory inputProtocolFactory,
     TProtocolFactory outputProtocolFactory,
-    TaskPool taskPool = std.parallelism.taskPool
+    TaskPool taskPool = null
   ) {
     super(processorFactory, serverTransport, inputTransportFactory,
       outputTransportFactory, inputProtocolFactory, outputProtocolFactory);
-    this.taskPool = taskPool;
+
+    if (taskPool) {
+      this.taskPool = taskPool;
+    } else {
+      auto ptp = std.parallelism.taskPool;
+      if (ptp.size > 0) {
+        taskPool_ = ptp;
+      } else {
+        // If the global task pool is empty (default on a single-core machine),
+        // create a new one with a single worker thread. The rationale for this
+        // is to avoid that an application which worked fine with no task pool
+        // explicitly set on the multi-core developer boxes suddenly fails on a
+        // single-core user machine.
+        taskPool_ = new TaskPool(1);
+        taskPool_.isDaemon = true;
+      }
+    }
   }
 
   override void serve(TCancellation cancellation = null) {
@@ -164,7 +180,9 @@ class TTaskPoolServer : TServer {
    *
    * By default, the global std.parallelism taskPool instance is used, which
    * might not be appropriate for many applications, e.g. where tuning the
-   * number of worker threads is desired.
+   * number of worker threads is desired. (On single-core systems, a private
+   * task pool with a single thread is used by default, since the global
+   * taskPool instance has no worker threads then.)
    *
    * Note: TTaskPoolServer expects that tasks are never dropped from the pool,
    * e.g. by calling TaskPool.close() while there are still tasks in the
