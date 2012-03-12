@@ -120,8 +120,8 @@ class TThreadedServer : TServer {
         continue;
       }
 
-      auto processor = processorFactory_.getProcessor(
-        TConnectionInfo(inputProtocol, outputProtocol, client));
+      auto info = TConnectionInfo(inputProtocol, outputProtocol, client);
+      auto processor = processorFactory_.getProcessor(info);
       auto worker = new WorkerThread(client, inputProtocol, outputProtocol,
         processor, eventHandler);
       workerThreads.add(worker);

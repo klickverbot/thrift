@@ -116,8 +116,8 @@ class TSimpleServer : TServer {
         continue;
       }
 
-      auto processor = processorFactory_.getProcessor(
-        TConnectionInfo(inputProtocol, outputProtocol, client));
+      auto info = TConnectionInfo(inputProtocol, outputProtocol, client);
+      auto processor = processorFactory_.getProcessor(info);
 
       Variant connectionContext;
       if (eventHandler) {

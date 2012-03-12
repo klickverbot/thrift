@@ -907,8 +907,8 @@ private {
           server_.eventHandler.createContext(inputProtocol_, outputProtocol_);
       }
 
-      processor_ = server_.processorFactory_.getProcessor(
-        TConnectionInfo(inputProtocol_, outputProtocol_, socket_));
+      auto info = TConnectionInfo(inputProtocol_, outputProtocol_, socket_);
+      processor_ = server_.processorFactory_.getProcessor(info);
     }
 
     ~this() {
