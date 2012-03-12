@@ -353,6 +353,7 @@ string t_java_generator::java_type_imports() {
     "import org.apache.thrift.scheme.StandardScheme;\n\n" +
     "import org.apache.thrift.scheme.TupleScheme;\n" +
     "import org.apache.thrift.protocol.TTupleProtocol;\n" +
+    "import org.apache.thrift.protocol.TProtocolException;\n" +
     "import org.apache.thrift.EncodingUtils;\n" +
     "import java.util.List;\n" +
     "import java.util.ArrayList;\n" +
@@ -1082,7 +1083,7 @@ void t_java_generator::generate_tuple_scheme_read_value(ofstream& out, t_struct*
   indent_down();
   indent(out) << "} else {" << endl;
   indent_up();
-  indent(out) << "return null;" << endl;
+  indent(out) << "throw new TProtocolException(\"Couldn't find a field with field id \" + fieldID);" << endl;
   indent_down();
   indent(out) << "}" << endl;
   indent_down();
@@ -2671,6 +2672,10 @@ void t_java_generator::generate_process_function(t_service* tservice,
 
   indent(f_service_) << "public " << argsname << " getEmptyArgsInstance() {" << endl;
   indent(f_service_) << "  return new " << argsname << "();" << endl;
+  indent(f_service_) << "}" << endl << endl;
+
+  indent(f_service_) << "protected boolean isOneway() {" << endl;
+  indent(f_service_) << "  return " << ((tfunction->is_oneway())?"true":"false") << ";" << endl;
   indent(f_service_) << "}" << endl << endl;
 
   indent(f_service_) << "public " << resultname << " getResult(I iface, " << argsname << " args) throws org.apache.thrift.TException {" << endl;
