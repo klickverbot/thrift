@@ -43,7 +43,7 @@ $(thrift_test_gen): $(top_srcdir)/test/ThriftTest.thrift
 # The actual test targets.
 # There just must be some way to reassign a variable without warnings in
 # Automake...
-targets__ = async_test serialization_benchmark \
+targets__ = async_test client_pool_test serialization_benchmark \
 	stress_test_server thrift_test_client thrift_test_server transport_test
 ran_tests__ = client_pool_test \
 	transport_test \
